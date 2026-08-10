@@ -17,22 +17,23 @@ SECTION_LABELS = [INTRO, BUILDUP, DROP, BREAKDOWN, OUTRO, GROOVE]
 
 
 def format_elapsed(time: float) -> str:
-    """Formatta un istante come tempo trascorso dall'inizio `MM:SS`."""
-    minutes, seconds = divmod(int(round(max(0.0, time))), 60)
-    return f"{minutes:02d}:{seconds:02d}"
+    """Formatta un istante come tempo trascorso dall'inizio `MM:SS.d`."""
+    total = round(max(0.0, time), 1)
+    minutes, seconds = divmod(total, 60)
+    return f"{int(minutes):02d}:{seconds:04.1f}"
 
 
 def format_remaining(time: float, duration: float | None) -> str:
-    """Formatta un istante come tempo rimanente `-MM:SS` dalla fine del brano.
+    """Formatta un istante come tempo rimanente `-MM:SS.d` dalla fine del brano.
 
-    Coerente con la visualizzazione di default di djay Pro (countdown). Se la
-    durata non è nota, ripiega sui secondi assoluti dall'inizio.
+    Coerente con la visualizzazione di default di djay Pro (countdown, decimi).
+    Se la durata non è nota, ripiega sui secondi assoluti dall'inizio.
     """
     if duration is None:
         return f"{time:.2f}"
-    remaining = max(0.0, duration - time)
-    minutes, seconds = divmod(int(round(remaining)), 60)
-    return f"-{minutes:02d}:{seconds:02d}"
+    remaining = round(max(0.0, duration - time), 1)
+    minutes, seconds = divmod(remaining, 60)
+    return f"-{int(minutes):02d}:{seconds:04.1f}"
 
 
 @dataclass

@@ -1232,6 +1232,22 @@ files = [
 ]
 
 [[package]]
+name = "plotly"
+version = "5.24.1"
+description = "An open-source, interactive data visualization library for Python"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "plotly-5.24.1-py3-none-any.whl", hash = "sha256:f67073a1e637eb0dc3e46324d9d51e2fe76e9727c892dde64ddf1e1b51f29089"},
+    {file = "plotly-5.24.1.tar.gz", hash = "sha256:dbc8ac8339d248a4bcc36e08a5659bacfe1b079390b8953533f4eb22169b4bae"},
+]
+
+[package.dependencies]
+packaging = "*"
+tenacity = ">=6.2.0"
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 description = "plugin and hook calling mechanisms for python"
@@ -2264,4 +2280,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "1cdd65ffacdf35f88a3b58ee2b338f03f501499ca45ca077e80b2beaf54f7a8f"
+content-hash = "44a8e889e01b9493c5392102593398dcefa5d6edb15eeb0c825d7843c67fee60"

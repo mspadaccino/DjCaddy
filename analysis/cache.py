@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-CACHE_VERSION = 3  # v3: aggiunte le sezioni classificate
+CACHE_VERSION = 4  # v4: boundary allineati alla griglia beat (fix_frames)
 
 
 def default_cache_path() -> Path:

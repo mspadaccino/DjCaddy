@@ -83,13 +83,18 @@ def detect_boundaries(y: np.ndarray, sr: int) -> list[Boundary]:
     if beats is None or len(beats) < MIN_BEATS:
         return []
 
-    beat_times = librosa.frames_to_time(beats, sr=sr)
-
     # Feature timbriche + armoniche, allineate al beat
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
     feat = np.vstack([mfcc, chroma])
-    sync = librosa.util.sync(feat, beats, aggregate=np.median)
+
+    # Confini di beat coerenti con `sync`: includono inizio (0) e fine traccia,
+    # così la colonna p di `sync` inizia ESATTAMENTE a beat_times[p]
+    # (evita l'off-by-one di un beat fra colonne sincronizzate e timestamp).
+    beat_frames = librosa.util.fix_frames(beats, x_min=0, x_max=feat.shape[1])
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+
+    sync = librosa.util.sync(feat, beat_frames, aggregate=np.median)
 
     # Self-similarity coseno fra i frame beat-sync
     sync_n = librosa.util.normalize(sync, axis=0)
@@ -102,9 +107,9 @@ def detect_boundaries(y: np.ndarray, sr: int) -> list[Boundary]:
 
     nov = _novelty(ssm, half)
 
-    # Energia beat-sync per l'etichetta indicativa
+    # Energia beat-sync per l'etichetta indicativa (stessi confini)
     rms = librosa.feature.rms(y=y)[0][np.newaxis, :]
-    rms_sync = librosa.util.sync(rms, beats, aggregate=np.mean)[0]
+    rms_sync = librosa.util.sync(rms, beat_frames, aggregate=np.mean)[0]
 
     peaks = librosa.util.peak_pick(
         nov,
@@ -119,7 +124,7 @@ def detect_boundaries(y: np.ndarray, sr: int) -> list[Boundary]:
     boundaries: list[Boundary] = []
     last_beat_idx = len(beat_times) - 1
     for p in peaks:
-        col = int(min(p, last_beat_idx))          # colonna sync -> beat più vicino
+        col = int(min(p, last_beat_idx))          # colonna sync -> onset esatto del beat p
         time = float(beat_times[col])
         conf = float(nov[int(min(p, n - 1))])
         label = _energy_label(rms_sync, int(min(p, len(rms_sync) - 1)))
