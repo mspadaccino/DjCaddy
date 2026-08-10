@@ -81,7 +81,7 @@ if run:
     if not folder or not src.is_dir():
         st.error("Cartella non valida.")
     elif not discover_tracks(src):
-        st.warning("Nessun file mp3 trovato nella cartella.")
+        st.warning("Nessun file mp3/flac trovato nella cartella.")
     else:
         progress = st.progress(0.0, text="Analisi in corso...")
 
@@ -137,8 +137,9 @@ else:
     start = 0
 
 try:
-    audio_bytes = Path(track["path"]).read_bytes()
-    st.audio(audio_bytes, format="audio/mp3", start_time=start)
+    audio_path = Path(track["path"])
+    mime = "audio/flac" if audio_path.suffix.lower() == ".flac" else "audio/mp3"
+    st.audio(audio_path.read_bytes(), format=mime, start_time=start)
 except Exception as e:
     st.error(f"Impossibile aprire l'audio: {e}")
 

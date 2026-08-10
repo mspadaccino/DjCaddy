@@ -16,7 +16,7 @@ from .structure import detect_boundaries
 from .tags import get_genre
 from .vibe import bpm_to_tempo_bucket, build_energy_labeler, compute_vibe
 
-AUDIO_EXTENSIONS = {".mp3"}
+AUDIO_EXTENSIONS = {".mp3", ".flac"}
 
 ProgressFn = Callable[[int, int, Path], None]
 

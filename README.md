@@ -1,6 +1,6 @@
 # dj-library-tools
 
-Strumento locale (macOS) per analizzare una libreria di mp3 e preparare il
+Strumento locale (macOS) per analizzare una libreria di mp3/flac e preparare il
 lavoro di DJing su **djay Pro**:
 
 - classificazione automatica per **genere/vibe**,
@@ -21,7 +21,7 @@ sia dal CLI batch sia dall'app Streamlit — nessuna logica duplicata.
 
 | Modulo | Responsabilità |
 | --- | --- |
-| `analysis/tags.py` | lettura tag ID3 (genere) via mutagen |
+| `analysis/tags.py` | lettura tag genere via mutagen (ID3 per mp3, Vorbis comment per flac) |
 | `analysis/audio_features.py` | caricamento audio (librosa) + BPM e RMS in un'unica passata |
 | `analysis/vibe.py` | bucket di tempo + energia a percentili (two-pass) → vibe |
 | `analysis/structure.py` | segmentazione strutturale (Foote novelty su self-similarity) → phrase boundary |
@@ -41,8 +41,9 @@ regolano in `analysis/vibe.py`.
 
 ## Setup
 
-Richiede **ffmpeg** a livello di sistema (librosa decodifica gli mp3 via
-audioread):
+Gli **mp3** richiedono **ffmpeg** a livello di sistema (librosa li decodifica
+via audioread); i **flac** vengono letti nativamente da soundfile e non ne
+hanno bisogno:
 
 ```bash
 brew install ffmpeg

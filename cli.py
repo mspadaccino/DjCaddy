@@ -80,7 +80,7 @@ def main() -> None:
 
     n = len(discover_tracks(args.source))
     if n == 0:
-        sys.exit("Nessun file mp3 trovato nella cartella sorgente.")
+        sys.exit("Nessun file audio (mp3/flac) trovato nella cartella sorgente.")
     print(f"Trovati {n} file. Analisi in corso...\n")
 
     tracks = analyze_library(args.source, use_cache=not args.no_cache, progress=_progress)
