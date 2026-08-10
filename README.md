@@ -77,7 +77,7 @@ Il report (CSV o JSON) contiene per ogni traccia: path, genere, BPM, vibe e i
 timestamp delle phrase boundary suggerite. La cache evita di rianalizzare i
 file già processati: usa `--no-cache` per forzare la rianalisi.
 
-### App Streamlit (revisione)
+### App Streamlit — Wavecut (revisione)
 
 ```bash
 poetry run streamlit run app.py

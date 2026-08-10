@@ -59,8 +59,8 @@ SECTION_COLORS = {
     "Groove": "#3fbf7f",
 }
 
-st.set_page_config(page_title="dj-library-tools — revisione", layout="wide")
-st.title("dj-library-tools — analisi di un brano")
+st.set_page_config(page_title="Wavecut", page_icon="🌊", layout="wide")
+st.title("🌊 Wavecut — analisi di un brano")
 
 st.caption(
     "Scegli un singolo brano già su disco, analizzalo e rivedi i risultati. "
@@ -82,7 +82,8 @@ def _tag_text(label: str, start: float, duration, vocal: bool = False) -> str:
     return f"{mic}{label} {format_elapsed(start)} ({format_remaining(start, duration)})"
 
 
-def _waveform_figure(path_str: str, sections, duration, vocal_regions=None) -> go.Figure:
+def _waveform_figure(path_str: str, sections, duration, vocal_regions=None,
+                     playhead=None) -> go.Figure:
     """Waveform colorata (Plotly) + regioni cantate + tag di sezione hot-cue."""
     df = _waveform_df(path_str)
     fig = go.Figure()
@@ -126,6 +127,10 @@ def _waveform_figure(path_str: str, sections, duration, vocal_regions=None) -> g
                 xanchor="left", yanchor="middle", xshift=8,
                 font=dict(size=10, color=c),
             )
+
+    # Testina di riproduzione
+    if playhead is not None:
+        fig.add_vline(x=playhead, line=dict(color="#ffe14d", width=2), opacity=0.95)
 
     fig.update_layout(
         height=280, margin=dict(l=10, r=10, t=10, b=10),
@@ -261,29 +266,51 @@ if track["sections"] and duration:
 else:
     st.info("Nessuna sezione rilevata per questa traccia.")
 
-# --- Grafico (in cima) con sezioni e regioni cantate correnti ---
-chart_slot.plotly_chart(
-    _waveform_figure(path, edited, duration, regions_live),
-    use_container_width=True,
-)
-
-# --- Player + selettore di porzione (sezioni + parti vocali), sotto il grafico ---
+# --- Punti di cue (sezioni + parti vocali) e stato di riproduzione ---
 cue_points = [(s["start"], f'{format_remaining(s["start"], duration)} — {s["label"]}')
               for s in edited]
 cue_points += [(st_, f'{format_remaining(st_, duration)} — 🎤 Voce')
                for st_, _ in regions_live]
 cue_points.sort(key=lambda c: c[0])
+
+pos_key = f"pos::{path}"
+goto_key = f"goto::{path}"
+if pos_key not in st.session_state:
+    st.session_state[pos_key] = 0.0
+
+
+def _seek_to_cue():
+    sel = st.session_state.get(goto_key)
+    if isinstance(sel, int) and 0 <= sel < len(cue_points):
+        st.session_state[pos_key] = float(cue_points[sel][0])
+
+
+playhead = float(st.session_state.get(pos_key, 0.0))
+
+# --- Grafico (in cima) con sezioni, regioni cantate e testina di riproduzione ---
+chart_slot.plotly_chart(
+    _waveform_figure(path, edited, duration, regions_live, playhead),
+    use_container_width=True,
+)
+
+# --- Controllo di riproduzione subito sotto il grafico ---
 with player_container:
-    if cue_points:
-        pick = st.selectbox("Vai a…", options=range(len(cue_points)),
-                            format_func=lambda i: cue_points[i][1])
-        start = int(cue_points[pick][0])
-    else:
-        start = 0
+    if duration:
+        col_slider, col_goto = st.columns([3, 2])
+        col_slider.slider("Posizione (s)", 0.0, float(duration), step=0.1, key=pos_key)
+        if cue_points:
+            cur = st.session_state.get(goto_key)
+            if not isinstance(cur, int) or cur >= len(cue_points):
+                st.session_state[goto_key] = 0
+            col_goto.selectbox("Salta a…", options=range(len(cue_points)),
+                               format_func=lambda i: cue_points[i][1],
+                               key=goto_key, on_change=_seek_to_cue)
+    pos = float(st.session_state.get(pos_key, 0.0))
+    st.caption(f"▶ {format_elapsed(pos)} ({format_remaining(pos, duration)})")
     try:
         audio_path = Path(path)
         mime = "audio/flac" if audio_path.suffix.lower() == ".flac" else "audio/mp3"
-        st.audio(audio_path.read_bytes(), format=mime, start_time=start)
+        st.audio(audio_path.read_bytes(), format=mime, start_time=int(pos))
     except Exception as e:
         st.error(f"Impossibile aprire l'audio: {e}")
 
