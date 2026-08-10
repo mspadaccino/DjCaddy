@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-CACHE_VERSION = 6  # v6: vocal da source separation (Demucs) + regioni cantate
+CACHE_VERSION = 7  # v7: vocal = dominanza voce/mix; phrase consecutive collassate
 
 
 def default_cache_path() -> Path:

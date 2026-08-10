@@ -17,28 +17,27 @@ import numpy as np
 _HOP = 512
 _model = None  # modello Demucs riusato fra le tracce (caricarlo è costoso)
 
-# Estrazione delle regioni cantate dall'inviluppo vocale
-VOCAL_FLOOR = 0.15     # frazione del picco vocale sopra cui c'è voce
+# Estrazione delle regioni cantate dall'inviluppo di dominanza vocale (voce/mix).
+# Soglia ASSOLUTA: sul cantato vero il rapporto è alto, sul solo bleed di uno
+# strumentale resta basso ovunque -> niente falsi positivi (es. WTP).
+VOCAL_FLOOR = 0.30     # frazione minima di voce nel mix per dire "c'è voce"
 MERGE_GAP_S = 1.0      # unisce regioni separate da pause brevi
-MIN_REGION_S = 1.5     # scarta sprazzi troppo brevi
+MIN_REGION_S = 2.0     # scarta sprazzi troppo brevi
 
 
 def vocal_regions(envelope, floor: float = VOCAL_FLOOR,
                   merge_gap: float = MERGE_GAP_S,
                   min_region: float = MIN_REGION_S) -> list[tuple[float, float]]:
-    """Da (times, rms) dello stem vocale agli intervalli [start, end] cantati.
+    """Da (times, ratio) — dominanza vocale voce/mix — agli intervalli cantati.
 
-    Pura (numpy): soglia relativa al picco del brano, poi unisce le pause brevi
-    e scarta i frammenti troppo corti.
+    Pura (numpy): soglia assoluta sul rapporto, poi unisce le pause brevi e
+    scarta i frammenti troppo corti.
     """
-    times, rms = envelope
-    if rms.size == 0:
-        return []
-    peak = float(rms.max())
-    if peak <= 0:
+    times, ratio = envelope
+    if ratio.size == 0:
         return []
 
-    active = rms >= floor * peak
+    active = ratio >= floor
     # Intervalli contigui di frame attivi
     spans: list[list[float]] = []
     in_run = False
@@ -97,10 +96,11 @@ def _get_model():
 
 
 def vocal_envelope(filepath: Path):
-    """Ritorna (times[s], rms) dello stem vocale, oppure None se non disponibile.
+    """Ritorna (times[s], ratio) = dominanza vocale (voce/mix), o None.
 
-    Usa l'API di basso livello (pretrained + apply_model) e carica l'audio con
-    librosa, così non dipende da `demucs.api` (assente in alcune build).
+    `ratio` è l'energia RMS dello stem vocale diviso quella del mix, frame per
+    frame: alta sul cantato vero, bassa sul solo bleed di uno strumentale. Usa
+    l'API di basso livello (pretrained + apply_model), I/O con librosa.
     """
     try:
         import librosa
@@ -127,11 +127,24 @@ def vocal_envelope(filepath: Path):
         sources = sources * ref.std() + ref.mean()
 
         idx = list(model.sources).index("vocals")
-        mono = sources[idx].mean(0).cpu().numpy().astype("float32")
-        if mono.size == 0:
+        voc = sources[idx].mean(0).cpu().numpy().astype("float32")
+        mix = wav.mean(0).cpu().numpy().astype("float32")
+        if voc.size == 0 or mix.size == 0:
             return None
-        rms = librosa.feature.rms(y=mono, hop_length=_HOP)[0]
-        times = librosa.frames_to_time(np.arange(rms.size), sr=sr, hop_length=_HOP)
-        return times, rms
+
+        voc_rms = librosa.feature.rms(y=voc, hop_length=_HOP)[0]
+        mix_rms = librosa.feature.rms(y=mix, hop_length=_HOP)[0]
+        n = min(voc_rms.size, mix_rms.size)
+        voc_rms, mix_rms = voc_rms[:n], mix_rms[:n]
+
+        ratio = voc_rms / (mix_rms + 1e-6)
+        # Gate sul silenzio: dove il mix è quasi muto il rapporto non è affidabile
+        mix_peak = float(mix_rms.max()) if mix_rms.size else 0.0
+        if mix_peak > 0:
+            ratio[mix_rms < 0.05 * mix_peak] = 0.0
+        ratio = np.clip(ratio, 0.0, 1.0)
+
+        times = librosa.frames_to_time(np.arange(n), sr=sr, hop_length=_HOP)
+        return times, ratio
     except Exception:
         return None

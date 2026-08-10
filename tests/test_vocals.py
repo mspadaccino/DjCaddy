@@ -6,12 +6,13 @@ from analysis.vocals import vocal_regions
 
 
 def _envelope():
+    # ratio = dominanza voce/mix; 0.6 = voce, 0.1 = solo bleed
     times = np.round(np.arange(0, 10, 0.1), 3)
-    rms = np.zeros_like(times)
-    rms[20:40] = 1.0    # t 2.0..3.9
-    rms[45:50] = 1.0    # t 4.5..4.9 (pausa 0.6s -> unita alla precedente)
-    rms[80:83] = 1.0    # t 8.0..8.2 (troppo breve -> scartata)
-    return times, rms
+    ratio = np.full_like(times, 0.1)
+    ratio[20:40] = 0.6    # t 2.0..3.9
+    ratio[45:50] = 0.6    # t 4.5..4.9 (pausa 0.6s -> unita alla precedente)
+    ratio[80:83] = 0.6    # t 8.0..8.2 (troppo breve -> scartata)
+    return times, ratio
 
 
 def test_vocal_regions_merge_and_min_length():
@@ -20,6 +21,13 @@ def test_vocal_regions_merge_and_min_length():
     st, en = regions[0]
     assert abs(st - 2.0) < 0.1
     assert abs(en - 5.0) < 0.15
+
+
+def test_vocal_regions_instrumental_no_regions():
+    # Strumentale: solo bleed sotto soglia -> nessuna regione (caso WTP)
+    times = np.round(np.arange(0, 10, 0.1), 3)
+    ratio = np.full_like(times, 0.12)
+    assert vocal_regions((times, ratio)) == []
 
 
 def test_vocal_regions_empty():

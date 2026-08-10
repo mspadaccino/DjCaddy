@@ -94,7 +94,9 @@ orecchio.
 
 > La classificazione delle sezioni è **euristica** (regole su energia e basso,
 > soglie in `analysis/sections.py`): pensata come punto di partenza da correggere
-> a orecchio, non come verità. Le sezioni ambigue sono marcate `Groove`.
+> a orecchio, non come verità. Le sezioni ambigue sono marcate `Groove`. Le
+> sezioni consecutive dello stesso tipo vengono **collassate**: ogni tag segna un
+> **cambio di phrase**, per anticipare in djay Pro cosa sta per arrivare.
 
 Il **rilevamento voce** usa Demucs (source separation) per isolare lo stem
 vocale: le **regioni cantate** appaiono come bande rosa sul grafico (la parte da

@@ -127,12 +127,33 @@ def classify_sections(
     energy_rel, bass_ratio = _section_features(y, sr, starts, ends)
     labels = _label(energy_rel, bass_ratio)
 
+    raw = [
+        Section(start=starts[i], end=ends[i], label=labels[i],
+                energy=float(energy_rel[i]))
+        for i in range(len(starts))
+    ]
+    sections = _merge_consecutive(raw)   # tieni solo i CAMBI di phrase
+
     bar_seconds = (_BEATS_PER_BAR * 60.0 / bpm) if bpm else None
-    sections: list[Section] = []
-    for i in range(len(starts)):
-        bars = (ends[i] - starts[i]) / bar_seconds if bar_seconds else None
-        sections.append(Section(
-            start=starts[i], end=ends[i], label=labels[i],
-            energy=float(energy_rel[i]), bars=bars,
-        ))
+    for s in sections:
+        s.bars = (s.end - s.start) / bar_seconds if bar_seconds else None
     return sections
+
+
+def _merge_consecutive(sections: list[Section]) -> list[Section]:
+    """Collassa sezioni adiacenti con la stessa etichetta in un'unica phrase.
+
+    Il tag resta solo dove la phrase CAMBIA: niente ripetizioni dello stesso
+    tipo una dopo l'altra. Pura, testabile.
+    """
+    if not sections:
+        return []
+    merged = [sections[0]]
+    for s in sections[1:]:
+        prev = merged[-1]
+        if s.label == prev.label:
+            prev.end = s.end
+            prev.energy = max(prev.energy, s.energy)
+        else:
+            merged.append(s)
+    return merged
