@@ -14,13 +14,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import altair as alt
-import numpy as np
 import pandas as pd
 import streamlit as st
 
 from analysis.audio_features import ANALYSIS_SR, load_audio
 from analysis.engine import analyze_library, discover_tracks
 from analysis.models import format_remaining
+from analysis.waveform import compute_frequency_waveform
 
 st.set_page_config(page_title="dj-library-tools — revisione", layout="wide")
 st.title("dj-library-tools — revisione dei phrase boundary")
@@ -32,29 +32,26 @@ st.caption(
 
 
 @st.cache_data(show_spinner=False)
-def _waveform_envelope(path_str: str, points: int = 2000):
-    """Inviluppo di ampiezza (max assoluto per blocco) per il disegno."""
+def _waveform_df(path_str: str, points: int = 1600) -> pd.DataFrame:
+    """Waveform per bande di frequenza (colore) + ampiezza simmetrica."""
     y, sr = load_audio(Path(path_str), sr=ANALYSIS_SR, mono=True)
-    if y.size == 0:
-        return np.array([]), np.array([])
-    hop = max(1, y.size // points)
-    n = (y.size // hop) * hop
-    env = np.abs(y[:n]).reshape(-1, hop).max(axis=1)
-    times = (np.arange(env.size) * hop) / sr
-    return times, env
+    t, amp, colors = compute_frequency_waveform(y, sr, points)
+    return pd.DataFrame({"t": t, "amp": amp, "namp": -amp, "color": colors})
 
 
-def _waveform_chart(path_str: str, boundaries, duration) -> alt.LayerChart:
-    times, env = _waveform_envelope(path_str)
-    wave_df = pd.DataFrame({"t": times, "amp": env})
+def _waveform_chart(path_str: str, boundaries, duration) -> alt.TopLevelMixin:
+    wave_df = _waveform_df(path_str)
     wave = (
         alt.Chart(wave_df)
-        .mark_area(opacity=0.6)
+        .mark_rule(strokeWidth=1)
         .encode(
             x=alt.X("t:Q", title="secondi"),
-            y=alt.Y("amp:Q", title="ampiezza", scale=alt.Scale(domain=[0, 1])),
+            y=alt.Y("amp:Q", title=None, scale=alt.Scale(domain=[-1, 1]), axis=None),
+            y2="namp:Q",
+            color=alt.Color("color:N", scale=None, legend=None),
         )
     )
+    layers = [wave]
     if boundaries:
         b_df = pd.DataFrame(
             {"t": [b["time"] for b in boundaries],
@@ -63,11 +60,19 @@ def _waveform_chart(path_str: str, boundaries, duration) -> alt.LayerChart:
         )
         rules = (
             alt.Chart(b_df)
-            .mark_rule(color="red", strokeWidth=2)
+            .mark_rule(color="white", strokeDash=[4, 3], strokeWidth=1.5, opacity=0.9)
             .encode(x="t:Q", tooltip=["restante:N", "label:N"])
         )
-        return (wave + rules).properties(height=220)
-    return wave.properties(height=220)
+        layers.append(rules)
+
+    return (
+        alt.layer(*layers)
+        .properties(height=240)
+        .configure(background="#0f0f12")
+        .configure_view(strokeOpacity=0)
+        .configure_axis(labelColor="#bbb", titleColor="#bbb",
+                        gridColor="#2a2a2a", domainColor="#2a2a2a")
+    )
 
 
 # --- Input cartella + analisi ---

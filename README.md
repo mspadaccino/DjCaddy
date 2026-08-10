@@ -82,8 +82,9 @@ poetry run streamlit run app.py
 
 Indica il **percorso** della cartella (i file sono già su disco, niente
 upload), lancia l'analisi (stesso motore e cache del CLI), poi per ogni traccia
-rivedi la forma d'onda con i boundary sovrapposti, ascolti dal punto esatto e
-correggi/confermi i marker.
+rivedi la **forma d'onda colorata per bande di frequenza** (stile djay Pro:
+rosso = bassi, verde = medi, blu = alti) con i boundary sovrapposti, ascolti
+dal punto esatto e correggi/confermi i marker.
 
 ## Test
 
