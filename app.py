@@ -100,8 +100,25 @@ def _waveform_chart(path_str: str, sections, duration) -> alt.TopLevelMixin:
     )
 
 
+def _pick_folder() -> None:
+    """Apre il selettore di cartella nativo del Mac e riempie il campo path."""
+    try:
+        out = subprocess.run(
+            ["osascript", "-e", "POSIX path of (choose folder)"],
+            capture_output=True, text=True, check=True,
+        )
+        chosen = out.stdout.strip().rstrip("/")
+        if chosen:
+            st.session_state["folder"] = chosen
+    except Exception:
+        pass  # dialogo annullato o non disponibile: nessuna modifica
+
+
 # --- Input cartella + analisi ---
-folder = st.text_input("Percorso della cartella locale con gli mp3", value="")
+col_path, col_browse = st.columns([5, 1])
+folder = col_path.text_input("Percorso della cartella locale con gli mp3", key="folder")
+col_browse.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
+col_browse.button("📂 Sfoglia…", on_click=_pick_folder, use_container_width=True)
 col_run, col_nocache = st.columns([1, 2])
 with col_run:
     run = st.button("Analizza", type="primary")
@@ -153,13 +170,7 @@ sel = st.selectbox("Traccia da revisionare", options=range(len(names)),
 track = tracks[sel]
 
 bpm_txt = f"{track['bpm']:.0f}" if track["bpm"] is not None else "N/D"
-head_col, finder_col = st.columns([4, 1])
-head_col.markdown(f"**{track['genre']} / {track['vibe']}** — BPM {bpm_txt}")
-if finder_col.button("📂 Mostra nel Finder"):
-    try:
-        subprocess.run(["open", "-R", track["path"]], check=True)
-    except Exception as e:
-        st.error(f"Impossibile aprire il Finder: {e}")
+st.markdown(f"**{track['genre']} / {track['vibe']}** — BPM {bpm_txt}")
 if track["error"]:
     st.warning(f"Avviso in analisi: {track['error']}")
 
