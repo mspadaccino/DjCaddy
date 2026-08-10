@@ -16,6 +16,12 @@ GROOVE = "Groove"
 SECTION_LABELS = [INTRO, BUILDUP, DROP, BREAKDOWN, OUTRO, GROOVE]
 
 
+def format_elapsed(time: float) -> str:
+    """Formatta un istante come tempo trascorso dall'inizio `MM:SS`."""
+    minutes, seconds = divmod(int(round(max(0.0, time))), 60)
+    return f"{minutes:02d}:{seconds:02d}"
+
+
 def format_remaining(time: float, duration: float | None) -> str:
     """Formatta un istante come tempo rimanente `-MM:SS` dalla fine del brano.
 

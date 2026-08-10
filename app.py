@@ -14,13 +14,13 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import altair as alt
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from analysis.audio_features import ANALYSIS_SR, load_audio
 from analysis.engine import analyze_library, discover_tracks
-from analysis.models import SECTION_LABELS, format_remaining
+from analysis.models import SECTION_LABELS, format_elapsed, format_remaining
 from analysis.waveform import compute_frequency_waveform
 
 # Colori dei tag di sezione (accostati ai marker triangolari di djay Pro)
@@ -47,57 +47,61 @@ def _waveform_df(path_str: str, points: int = 1600) -> pd.DataFrame:
     """Waveform per bande di frequenza (colore) + ampiezza simmetrica."""
     y, sr = load_audio(Path(path_str), sr=ANALYSIS_SR, mono=True)
     t, amp, colors = compute_frequency_waveform(y, sr, points)
-    return pd.DataFrame({"t": t, "amp": amp, "namp": -amp, "color": colors})
+    return pd.DataFrame({"t": t, "amp": amp, "color": colors})
 
 
-def _waveform_chart(path_str: str, sections, duration) -> alt.TopLevelMixin:
-    """Waveform colorata + tag di sezione (linea colorata + etichetta in alto)."""
-    wave_df = _waveform_df(path_str)
-    wave = (
-        alt.Chart(wave_df)
-        .mark_rule(strokeWidth=1)
-        .encode(
-            x=alt.X("t:Q", title="secondi"),
-            y=alt.Y("amp:Q", title=None, scale=alt.Scale(domain=[-1, 1]), axis=None),
-            y2="namp:Q",
-            color=alt.Color("color:N", scale=None, legend=None),
+def _tag_text(label: str, start: float, duration) -> str:
+    """Etichetta del tag: tipo, tempo dall'inizio e residuo tra parentesi."""
+    return f"{label} {format_elapsed(start)} ({format_remaining(start, duration)})"
+
+
+def _waveform_figure(path_str: str, sections, duration) -> go.Figure:
+    """Waveform colorata (Plotly) + tag di sezione come triangoli hot-cue sull'asse."""
+    df = _waveform_df(path_str)
+    fig = go.Figure()
+
+    if len(df):
+        width = float(df["t"].iloc[1] - df["t"].iloc[0]) if len(df) > 1 else 0.1
+        fig.add_bar(
+            x=df["t"], y=(2 * df["amp"]), base=(-df["amp"]),
+            marker=dict(color=list(df["color"])), width=width,
+            hoverinfo="skip", showlegend=False,
         )
-    )
-    layers = [wave]
+
+    xmax = duration if duration else (float(df["t"].max()) if len(df) else 1.0)
+
     if sections:
-        sdf = pd.DataFrame({
-            "start": [s["start"] for s in sections],
-            "restante": [format_remaining(s["start"], duration) for s in sections],
-            "label": [s["label"] for s in sections],
-            "color": [SECTION_COLORS.get(s["label"], "#ffffff") for s in sections],
-            "ypos": [0.9] * len(sections),
-        })
-        rules = (
-            alt.Chart(sdf)
-            .mark_rule(strokeWidth=2, opacity=0.9)
-            .encode(x="start:Q", color=alt.Color("color:N", scale=None, legend=None),
-                    tooltip=["label:N", "restante:N"])
-        )
-        tags = (
-            alt.Chart(sdf)
-            .mark_text(align="left", dx=3, dy=0, fontSize=11, fontWeight="bold")
-            .encode(
-                x="start:Q",
-                y=alt.Y("ypos:Q", scale=alt.Scale(domain=[-1, 1]), axis=None),
-                text="label:N",
-                color=alt.Color("color:N", scale=None, legend=None),
-            )
-        )
-        layers += [rules, tags]
+        xs = [s["start"] for s in sections]
+        cols = [SECTION_COLORS.get(s["label"], "#ffffff") for s in sections]
+        texts = [_tag_text(s["label"], s["start"], duration) for s in sections]
 
-    return (
-        alt.layer(*layers)
-        .properties(height=240)
-        .configure(background="#0f0f12")
-        .configure_view(strokeOpacity=0)
-        .configure_axis(labelColor="#bbb", titleColor="#bbb",
-                        gridColor="#2a2a2a", domainColor="#2a2a2a")
+        # Linee verticali tenui in corrispondenza dei tagli
+        for x, c in zip(xs, cols):
+            fig.add_vline(x=x, line=dict(color=c, width=1), opacity=0.35)
+
+        # Triangoli hot-cue sull'asse orizzontale, colorati per tipo
+        fig.add_scatter(
+            x=xs, y=[-1.12] * len(xs), mode="markers",
+            marker=dict(symbol="triangle-up", size=15, color=cols,
+                        line=dict(color="#0f0f12", width=1)),
+            hovertext=texts, hoverinfo="text", showlegend=False,
+        )
+        # Etichetta accanto a ogni triangolo (tipo + tempi), colore del tipo
+        for x, c, txt in zip(xs, cols, texts):
+            fig.add_annotation(
+                x=x, y=-1.12, text=txt, showarrow=False,
+                xanchor="left", yanchor="middle", xshift=8,
+                font=dict(size=10, color=c),
+            )
+
+    fig.update_layout(
+        height=280, margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor="#0f0f12", plot_bgcolor="#0f0f12", bargap=0,
+        xaxis=dict(title="secondi", range=[0, xmax], color="#bbb",
+                   gridcolor="#2a2a2a", zeroline=False),
+        yaxis=dict(visible=False, range=[-1.4, 1.05], fixedrange=True),
     )
+    return fig
 
 
 def _pick_folder() -> None:
@@ -197,7 +201,7 @@ if track["sections"] and duration:
                              key=f"lab::{path}::{i}")
         start_s = c2.slider(f"Inizio {i + 1} (s)", 0.0, float(duration),
                             value=float(s["start"]), step=0.5, key=f"st::{path}::{i}")
-        c3.markdown(f"`{format_remaining(start_s, duration)}`")
+        c3.markdown(f"`{format_elapsed(start_s)} ({format_remaining(start_s, duration)})`")
         edited.append({"start": start_s, "label": label})
 
     # Riordina per posizione, ricalcola durate e battute
@@ -211,7 +215,7 @@ else:
     st.info("Nessuna sezione rilevata per questa traccia.")
 
 # Riempie il grafico in cima con le sezioni (eventualmente) modificate
-chart_slot.altair_chart(_waveform_chart(path, edited, duration),
+chart_slot.plotly_chart(_waveform_figure(path, edited, duration),
                         use_container_width=True)
 
 # --- Player dall'inizio di una sezione ---
@@ -234,6 +238,7 @@ except Exception as e:
 if edited:
     rows = [{
         "label": s["label"],
+        "dall_inizio": format_elapsed(s["start"]),
         "restante": format_remaining(s["start"], duration),
         "start_s": round(s["start"], 2),
         "bars": round(s["bars"], 1) if s.get("bars") else "",
