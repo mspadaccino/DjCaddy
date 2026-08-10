@@ -211,10 +211,13 @@ duration = track.get("duration")
 path = track["path"]
 bar_seconds = (4 * 60.0 / track["bpm"]) if track["bpm"] else None
 
-# Grafico e tabella sono in cima ma vengono riempiti DOPO gli slider,
-# così riflettono le modifiche in tempo reale.
+# Ordine visivo: grafico, player+selettore, tabella cue, tabella cluster vocali.
+# I controlli (soglia voce, slider sezioni) stanno sotto e riempiono questi
+# contenitori, così tutto si aggiorna live.
 chart_slot = st.empty()
-table_container = st.container()
+player_container = st.container()
+cues_container = st.container()
+vocals_container = st.container()
 
 # --- Soglia voce (live): ricalcola le regioni cantate senza rifare Demucs ---
 has_env = bool(track.get("vocal_ratio"))
@@ -258,13 +261,36 @@ if track["sections"] and duration:
 else:
     st.info("Nessuna sezione rilevata per questa traccia.")
 
-# Riempie il grafico in cima con le sezioni e le regioni cantate correnti.
+# --- Grafico (in cima) con sezioni e regioni cantate correnti ---
 chart_slot.plotly_chart(
     _waveform_figure(path, edited, duration, regions_live),
     use_container_width=True,
 )
 
-# Tabella riepilogativa subito sotto il grafico
+# --- Player + selettore di porzione (sezioni + parti vocali), sotto il grafico ---
+cue_points = [(s["start"], f'{format_remaining(s["start"], duration)} — {s["label"]}')
+              for s in edited]
+cue_points += [(st_, f'{format_remaining(st_, duration)} — 🎤 Voce')
+               for st_, _ in regions_live]
+cue_points.sort(key=lambda c: c[0])
+with player_container:
+    goto_key = f"goto::{path}"
+    if st.session_state.get(goto_key, 0) >= len(cue_points):  # opzioni cambiate
+        st.session_state[goto_key] = 0
+    if cue_points:
+        pick = st.selectbox("Vai a…", options=range(len(cue_points)),
+                            format_func=lambda i: cue_points[i][1], key=goto_key)
+        start = int(cue_points[pick][0])
+    else:
+        start = 0
+    try:
+        audio_path = Path(path)
+        mime = "audio/flac" if audio_path.suffix.lower() == ".flac" else "audio/mp3"
+        st.audio(audio_path.read_bytes(), format=mime, start_time=start)
+    except Exception as e:
+        st.error(f"Impossibile aprire l'audio: {e}")
+
+# --- Tabella dei cue (sezioni) ---
 if edited:
     rows = [{
         "tag": f'{"🎤 " if s.get("vocal") else ""}{s["label"]}',
@@ -275,26 +301,34 @@ if edited:
         "vocal": "sì" if s.get("vocal") else "",
     } for s in edited]
     report_df = pd.DataFrame(rows)
-    table_container.dataframe(report_df, use_container_width=True, hide_index=True)
-    table_container.download_button(
-        "Scarica sezioni riviste (CSV)",
+    cues_container.dataframe(report_df, use_container_width=True, hide_index=True)
+    cues_container.download_button(
+        "Scarica sezioni (CSV)",
         data=report_df.to_csv(index=False).encode(),
         file_name=f"{Path(track['name']).stem}_sections.csv",
         mime="text/csv",
     )
 
-# --- Player dall'inizio di una sezione ---
-if edited:
-    opts = [f'{format_remaining(s["start"], duration)} — {s["label"]}' for s in edited]
-    pick = st.selectbox("Ascolta dall'inizio sezione", options=range(len(edited)),
-                        format_func=lambda i: opts[i])
-    start = int(edited[pick]["start"])
-else:
-    start = 0
-
-try:
-    audio_path = Path(path)
-    mime = "audio/flac" if audio_path.suffix.lower() == ".flac" else "audio/mp3"
-    st.audio(audio_path.read_bytes(), format=mime, start_time=start)
-except Exception as e:
-    st.error(f"Impossibile aprire l'audio: {e}")
+# --- Tabella dei cluster vocali (sotto quella dei cue) ---
+with vocals_container:
+    st.markdown("**Cluster vocali** 🎤")
+    if regions_live:
+        vrows = [{
+            "n": i + 1,
+            "inizio": format_elapsed(st_),
+            "fine": format_elapsed(en_),
+            "durata_s": round(en_ - st_, 1),
+            "restante_inizio": format_remaining(st_, duration),
+        } for i, (st_, en_) in enumerate(regions_live)]
+        vocals_df = pd.DataFrame(vrows)
+        st.dataframe(vocals_df, use_container_width=True, hide_index=True)
+        st.download_button(
+            "Scarica cluster vocali (CSV)",
+            data=vocals_df.to_csv(index=False).encode(),
+            file_name=f"{Path(track['name']).stem}_vocals.csv",
+            mime="text/csv",
+        )
+    elif has_env:
+        st.caption("Nessuna parte vocale rilevata a questa soglia.")
+    else:
+        st.caption("Rilevamento voce non eseguito (Demucs disattivato in analisi).")
