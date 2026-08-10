@@ -20,7 +20,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from analysis.audio_features import ANALYSIS_SR, load_audio
-from analysis.engine import analyze_library, discover_tracks
+from analysis.engine import AUDIO_EXTENSIONS, analyze_file
 from analysis.models import SECTION_LABELS, format_elapsed, format_remaining
 from analysis.sections import VOCAL_SECTION_COVER
 from analysis.vocals import VOCAL_FLOOR, available as vocals_available
@@ -60,10 +60,10 @@ SECTION_COLORS = {
 }
 
 st.set_page_config(page_title="dj-library-tools — revisione", layout="wide")
-st.title("dj-library-tools — revisione delle sezioni")
+st.title("dj-library-tools — analisi di un brano")
 
 st.caption(
-    "I file sono già su disco: indica il percorso della cartella, non caricare nulla. "
+    "Scegli un singolo brano già su disco, analizzalo e rivedi i risultati. "
     "L'analisi riusa la cache condivisa con il CLI."
 )
 
@@ -137,87 +137,73 @@ def _waveform_figure(path_str: str, sections, duration, vocal_regions=None) -> g
     return fig
 
 
-def _pick_folder() -> None:
-    """Apre il selettore di cartella nativo del Mac e riempie il campo path."""
+def _pick_file() -> None:
+    """Apre il selettore di file nativo del Mac e riempie il campo del brano."""
     try:
         out = subprocess.run(
-            ["osascript", "-e", "POSIX path of (choose folder)"],
+            ["osascript", "-e", 'POSIX path of (choose file with prompt "Scegli un brano")'],
             capture_output=True, text=True, check=True,
         )
-        chosen = out.stdout.strip().rstrip("/")
+        chosen = out.stdout.strip()
         if chosen:
-            st.session_state["folder"] = chosen
+            st.session_state["song"] = chosen
     except Exception:
         pass  # dialogo annullato o non disponibile: nessuna modifica
 
 
-# --- Input cartella + analisi ---
+# --- Input brano + analisi ---
 col_path, col_browse = st.columns([5, 1])
-folder = col_path.text_input("Percorso della cartella locale con gli mp3", key="folder")
+song = col_path.text_input("Percorso del brano (mp3/flac)", key="song")
 col_browse.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
-col_browse.button("📂 Sfoglia…", on_click=_pick_folder, use_container_width=True)
+col_browse.button("🎵 Sfoglia…", on_click=_pick_file, use_container_width=True)
 col_run, col_nocache, col_voc = st.columns([1, 2, 2])
 with col_run:
     run = st.button("Analizza", type="primary")
 with col_nocache:
-    no_cache = st.checkbox("Ignora la cache (rianalizza tutto)", value=False)
+    no_cache = st.checkbox("Ignora la cache (rianalizza)", value=False)
 with col_voc:
     want_vocals = st.checkbox("Rileva voce (Demucs, lento)", value=vocals_available(),
                               disabled=not vocals_available())
 if not vocals_available():
-    st.caption("Demucs non installato: rilevamento voce disattivato "
-               "(puoi comunque taggare i vocal a mano). Installa con `poetry install`.")
+    st.caption("Demucs non installato: rilevamento voce disattivato. "
+               "Installa con `poetry install`.")
 
 if run:
-    src = Path(folder).expanduser()
-    if not folder or not src.is_dir():
-        st.error("Cartella non valida.")
-    elif not discover_tracks(src):
-        st.warning("Nessun file mp3/flac trovato nella cartella.")
+    src = Path(song).expanduser()
+    if not song or not src.is_file():
+        st.error("Brano non valido: indica il percorso di un file.")
+    elif src.suffix.lower() not in AUDIO_EXTENSIONS:
+        st.error(f"Formato non supportato ({src.suffix}). Usa mp3 o flac.")
     else:
-        progress = st.progress(0.0, text="Analisi in corso...")
-
-        def _cb(i: int, total: int, path: Path) -> None:
-            progress.progress(i / total, text=f"[{i}/{total}] {path.name}")
-
-        tracks = analyze_library(src, use_cache=not no_cache, progress=_cb,
-                                 detect_vocals=want_vocals)
-        progress.empty()
-        # Ripulisce gli slider/selectbox di sezione della run precedente
-        for k in [k for k in st.session_state if k.startswith(("st::", "lab::", "voc::"))]:
+        with st.spinner(f"Analisi di {src.name} in corso… "
+                        "(la prima volta con voce può richiedere qualche minuto)"):
+            t = analyze_file(src, use_cache=not no_cache, detect_vocals=want_vocals)
+        # Ripulisce gli slider di sezione della run precedente
+        for k in [k for k in st.session_state if k.startswith(("st::", "lab::", "floor::"))]:
             del st.session_state[k]
-        st.session_state["tracks"] = [
-            {
-                "path": str(t.path),
-                "name": t.path.name,
-                "genre": t.genre,
-                "vibe": t.vibe,
-                "bpm": t.bpm,
-                "duration": t.duration,
-                "error": t.error,
-                "sections": [s.to_dict() for s in t.sections],
-                "vocal_regions": [list(r) for r in t.vocal_regions],
-                "vocal_ratio": t.vocal_ratio,
-                "vocal_fps": t.vocal_fps,
-            }
-            for t in tracks
-        ]
+        st.session_state["track"] = {
+            "path": str(t.path),
+            "name": t.path.name,
+            "genre": t.genre,
+            "vibe": t.vibe,
+            "bpm": t.bpm,
+            "duration": t.duration,
+            "error": t.error,
+            "sections": [s.to_dict() for s in t.sections],
+            "vocal_regions": [list(r) for r in t.vocal_regions],
+            "vocal_ratio": t.vocal_ratio,
+            "vocal_fps": t.vocal_fps,
+        }
 
-tracks = st.session_state.get("tracks")
-if not tracks:
-    st.info("Indica una cartella e premi «Analizza» per iniziare.")
+track = st.session_state.get("track")
+if not track:
+    st.info("Scegli un brano e premi «Analizza» per iniziare.")
     st.stop()
 
-st.success(f"{len(tracks)} tracce analizzate.")
-
-# --- Selezione traccia ---
-names = [t["name"] for t in tracks]
-sel = st.selectbox("Traccia da revisionare", options=range(len(names)),
-                   format_func=lambda i: names[i])
-track = tracks[sel]
+st.success(f"Analizzato: {track['name']}")
 
 bpm_txt = f"{track['bpm']:.0f}" if track["bpm"] is not None else "N/D"
-st.markdown(f"**{track['genre']} / {track['vibe']}** — BPM {bpm_txt}")
+st.markdown(f"**{track['genre']}** — {track['vibe']} — BPM {bpm_txt}")
 if track["error"]:
     st.warning(f"Avviso in analisi: {track['error']}")
 

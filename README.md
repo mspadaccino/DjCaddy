@@ -83,8 +83,8 @@ file già processati: usa `--no-cache` per forzare la rianalisi.
 poetry run streamlit run app.py
 ```
 
-Indica il **percorso** della cartella (i file sono già su disco, niente
-upload), lancia l'analisi (stesso motore e cache del CLI), poi per ogni traccia
+Scegli un **singolo brano** (campo path o «Sfoglia…», i file sono già su disco),
+lancia l'analisi (stesso motore e cache del CLI), poi
 rivedi la **forma d'onda colorata per bande di frequenza** (stile djay Pro:
 rosso = bassi, verde = medi, blu = alti) con i **tag di sezione** sovrapposti
 (Intro/Build-up/Drop/Breakdown/Outro). Per ogni tag uno **slider** sposta

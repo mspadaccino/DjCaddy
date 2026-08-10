@@ -89,6 +89,21 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None,
     return track
 
 
+def analyze_file(filepath: Path, use_cache: bool = True,
+                 detect_vocals: bool = True) -> TrackAnalysis:
+    """Analizza un singolo brano e ne restituisce il risultato.
+
+    La `vibe` completa richiede una libreria (energia a percentili relativi):
+    con un brano solo assegna solo il bucket di tempo, che è ben definito.
+    """
+    cache = AnalysisCache.load(default_cache_path()) if use_cache else None
+    track = analyze_track(filepath, cache, detect_vocals=detect_vocals)
+    if cache is not None:
+        cache.save()
+    track.vibe = bpm_to_tempo_bucket(track.bpm)
+    return track
+
+
 def analyze_library(
     source: Path,
     use_cache: bool = True,
