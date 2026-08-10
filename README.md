@@ -1,119 +1,115 @@
 # dj-library-tools
 
-Strumento locale (macOS) per analizzare una libreria di mp3/flac e preparare il
-lavoro di DJing su **djay Pro**:
+Local tool (macOS) to analyze an mp3/flac library and prepare DJ work in
+**djay Pro**:
 
-- classificazione automatica per **genere/vibe**,
-- organizzazione in cartelle `Genere/Vibe`,
-- identificazione di **phrase boundary** suggerite per il posizionamento
-  manuale degli hot cue.
+- automatic classification by **genre/vibe**,
+- organization into `Genre/Vibe` folders,
+- identification of suggested **phrase boundaries** for manually placing hot cues.
 
-> **Nota sui cue point.** djay Pro conserva cue point e loop nel proprio
-> database interno, non nei tag dei file, e non espone un'importazione di cue
-> esterni. Lo strumento quindi **non scrive hot cue dentro djay Pro**: produce
-> timestamp *suggeriti* che confermi a orecchio nell'app di revisione e poi
-> posizioni a mano in djay Pro.
+> **Note on cue points.** djay Pro stores cue points and loops in its own
+> internal database, not in the file tags, and does not expose an import for
+> external cues. So this tool **does not write hot cues into djay Pro**: it
+> produces *suggested* timestamps that you confirm by ear in the review app and
+> then place manually in djay Pro.
 
-## Architettura
+## Architecture
 
-Un **motore di analisi condiviso** (`analysis/`, modulo Python puro) importato
-sia dal CLI batch sia dall'app Streamlit — nessuna logica duplicata.
+A **shared analysis engine** (`analysis/`, pure Python module) imported by both
+the batch CLI and the Streamlit app — no duplicated logic.
 
-| Modulo | Responsabilità |
+| Module | Responsibility |
 | --- | --- |
-| `analysis/tags.py` | lettura tag genere via mutagen (ID3 per mp3, Vorbis comment per flac) |
-| `analysis/audio_features.py` | caricamento audio (librosa) + BPM e RMS in un'unica passata |
-| `analysis/vibe.py` | bucket di tempo + energia a percentili (two-pass) → vibe |
-| `analysis/structure.py` | segmentazione strutturale (Foote novelty su self-similarity) → phrase boundary |
-| `analysis/sections.py` | classificazione delle sezioni (Intro/Build-up/Drop/Breakdown/Outro) da arco di energia e presenza di basso |
-| `analysis/vocals.py` | rilevamento voce via source separation (Demucs): regioni cantate + flag 🎤 per sezione |
-| `analysis/waveform.py` | waveform colorata per bande di frequenza (stile djay Pro) |
-| `analysis/cache.py` | cache per-file (chiave = path, valida per mtime+size) |
-| `analysis/engine.py` | orchestrazione: two-pass, cache, piano di organizzazione |
-| `cli.py` | entry point 1 — CLI batch |
-| `app.py` | entry point 2 — app Streamlit di revisione |
+| `analysis/tags.py` | read the genre tag via mutagen (ID3 for mp3, Vorbis comment for flac) |
+| `analysis/audio_features.py` | audio loading (librosa) + BPM and RMS in a single pass |
+| `analysis/vibe.py` | tempo buckets + percentile energy (two-pass) → vibe |
+| `analysis/structure.py` | structural segmentation (Foote novelty over self-similarity) → phrase boundaries |
+| `analysis/sections.py` | section classification (Intro/Build-up/Drop/Breakdown/Outro) from energy arc and bass presence |
+| `analysis/vocals.py` | vocal detection via source separation (Demucs): sung regions + 🎤 flag per section |
+| `analysis/waveform.py` | frequency-band colored waveform (djay Pro style) |
+| `analysis/cache.py` | per-file cache (key = path, valid by mtime+size) |
+| `analysis/engine.py` | orchestration: two-pass, cache, organize plan |
+| `cli.py` | entry point 1 — batch CLI |
+| `app.py` | entry point 2 — Wavecut review app (Streamlit) |
 
-**Caricamento audio.** Ogni file viene caricato **una sola volta** (22050 Hz,
-mono); BPM/RMS sono calcolati sui primi 60 s di quel segnale, la segmentazione
-sull'intero brano.
+**Audio loading.** Each file is loaded **once** (22050 Hz, mono); BPM/RMS are
+computed on the first 60 s of that signal, segmentation over the whole track.
 
-**Vibe.** BPM → bucket di tempo (`Warm-Up`/`Groove`/`Peak-Time`/
-`High-Energy-Tempo`); RMS → percentili 33/66 relativi alla libreria →
-`Low`/`Mid`/`High`. Vibe finale es. `Peak-Time-High`. Bucket e percentili si
-regolano in `analysis/vibe.py`.
+**Vibe.** BPM → tempo bucket (`Warm-Up`/`Groove`/`Peak-Time`/
+`High-Energy-Tempo`); RMS → 33/66 percentiles relative to the library →
+`Low`/`Mid`/`High`. Final vibe e.g. `Peak-Time-High`. Buckets and percentiles
+are configured in `analysis/vibe.py`.
 
 ## Setup
 
-Gli **mp3** richiedono **ffmpeg** a livello di sistema (librosa li decodifica
-via audioread); i **flac** vengono letti nativamente da soundfile e non ne
-hanno bisogno:
+**mp3** files require **ffmpeg** at the system level (librosa decodes them via
+audioread); **flac** files are read natively by soundfile and don't need it:
 
 ```bash
 brew install ffmpeg
 ```
 
-Dipendenze Python con Poetry (Python ^3.11):
+Python dependencies with Poetry (Python ^3.11):
 
 ```bash
 poetry install
 ```
 
-## Uso
+## Usage
 
-### CLI batch
+### Batch CLI
 
 ```bash
-# solo report a video
+# report to stdout only
 poetry run python cli.py ~/Music/dj
 
-# report su file + dry-run dell'organizzazione (copia, non sposta)
+# report to file + dry-run of the organization (copy, not move)
 poetry run python cli.py ~/Music/dj --dest ~/Music/master --report report.csv --dry-run
 
-# organizza davvero in Genere/Vibe (senza sovrascrivere file esistenti)
+# actually organize into Genre/Vibe (without overwriting existing files)
 poetry run python cli.py ~/Music/dj --dest ~/Music/master
 ```
 
-Il report (CSV o JSON) contiene per ogni traccia: path, genere, BPM, vibe e i
-timestamp delle phrase boundary suggerite. La cache evita di rianalizzare i
-file già processati: usa `--no-cache` per forzare la rianalisi.
+The report (CSV or JSON) contains, per track: path, genre, BPM, vibe and the
+suggested phrase-boundary timestamps. The cache avoids re-analyzing files that
+were already processed: use `--no-cache` to force re-analysis.
 
-### App Streamlit — Wavecut (revisione)
+### Streamlit app — Wavecut (review)
 
 ```bash
 poetry run streamlit run app.py
 ```
 
-Scegli un **singolo brano** (campo path o «Sfoglia…», i file sono già su disco),
-lancia l'analisi. Ogni analisi salva un **sidecar** `<nome>_analysis.json`
-accanto al brano: alla ricarica successiva, se il file esiste e *Force analysis
-if exists* è spento, i risultati vengono **ricaricati da lì** senza rianalizzare
-(niente Demucs). Poi
-rivedi la **forma d'onda colorata per bande di frequenza** (stile djay Pro:
-rosso = bassi, verde = medi, blu = alti) con i **tag di sezione** sovrapposti
-(Intro/Build-up/Drop/Breakdown/Outro). Per ogni tag uno **slider** sposta
-l'inizio della sezione e un menù ne cambia l'etichetta; il grafico e il report
-scaricabile si aggiornano. Ascolti dall'inizio di ogni sezione per confermare a
-orecchio.
+Pick a **single track** (path field or “Browse…”, the files are already on
+disk), run the analysis. Each analysis saves a **sidecar** `<name>_analysis.json`
+next to the track: on a later reload, if that file exists and *Force analysis if
+exists* is off, the results are **loaded from it** without re-analyzing (no
+Demucs). Then review the **frequency-band colored waveform** (djay Pro style:
+red = lows, green = mids, blue = highs) with the **section tags** overlaid
+(Intro/Build-up/Drop/Breakdown/Outro). For each tag a **slider** moves the
+section start and a menu changes its label; the waveform and the downloadable
+report update live. A synced player lets you scrub the waveform and listen from
+any point to confirm by ear.
 
-> La classificazione delle sezioni è **euristica** (regole su energia e basso,
-> soglie in `analysis/sections.py`): pensata come punto di partenza da correggere
-> a orecchio, non come verità. Le sezioni ambigue sono marcate `Groove`. Le
-> sezioni consecutive dello stesso tipo vengono **collassate**: ogni tag segna un
-> **cambio di phrase**, per anticipare in djay Pro cosa sta per arrivare.
+> Section classification is **heuristic** (rules on energy and bass, thresholds
+> in `analysis/sections.py`): meant as a starting point to correct by ear, not
+> as ground truth. Ambiguous sections are labeled `Groove`. Consecutive sections
+> of the same type are **merged**: each tag marks a **phrase change**, so you can
+> anticipate in djay Pro what's coming next.
 
-Il **rilevamento voce** usa Demucs (source separation) per isolare lo stem
-vocale: le **regioni cantate** appaiono come bande rosa sul grafico (la parte da
-non sovrapporre ad altre voci in mixaggio) e le sezioni con voce ricevono il flag
-🎤. È accurato ma **pesante**: scarica un modello alla prima esecuzione e gira
-una rete neurale su ogni brano. È opzionale — con `--no-vocals` (CLI) o togliendo
-la spunta nell'app lo salti; se Demucs non è installato il flag resta manuale.
+**Vocal detection** uses Demucs (source separation) to isolate the vocal stem:
+the **sung regions** appear as pink bands on the waveform (the parts not to
+overlap with other vocals while mixing) and sections with vocals get the 🎤 flag.
+It is accurate but **heavy**: it downloads a model on first run and runs a neural
+network on each track. It is optional — skip it with `--no-vocals` (CLI) or by
+unchecking the box in the app; if Demucs is not installed the flag stays manual.
 
-## Test
+## Tests
 
 ```bash
 poetry run pytest
 ```
 
-I test coprono la logica pura (bucket/percentili, cache, novelty). L'analisi
-audio end-to-end va provata su un **piccolo sottoinsieme** di file prima di
-girare sull'intera libreria.
+The tests cover the pure logic (buckets/percentiles, cache, novelty, sections,
+vocal regions). The end-to-end audio analysis should be tried on a **small
+subset** of files before running on the whole library.

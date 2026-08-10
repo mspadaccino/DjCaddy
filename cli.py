@@ -64,41 +64,41 @@ def _progress(i: int, total: int, path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Analizza e classifica una libreria mp3 (genere/vibe + phrase boundary)."
+        description="Analyze and classify an mp3 library (genre/vibe + phrase boundaries)."
     )
-    parser.add_argument("source", type=Path, help="Cartella sorgente con i file mp3")
+    parser.add_argument("source", type=Path, help="Source folder with the mp3 files")
     parser.add_argument("--dest", type=Path, default=None,
-                        help="Cartella master per l'organizzazione in Genere/Vibe")
+                        help="Master folder to organize into Genre/Vibe")
     parser.add_argument("--report", type=Path, default=None,
-                        help="File di output del report (estensione .csv o .json)")
+                        help="Report output file (.csv or .json extension)")
     parser.add_argument("--format", choices=["csv", "json"], default=None,
-                        help="Formato del report (default: dedotto dall'estensione, altrimenti csv)")
+                        help="Report format (default: inferred from extension, otherwise csv)")
     parser.add_argument("--dry-run", action="store_true",
-                        help="Mostra il piano di organizzazione senza copiare i file")
+                        help="Show the organize plan without copying files")
     parser.add_argument("--no-cache", action="store_true",
-                        help="Non usa la cache: rianalizza tutti i file")
+                        help="Ignore the cache: re-analyze every file")
     parser.add_argument("--no-vocals", action="store_true",
-                        help="Salta il rilevamento voce (Demucs), molto più veloce")
+                        help="Skip vocal detection (Demucs), much faster")
     args = parser.parse_args()
 
     if not args.source.is_dir():
-        sys.exit(f"Cartella sorgente non trovata: {args.source}")
+        sys.exit(f"Source folder not found: {args.source}")
 
     n = len(discover_tracks(args.source))
     if n == 0:
-        sys.exit("Nessun file audio (mp3/flac) trovato nella cartella sorgente.")
-    print(f"Trovati {n} file. Analisi in corso...\n")
+        sys.exit("No audio files (mp3/flac) found in the source folder.")
+    print(f"Found {n} files. Analyzing...\n")
 
     tracks = analyze_library(args.source, use_cache=not args.no_cache,
                              progress=_progress, detect_vocals=not args.no_vocals)
 
-    print("\nRisultati:")
+    print("\nResults:")
     errors = 0
     for t in tracks:
-        bpm = f"{t.bpm:.0f}" if t.bpm is not None else "N/D"
+        bpm = f"{t.bpm:.0f}" if t.bpm is not None else "N/A"
         secs = " | ".join(s.label for s in t.sections) or "-"
         print(f"  {t.path.name}  ->  {t.genre}/{t.vibe}  (BPM: {bpm})")
-        print(f"      sezioni: {secs}")
+        print(f"      sections: {secs}")
         if t.error:
             errors += 1
             print(f"      [WARN] {t.error}")
@@ -107,19 +107,19 @@ def main() -> None:
         fmt = args.format or ("json" if args.report.suffix.lower() == ".json" else "csv")
         args.report.parent.mkdir(parents=True, exist_ok=True)
         _write_report(tracks, args.report, fmt)
-        print(f"\nReport ({fmt}) scritto in: {args.report}")
+        print(f"\nReport ({fmt}) written to: {args.report}")
 
     if args.dest is not None:
         plan = build_organize_plan(tracks, args.dest)
         copied, skipped = organize(plan, dry_run=args.dry_run)
         if args.dry_run:
-            print(f"\n[DRY RUN] {copied} file da copiare, {skipped} già presenti. "
-                  "Rilancia senza --dry-run per eseguire.")
+            print(f"\n[DRY RUN] {copied} files to copy, {skipped} already present. "
+                  "Re-run without --dry-run to execute.")
         else:
-            print(f"\nOrganizzazione completata. Copiati: {copied}, saltati: {skipped}.")
+            print(f"\nOrganize complete. Copied: {copied}, skipped: {skipped}.")
 
     if errors:
-        print(f"\n{errors} file con avvisi durante l'analisi (vedi [WARN] sopra).")
+        print(f"\n{errors} files with warnings during analysis (see [WARN] above).")
 
 
 if __name__ == "__main__":

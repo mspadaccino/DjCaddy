@@ -61,12 +61,12 @@ SECTION_COLORS = {
     "Groove": "#3fbf7f",
 }
 
-st.set_page_config(page_title="Wavecut", page_icon="🌊", layout="wide")
-st.title("🌊 Wavecut — analisi di un brano")
+st.set_page_config(page_title="Wavecut — Phrase analyzer", page_icon="🌊", layout="wide")
+st.title("🌊 Wavecut — Phrase analyzer")
 
 st.caption(
-    "Scegli un singolo brano già su disco, analizzalo e rivedi i risultati. "
-    "L'analisi riusa la cache condivisa con il CLI."
+    "Pick a single track already on disk, analyze it and review the results. "
+    "Analysis reuses the same cache as the CLI."
 )
 
 
@@ -103,9 +103,13 @@ def _audio_data_uri(path_str: str, mtime: float) -> str | None:
 
 # --- Componente CCv2: waveform interattiva + audio sincronizzato ---
 _PLAYER_HTML = """
-<div class="wc-wrap" style="width:100%;font-family:system-ui,-apple-system,sans-serif;">
+<div class="wc-wrap" style="width:100%;font-family:system-ui,-apple-system,sans-serif;position:relative;">
   <canvas class="wc-canvas" style="width:100%;height:200px;display:block;
     border-radius:6px;cursor:pointer;background:#0f0f12;"></canvas>
+  <div class="wc-tooltip" style="position:absolute;top:6px;transform:translateX(-50%);
+    background:rgba(15,15,18,0.92);color:#eee;font-size:11px;padding:3px 7px;
+    border-radius:4px;pointer-events:none;white-space:nowrap;display:none;
+    font-variant-numeric:tabular-nums;border:1px solid #333;"></div>
   <div style="display:flex;align-items:center;gap:12px;margin-top:6px;">
     <audio class="wc-audio" controls preload="auto" style="flex:1;height:34px;"></audio>
     <span class="wc-time" style="color:#bbb;font-size:12px;
@@ -124,6 +128,10 @@ export default function (component) {
     const m = Math.floor(t / 60);
     const s = (t - m * 60);
     return String(m).padStart(2, "0") + ":" + s.toFixed(1).padStart(4, "0");
+  }
+
+  function fmtPair(t, dur) {
+    return fmt(t) + " (-" + fmt(Math.max(0, dur - t)) + ")";
   }
 
   function buildWave(ui) {
@@ -185,13 +193,24 @@ export default function (component) {
     const canvas = root.querySelector(".wc-canvas");
     const audio = root.querySelector(".wc-audio");
     const timeEl = root.querySelector(".wc-time");
-    ui = root.__wc = { canvas, audio, timeEl, data: null, wave: null, raf: null, dpr: 1 };
+    const tooltip = root.querySelector(".wc-tooltip");
+    ui = root.__wc = { canvas, audio, timeEl, tooltip, data: null, wave: null, raf: null, dpr: 1 };
     canvas.addEventListener("click", (e) => {
       const r = canvas.getBoundingClientRect();
       if (ui.data && ui.data.duration) {
         ui.audio.currentTime = ((e.clientX - r.left) / r.width) * ui.data.duration;
       }
     });
+    canvas.addEventListener("mousemove", (e) => {
+      const r = canvas.getBoundingClientRect();
+      if (!ui.data || !ui.data.duration) return;
+      const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+      const t = frac * ui.data.duration;
+      ui.tooltip.textContent = fmtPair(t, ui.data.duration);
+      ui.tooltip.style.left = (e.clientX - r.left) + "px";
+      ui.tooltip.style.display = "block";
+    });
+    canvas.addEventListener("mouseleave", () => { ui.tooltip.style.display = "none"; });
     const loop = () => { draw(ui); ui.raf = requestAnimationFrame(loop); };
     ui.raf = requestAnimationFrame(loop);
   }
@@ -216,7 +235,7 @@ def wave_player(path: str, sections, regions, duration, key: str) -> None:
     mtime = Path(path).stat().st_mtime
     audio = _audio_data_uri(path, mtime)
     if audio is None:
-        st.warning("Player interattivo non disponibile (serve ffmpeg): uso il player base.")
+        st.warning("Interactive player unavailable (ffmpeg required): falling back to basic player.")
         mime = "audio/flac" if path.lower().endswith(".flac") else "audio/mp3"
         st.audio(Path(path).read_bytes(), format=mime)
         return
@@ -239,7 +258,7 @@ def _pick_file() -> None:
     """Apre il selettore di file nativo del Mac e riempie il campo del brano."""
     try:
         out = subprocess.run(
-            ["osascript", "-e", 'POSIX path of (choose file with prompt "Scegli un brano")'],
+            ["osascript", "-e", 'POSIX path of (choose file with prompt "Choose a track")'],
             capture_output=True, text=True, check=True,
         )
         chosen = out.stdout.strip()
@@ -249,37 +268,37 @@ def _pick_file() -> None:
         pass  # dialogo annullato o non disponibile: nessuna modifica
 
 
-# --- Input brano + analisi ---
+# --- Track input + analysis ---
 col_path, col_browse = st.columns([5, 1])
-song = col_path.text_input("Percorso del brano (mp3/flac)", key="song")
+song = col_path.text_input("Track path (mp3/flac)", key="song")
 col_browse.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
-col_browse.button("🎵 Sfoglia…", on_click=_pick_file, use_container_width=True)
+col_browse.button("🎵 Browse…", on_click=_pick_file, width="stretch")
 col_run, col_nocache, col_voc = st.columns([1, 2, 2])
 with col_run:
-    run = st.button("Analizza", type="primary")
+    run = st.button("Analyze", type="primary")
 with col_nocache:
     force = st.checkbox("Force analysis if exists", value=False,
-                        help="Rianalizza anche se esiste già il file <nome>_analysis.json")
+                        help="Re-analyze even if a <name>_analysis.json file already exists")
 with col_voc:
-    want_vocals = st.checkbox("Rileva voce (Demucs, lento)", value=vocals_available(),
+    want_vocals = st.checkbox("Detect vocals (Demucs, slow)", value=vocals_available(),
                               disabled=not vocals_available())
 if not vocals_available():
-    st.caption("Demucs non installato: rilevamento voce disattivato. "
-               "Installa con `poetry install`.")
+    st.caption("Demucs not installed: vocal detection disabled. "
+               "Install it with `poetry install`.")
 
 if run:
     src = Path(song).expanduser()
     if not song or not src.is_file():
-        st.error("Brano non valido: indica il percorso di un file.")
+        st.error("Invalid track: please provide the path to a file.")
     elif src.suffix.lower() not in AUDIO_EXTENSIONS:
-        st.error(f"Formato non supportato ({src.suffix}). Usa mp3 o flac.")
+        st.error(f"Unsupported format ({src.suffix}). Use mp3 or flac.")
     else:
         existing = None if force else load_analysis(src)
         if existing is not None:
             t, from_file = existing, True
         else:
-            with st.spinner(f"Analisi di {src.name} in corso… "
-                            "(la prima volta con voce può richiedere qualche minuto)"):
+            with st.spinner(f"Analyzing {src.name}… "
+                            "(the first run with vocals can take a few minutes)"):
                 t = analyze_file(src, use_cache=not force, detect_vocals=want_vocals)
             from_file = False
         # Ripulisce gli slider di sezione della run precedente
@@ -302,18 +321,18 @@ if run:
 
 track = st.session_state.get("track")
 if not track:
-    st.info("Scegli un brano e premi «Analizza» per iniziare.")
+    st.info("Pick a track and press “Analyze” to start.")
     st.stop()
 
 if track.get("from_file"):
-    st.success(f"Caricato da {Path(track['name']).stem}_analysis.json: {track['name']}")
+    st.success(f"Loaded from {Path(track['name']).stem}_analysis.json: {track['name']}")
 else:
-    st.success(f"Analizzato: {track['name']}")
+    st.success(f"Analyzed: {track['name']}")
 
-bpm_txt = f"{track['bpm']:.0f}" if track["bpm"] is not None else "N/D"
+bpm_txt = f"{track['bpm']:.0f}" if track["bpm"] is not None else "N/A"
 st.markdown(f"**{track['genre']}** — {track['vibe']} — BPM {bpm_txt}")
 if track["error"]:
-    st.warning(f"Avviso in analisi: {track['error']}")
+    st.warning(f"Analysis warning: {track['error']}")
 
 duration = track.get("duration")
 path = track["path"]
@@ -326,23 +345,23 @@ player_slot = st.container()
 cues_container = st.container()
 vocals_container = st.container()
 
-# --- Soglia voce (live): ricalcola le regioni cantate senza rifare Demucs ---
+# --- Vocal threshold (live): recompute sung regions without re-running Demucs ---
 has_env = bool(track.get("vocal_ratio"))
 if has_env:
     vocal_floor = st.slider(
-        "Soglia voce (dominanza voce/mix)", 0.0, 1.0, value=float(VOCAL_FLOOR),
+        "Vocal threshold (voice/mix dominance)", 0.0, 1.0, value=float(VOCAL_FLOOR),
         step=0.01, key=f"floor::{path}",
-        help="Più alta = meno regioni cantate. Ricalcolo immediato, niente Demucs.",
+        help="Higher = fewer sung regions. Recomputed instantly, no Demucs.",
     )
 else:
     vocal_floor = VOCAL_FLOOR
 regions_live = _live_regions(track, vocal_floor)
 
-# --- Slider: sposta l'inizio o cambia l'etichetta di ogni tag ---
-st.subheader("Tag delle sezioni")
+# --- Sliders: move the start or change the label of each tag ---
+st.subheader("Section tags")
 st.caption(
-    "Classificazione euristica da confermare a orecchio: sposta l'inizio o cambia "
-    "l'etichetta; il 🎤 deriva dalla soglia voce qui sopra. Tutto si aggiorna live."
+    "Heuristic classification, confirm by ear: move the start or change the label; "
+    "the 🎤 flag comes from the vocal threshold above. Everything updates live."
 )
 
 edited: list[dict] = []
@@ -352,12 +371,12 @@ if track["sections"] and duration:
         idx = SECTION_LABELS.index(s["label"]) if s["label"] in SECTION_LABELS else len(SECTION_LABELS) - 1
         label = c1.selectbox(f"Tag {i + 1}", SECTION_LABELS, index=idx,
                              key=f"lab::{path}::{i}")
-        start_s = c2.slider(f"Inizio {i + 1} (s)", 0.0, float(duration),
+        start_s = c2.slider(f"Start {i + 1} (s)", 0.0, float(duration),
                             value=float(s["start"]), step=0.5, key=f"st::{path}::{i}")
         c3.markdown(f"`{format_elapsed(start_s)} ({format_remaining(start_s, duration)})`")
         edited.append({"start": start_s, "label": label})
 
-    # Riordina per posizione, ricalcola durate, battute e flag vocal (da soglia)
+    # Sort by position, recompute lengths, bars and vocal flag (from threshold)
     edited.sort(key=lambda d: d["start"])
     starts = [d["start"] for d in edited]
     ends = starts[1:] + [duration]
@@ -366,56 +385,56 @@ if track["sections"] and duration:
         d["bars"] = (length / bar_seconds) if bar_seconds else None
         d["vocal"] = _covered_fraction(d["start"], end, regions_live) >= VOCAL_SECTION_COVER
 else:
-    st.info("Nessuna sezione rilevata per questa traccia.")
+    st.info("No sections detected for this track.")
 
-# --- Player interattivo (waveform + audio sincronizzato), sotto l'header ---
+# --- Interactive player (waveform + synced audio), below the header ---
 with player_slot:
     if duration:
         wave_player(path, edited, regions_live, duration, key=f"player::{path}")
-        st.caption("Clic sull'onda per spostarti al punto · ▶ per ascoltare · "
-                   "linea gialla = testina, bande rosa = voce, triangoli = sezioni.")
+        st.caption("Click the waveform to jump to a point · ▶ to listen · "
+                   "yellow line = playhead, pink bands = vocals, triangles = sections.")
     else:
-        st.info("Durata non disponibile: player non mostrabile.")
+        st.info("Duration unavailable: player can't be shown.")
 
-# --- Tabella dei cue (sezioni) ---
+# --- Cue table (sections) ---
 if edited:
     rows = [{
         "tag": f'{"🎤 " if s.get("vocal") else ""}{s["label"]}',
-        "dall_inizio": format_elapsed(s["start"]),
-        "restante": format_remaining(s["start"], duration),
+        "from_start": format_elapsed(s["start"]),
+        "remaining": format_remaining(s["start"], duration),
         "start_s": round(s["start"], 2),
         "bars": round(s["bars"], 1) if s.get("bars") else "",
-        "vocal": "sì" if s.get("vocal") else "",
+        "vocal": "yes" if s.get("vocal") else "",
     } for s in edited]
     report_df = pd.DataFrame(rows)
-    cues_container.dataframe(report_df, use_container_width=True, hide_index=True)
+    cues_container.dataframe(report_df, width="stretch", hide_index=True)
     cues_container.download_button(
-        "Scarica sezioni (CSV)",
+        "Download sections (CSV)",
         data=report_df.to_csv(index=False).encode(),
         file_name=f"{Path(track['name']).stem}_sections.csv",
         mime="text/csv",
     )
 
-# --- Tabella dei cluster vocali (sotto quella dei cue) ---
+# --- Vocal clusters table (below the cue table) ---
 with vocals_container:
-    st.markdown("**Cluster vocali** 🎤")
+    st.markdown("**Vocal clusters** 🎤")
     if regions_live:
         vrows = [{
             "n": i + 1,
-            "inizio": format_elapsed(st_),
-            "fine": format_elapsed(en_),
-            "durata_s": round(en_ - st_, 1),
-            "restante_inizio": format_remaining(st_, duration),
+            "start": format_elapsed(st_),
+            "end": format_elapsed(en_),
+            "duration_s": round(en_ - st_, 1),
+            "remaining_start": format_remaining(st_, duration),
         } for i, (st_, en_) in enumerate(regions_live)]
         vocals_df = pd.DataFrame(vrows)
-        st.dataframe(vocals_df, use_container_width=True, hide_index=True)
+        st.dataframe(vocals_df, width="stretch", hide_index=True)
         st.download_button(
-            "Scarica cluster vocali (CSV)",
+            "Download vocal clusters (CSV)",
             data=vocals_df.to_csv(index=False).encode(),
             file_name=f"{Path(track['name']).stem}_vocals.csv",
             mime="text/csv",
         )
     elif has_env:
-        st.caption("Nessuna parte vocale rilevata a questa soglia.")
+        st.caption("No vocal parts detected at this threshold.")
     else:
-        st.caption("Rilevamento voce non eseguito (Demucs disattivato in analisi).")
+        st.caption("Vocal detection not run (Demucs disabled during analysis).")
