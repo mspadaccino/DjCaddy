@@ -61,15 +61,19 @@ class Section:
     label: str            # una delle SECTION_LABELS
     energy: float = 0.0   # 0..1, energia relativa al massimo del brano
     bars: float | None = None  # lunghezza stimata in battute (da BPM)
+    vocal: bool = False   # presenza di voce (euristico, correggibile a mano)
+    vocal_score: float = 0.0   # 0..1, quota di energia armonica in banda voce
 
     def to_dict(self) -> dict:
         return {"start": self.start, "end": self.end, "label": self.label,
-                "energy": self.energy, "bars": self.bars}
+                "energy": self.energy, "bars": self.bars,
+                "vocal": self.vocal, "vocal_score": self.vocal_score}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Section":
         return cls(start=d["start"], end=d["end"], label=d["label"],
-                   energy=d.get("energy", 0.0), bars=d.get("bars"))
+                   energy=d.get("energy", 0.0), bars=d.get("bars"),
+                   vocal=d.get("vocal", False), vocal_score=d.get("vocal_score", 0.0))
 
 
 @dataclass
@@ -129,7 +133,8 @@ class TrackAnalysis:
                 for b in self.boundaries
             ),
             "sections": "; ".join(
-                f"{s.label} {format_remaining(s.start, self.duration)}"
+                f"{s.label}{' 🎤' if s.vocal else ''} "
+                f"{format_remaining(s.start, self.duration)}"
                 + (f" [{s.bars:.0f}b]" if s.bars else "")
                 for s in self.sections
             ),

@@ -25,7 +25,7 @@ sia dal CLI batch sia dall'app Streamlit — nessuna logica duplicata.
 | `analysis/audio_features.py` | caricamento audio (librosa) + BPM e RMS in un'unica passata |
 | `analysis/vibe.py` | bucket di tempo + energia a percentili (two-pass) → vibe |
 | `analysis/structure.py` | segmentazione strutturale (Foote novelty su self-similarity) → phrase boundary |
-| `analysis/sections.py` | classificazione delle sezioni (Intro/Build-up/Drop/Breakdown/Outro) da arco di energia e presenza di basso |
+| `analysis/sections.py` | classificazione delle sezioni (Intro/Build-up/Drop/Breakdown/Outro) da arco di energia e presenza di basso; flag 🎤 vocal (euristico, via HPSS) |
 | `analysis/waveform.py` | waveform colorata per bande di frequenza (stile djay Pro) |
 | `analysis/cache.py` | cache per-file (chiave = path, valida per mtime+size) |
 | `analysis/engine.py` | orchestrazione: two-pass, cache, piano di organizzazione |

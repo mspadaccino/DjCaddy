@@ -50,9 +50,10 @@ def _waveform_df(path_str: str, points: int = 1600) -> pd.DataFrame:
     return pd.DataFrame({"t": t, "amp": amp, "color": colors})
 
 
-def _tag_text(label: str, start: float, duration) -> str:
-    """Etichetta del tag: tipo, tempo dall'inizio e residuo tra parentesi."""
-    return f"{label} {format_elapsed(start)} ({format_remaining(start, duration)})"
+def _tag_text(label: str, start: float, duration, vocal: bool = False) -> str:
+    """Etichetta del tag: tipo (con 🎤 se vocal), tempo dall'inizio e residuo."""
+    mic = "🎤 " if vocal else ""
+    return f"{mic}{label} {format_elapsed(start)} ({format_remaining(start, duration)})"
 
 
 def _waveform_figure(path_str: str, sections, duration) -> go.Figure:
@@ -73,7 +74,8 @@ def _waveform_figure(path_str: str, sections, duration) -> go.Figure:
     if sections:
         xs = [s["start"] for s in sections]
         cols = [SECTION_COLORS.get(s["label"], "#ffffff") for s in sections]
-        texts = [_tag_text(s["label"], s["start"], duration) for s in sections]
+        texts = [_tag_text(s["label"], s["start"], duration, s.get("vocal", False))
+                 for s in sections]
 
         # Linee verticali tenui in corrispondenza dei tagli
         for x, c in zip(xs, cols):
@@ -182,27 +184,30 @@ duration = track.get("duration")
 path = track["path"]
 bar_seconds = (4 * 60.0 / track["bpm"]) if track["bpm"] else None
 
-# La waveform viene riempita DOPO gli slider, così riflette le modifiche.
+# Grafico e tabella sono in cima ma vengono riempiti DOPO gli slider,
+# così riflettono le modifiche in tempo reale.
 chart_slot = st.empty()
+table_container = st.container()
 
-# --- Slider: sposta l'inizio di ogni tag o cambia l'etichetta ---
+# --- Slider: sposta l'inizio, cambia l'etichetta, marca i vocal ---
 st.subheader("Tag delle sezioni")
 st.caption(
-    "Classificazione euristica da confermare a orecchio: sposta l'inizio di una "
-    "sezione o cambia l'etichetta; il grafico e il report si aggiornano."
+    "Classificazione euristica da confermare a orecchio: sposta l'inizio, cambia "
+    "l'etichetta o spunta 🎤 se c'è voce; il grafico e la tabella si aggiornano."
 )
 
 edited: list[dict] = []
 if track["sections"] and duration:
     for i, s in enumerate(track["sections"]):
-        c1, c2, c3 = st.columns([2, 4, 1])
+        c1, c2, c3, c4 = st.columns([2, 4, 1, 1])
         idx = SECTION_LABELS.index(s["label"]) if s["label"] in SECTION_LABELS else len(SECTION_LABELS) - 1
         label = c1.selectbox(f"Tag {i + 1}", SECTION_LABELS, index=idx,
                              key=f"lab::{path}::{i}")
         start_s = c2.slider(f"Inizio {i + 1} (s)", 0.0, float(duration),
                             value=float(s["start"]), step=0.5, key=f"st::{path}::{i}")
-        c3.markdown(f"`{format_elapsed(start_s)} ({format_remaining(start_s, duration)})`")
-        edited.append({"start": start_s, "label": label})
+        vocal = c3.checkbox("🎤", value=bool(s.get("vocal")), key=f"voc::{path}::{i}")
+        c4.markdown(f"`{format_elapsed(start_s)} ({format_remaining(start_s, duration)})`")
+        edited.append({"start": start_s, "label": label, "vocal": vocal})
 
     # Riordina per posizione, ricalcola durate e battute
     edited.sort(key=lambda d: d["start"])
@@ -217,6 +222,25 @@ else:
 # Riempie il grafico in cima con le sezioni (eventualmente) modificate
 chart_slot.plotly_chart(_waveform_figure(path, edited, duration),
                         use_container_width=True)
+
+# Tabella riepilogativa subito sotto il grafico
+if edited:
+    rows = [{
+        "tag": f'{"🎤 " if s.get("vocal") else ""}{s["label"]}',
+        "dall_inizio": format_elapsed(s["start"]),
+        "restante": format_remaining(s["start"], duration),
+        "start_s": round(s["start"], 2),
+        "bars": round(s["bars"], 1) if s.get("bars") else "",
+        "vocal": "sì" if s.get("vocal") else "",
+    } for s in edited]
+    report_df = pd.DataFrame(rows)
+    table_container.dataframe(report_df, use_container_width=True, hide_index=True)
+    table_container.download_button(
+        "Scarica sezioni riviste (CSV)",
+        data=report_df.to_csv(index=False).encode(),
+        file_name=f"{Path(track['name']).stem}_sections.csv",
+        mime="text/csv",
+    )
 
 # --- Player dall'inizio di una sezione ---
 if edited:
@@ -233,21 +257,3 @@ try:
     st.audio(audio_path.read_bytes(), format=mime, start_time=start)
 except Exception as e:
     st.error(f"Impossibile aprire l'audio: {e}")
-
-# --- Report rivisto delle sezioni ---
-if edited:
-    rows = [{
-        "label": s["label"],
-        "dall_inizio": format_elapsed(s["start"]),
-        "restante": format_remaining(s["start"], duration),
-        "start_s": round(s["start"], 2),
-        "bars": round(s["bars"], 1) if s.get("bars") else "",
-    } for s in edited]
-    report_df = pd.DataFrame(rows)
-    st.dataframe(report_df, use_container_width=True, hide_index=True)
-    st.download_button(
-        "Scarica sezioni riviste (CSV)",
-        data=report_df.to_csv(index=False).encode(),
-        file_name=f"{Path(track['name']).stem}_sections.csv",
-        mime="text/csv",
-    )
