@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 _HOP = 512
-_separator = None  # istanza Demucs riusata fra le tracce (il modello è pesante)
+_model = None  # modello Demucs riusato fra le tracce (caricarlo è costoso)
 
 # Estrazione delle regioni cantate dall'inviluppo vocale
 VOCAL_FLOOR = 0.15     # frazione del picco vocale sopra cui c'è voce
@@ -65,31 +65,69 @@ def vocal_regions(envelope, floor: float = VOCAL_FLOOR,
 
 
 def available() -> bool:
+    """True se l'API di basso livello di Demucs (+ torch) è importabile."""
     try:
-        import demucs.api  # noqa: F401
+        import torch  # noqa: F401
+        import demucs.apply  # noqa: F401
+        import demucs.pretrained  # noqa: F401
         return True
     except Exception:
         return False
 
 
-def _get_separator():
-    global _separator
-    if _separator is None:
-        from demucs.api import Separator
-        _separator = Separator(model="htdemucs")
-    return _separator
+def _device() -> str:
+    """cpu di default (affidabile); override con DJ_DEMUCS_DEVICE (es. mps, cuda)."""
+    import os
+
+    import torch
+
+    forced = os.environ.get("DJ_DEMUCS_DEVICE")
+    if forced:
+        return forced
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _get_model():
+    global _model
+    if _model is None:
+        from demucs.pretrained import get_model
+        _model = get_model("htdemucs")
+        _model.cpu().eval()
+    return _model
 
 
 def vocal_envelope(filepath: Path):
-    """Ritorna (times[s], rms) dello stem vocale, oppure None se non disponibile."""
+    """Ritorna (times[s], rms) dello stem vocale, oppure None se non disponibile.
+
+    Usa l'API di basso livello (pretrained + apply_model) e carica l'audio con
+    librosa, così non dipende da `demucs.api` (assente in alcune build).
+    """
     try:
         import librosa
+        import torch
+        from demucs.apply import apply_model
 
-        sep = _get_separator()
-        _, stems = sep.separate_audio_file(str(filepath))
-        vocals = stems["vocals"]                       # tensor (canali, campioni)
-        sr = int(sep.samplerate)
-        mono = vocals.mean(dim=0).detach().cpu().numpy().astype("float32")
+        model = _get_model()
+        sr = int(model.samplerate)
+        channels = int(model.audio_channels)
+
+        y, _ = librosa.load(str(filepath), sr=sr, mono=False)
+        y = np.asarray(y, dtype="float32")
+        if y.ndim == 1:                       # file mono
+            y = np.tile(y, (channels, 1)) if channels > 1 else y[np.newaxis, :]
+        elif y.shape[0] != channels:          # adatta il numero di canali
+            y = y.mean(0, keepdims=True) if channels == 1 else np.tile(y[:1], (channels, 1))
+
+        wav = torch.from_numpy(y)
+        ref = wav.mean(0)
+        wav_n = (wav - ref.mean()) / (ref.std() + 1e-8)   # normalizzazione come in demucs
+
+        with torch.no_grad():
+            sources = apply_model(model, wav_n[None], device=_device(), progress=False)[0]
+        sources = sources * ref.std() + ref.mean()
+
+        idx = list(model.sources).index("vocals")
+        mono = sources[idx].mean(0).cpu().numpy().astype("float32")
         if mono.size == 0:
             return None
         rms = librosa.feature.rms(y=mono, hop_length=_HOP)[0]
