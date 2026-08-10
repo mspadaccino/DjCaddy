@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-_HOP = 512
+_HOP = 2048  # ~46 ms: inviluppo compatto, adatto a essere messo in cache
 _model = None  # modello Demucs riusato fra le tracce (caricarlo è costoso)
 
 # Estrazione delle regioni cantate dall'inviluppo di dominanza vocale (voce/mix).

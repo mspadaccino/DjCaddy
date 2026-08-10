@@ -14,6 +14,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -21,8 +22,32 @@ import streamlit as st
 from analysis.audio_features import ANALYSIS_SR, load_audio
 from analysis.engine import analyze_library, discover_tracks
 from analysis.models import SECTION_LABELS, format_elapsed, format_remaining
-from analysis.vocals import available as vocals_available
+from analysis.sections import VOCAL_SECTION_COVER
+from analysis.vocals import VOCAL_FLOOR, available as vocals_available
+from analysis.vocals import vocal_regions
 from analysis.waveform import compute_frequency_waveform
+
+
+def _covered_fraction(start: float, end: float, regions) -> float:
+    """Frazione di [start, end] coperta dalle regioni cantate."""
+    length = end - start
+    if length <= 0:
+        return 0.0
+    covered = sum(
+        max(0.0, min(e, end) - max(st, start))
+        for st, e in regions if e > start and st < end
+    )
+    return covered / length
+
+
+def _live_regions(track: dict, floor: float):
+    """Ricalcola le regioni cantate dalla soglia, usando l'inviluppo in cache."""
+    ratio = track.get("vocal_ratio") or []
+    fps = track.get("vocal_fps")
+    if ratio and fps:
+        times = np.arange(len(ratio)) / fps
+        return vocal_regions((times, np.asarray(ratio, dtype=float)), floor=floor)
+    return [tuple(r) for r in track.get("vocal_regions", [])]  # fallback: senza inviluppo
 
 # Colori dei tag di sezione (accostati ai marker triangolari di djay Pro)
 SECTION_COLORS = {
@@ -172,6 +197,8 @@ if run:
                 "error": t.error,
                 "sections": [s.to_dict() for s in t.sections],
                 "vocal_regions": [list(r) for r in t.vocal_regions],
+                "vocal_ratio": t.vocal_ratio,
+                "vocal_fps": t.vocal_fps,
             }
             for t in tracks
         ]
@@ -203,41 +230,51 @@ bar_seconds = (4 * 60.0 / track["bpm"]) if track["bpm"] else None
 chart_slot = st.empty()
 table_container = st.container()
 
-# --- Slider: sposta l'inizio, cambia l'etichetta, marca i vocal ---
+# --- Soglia voce (live): ricalcola le regioni cantate senza rifare Demucs ---
+has_env = bool(track.get("vocal_ratio"))
+if has_env:
+    vocal_floor = st.slider(
+        "Soglia voce (dominanza voce/mix)", 0.0, 1.0, value=float(VOCAL_FLOOR),
+        step=0.01, key=f"floor::{path}",
+        help="Più alta = meno regioni cantate. Ricalcolo immediato, niente Demucs.",
+    )
+else:
+    vocal_floor = VOCAL_FLOOR
+regions_live = _live_regions(track, vocal_floor)
+
+# --- Slider: sposta l'inizio o cambia l'etichetta di ogni tag ---
 st.subheader("Tag delle sezioni")
 st.caption(
-    "Classificazione euristica da confermare a orecchio: sposta l'inizio, cambia "
-    "l'etichetta o spunta 🎤 se c'è voce; il grafico e la tabella si aggiornano."
+    "Classificazione euristica da confermare a orecchio: sposta l'inizio o cambia "
+    "l'etichetta; il 🎤 deriva dalla soglia voce qui sopra. Tutto si aggiorna live."
 )
 
 edited: list[dict] = []
 if track["sections"] and duration:
     for i, s in enumerate(track["sections"]):
-        c1, c2, c3, c4 = st.columns([2, 4, 1, 1])
+        c1, c2, c3 = st.columns([2, 4, 1])
         idx = SECTION_LABELS.index(s["label"]) if s["label"] in SECTION_LABELS else len(SECTION_LABELS) - 1
         label = c1.selectbox(f"Tag {i + 1}", SECTION_LABELS, index=idx,
                              key=f"lab::{path}::{i}")
         start_s = c2.slider(f"Inizio {i + 1} (s)", 0.0, float(duration),
                             value=float(s["start"]), step=0.5, key=f"st::{path}::{i}")
-        vocal = c3.checkbox("🎤", value=bool(s.get("vocal")), key=f"voc::{path}::{i}")
-        c4.markdown(f"`{format_elapsed(start_s)} ({format_remaining(start_s, duration)})`")
-        edited.append({"start": start_s, "label": label, "vocal": vocal})
+        c3.markdown(f"`{format_elapsed(start_s)} ({format_remaining(start_s, duration)})`")
+        edited.append({"start": start_s, "label": label})
 
-    # Riordina per posizione, ricalcola durate e battute
+    # Riordina per posizione, ricalcola durate, battute e flag vocal (da soglia)
     edited.sort(key=lambda d: d["start"])
     starts = [d["start"] for d in edited]
     ends = starts[1:] + [duration]
     for d, end in zip(edited, ends):
         length = max(0.0, end - d["start"])
         d["bars"] = (length / bar_seconds) if bar_seconds else None
+        d["vocal"] = _covered_fraction(d["start"], end, regions_live) >= VOCAL_SECTION_COVER
 else:
     st.info("Nessuna sezione rilevata per questa traccia.")
 
-# Riempie il grafico in cima con le sezioni (eventualmente) modificate.
-# Le regioni cantate (bande rosa) restano quelle rilevate: sono la parte da
-# non sovrapporre ad altre voci in mixaggio.
+# Riempie il grafico in cima con le sezioni e le regioni cantate correnti.
 chart_slot.plotly_chart(
-    _waveform_figure(path, edited, duration, track.get("vocal_regions")),
+    _waveform_figure(path, edited, duration, regions_live),
     use_container_width=True,
 )
 

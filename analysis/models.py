@@ -94,6 +94,8 @@ class TrackAnalysis:
     boundaries: list[Boundary] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
     vocal_regions: list[tuple[float, float]] = field(default_factory=list)
+    vocal_ratio: list[float] = field(default_factory=list)  # dominanza voce/mix per frame
+    vocal_fps: float | None = None                          # frame al secondo di vocal_ratio
     error: str | None = None
     vibe: str | None = None
 
@@ -107,6 +109,8 @@ class TrackAnalysis:
             "boundaries": [b.to_dict() for b in self.boundaries],
             "sections": [s.to_dict() for s in self.sections],
             "vocal_regions": [list(r) for r in self.vocal_regions],
+            "vocal_ratio": [round(x, 3) for x in self.vocal_ratio],
+            "vocal_fps": self.vocal_fps,
             "error": self.error,
         }
 
@@ -121,6 +125,8 @@ class TrackAnalysis:
             boundaries=[Boundary.from_dict(b) for b in d.get("boundaries", [])],
             sections=[Section.from_dict(s) for s in d.get("sections", [])],
             vocal_regions=[tuple(r) for r in d.get("vocal_regions", [])],
+            vocal_ratio=list(d.get("vocal_ratio", [])),
+            vocal_fps=d.get("vocal_fps"),
             error=d.get("error"),
         )
 

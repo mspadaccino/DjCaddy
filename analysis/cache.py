@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-CACHE_VERSION = 7  # v7: vocal = dominanza voce/mix; phrase consecutive collassate
+CACHE_VERSION = 8  # v8: inviluppo vocale in cache (soglia regolabile a review-time)
 
 
 def default_cache_path() -> Path:

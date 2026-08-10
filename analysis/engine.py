@@ -50,6 +50,8 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None,
     boundaries = []
     sections = []
     regions = []
+    vocal_ratio: list[float] = []
+    vocal_fps: float | None = None
     error: str | None = None
 
     try:
@@ -68,15 +70,19 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None,
         if detect_vocals:
             env = vocal_envelope(filepath)   # None se Demucs non disponibile
             if env is not None:
+                times, ratio = env
                 regions = vocal_regions(env)
                 annotate_vocals(sections, regions)
+                vocal_ratio = [float(x) for x in ratio]
+                if len(times) > 1:
+                    vocal_fps = float(1.0 / (times[1] - times[0]))
     except Exception as e:
         error = f"load: {e}"
 
     track = TrackAnalysis(
         path=filepath, genre=genre, bpm=bpm, rms=rms, duration=duration,
         boundaries=boundaries, sections=sections, vocal_regions=regions,
-        error=error,
+        vocal_ratio=vocal_ratio, vocal_fps=vocal_fps, error=error,
     )
     if cache is not None:
         cache.put(filepath, track.to_dict())
