@@ -11,6 +11,7 @@ I file mp3 richiedono ffmpeg installato a livello di sistema (brew install ffmpe
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import altair as alt
@@ -152,7 +153,13 @@ sel = st.selectbox("Traccia da revisionare", options=range(len(names)),
 track = tracks[sel]
 
 bpm_txt = f"{track['bpm']:.0f}" if track["bpm"] is not None else "N/D"
-st.markdown(f"**{track['genre']} / {track['vibe']}** — BPM {bpm_txt}")
+head_col, finder_col = st.columns([4, 1])
+head_col.markdown(f"**{track['genre']} / {track['vibe']}** — BPM {bpm_txt}")
+if finder_col.button("📂 Mostra nel Finder"):
+    try:
+        subprocess.run(["open", "-R", track["path"]], check=True)
+    except Exception as e:
+        st.error(f"Impossibile aprire il Finder: {e}")
 if track["error"]:
     st.warning(f"Avviso in analisi: {track['error']}")
 
