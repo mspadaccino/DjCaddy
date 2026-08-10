@@ -20,6 +20,7 @@ import streamlit as st
 
 from analysis.audio_features import ANALYSIS_SR, load_audio
 from analysis.engine import analyze_library, discover_tracks
+from analysis.models import format_remaining
 
 st.set_page_config(page_title="dj-library-tools — revisione", layout="wide")
 st.title("dj-library-tools — revisione dei phrase boundary")
@@ -43,7 +44,7 @@ def _waveform_envelope(path_str: str, points: int = 2000):
     return times, env
 
 
-def _waveform_chart(path_str: str, boundaries) -> alt.LayerChart:
+def _waveform_chart(path_str: str, boundaries, duration) -> alt.LayerChart:
     times, env = _waveform_envelope(path_str)
     wave_df = pd.DataFrame({"t": times, "amp": env})
     wave = (
@@ -57,12 +58,13 @@ def _waveform_chart(path_str: str, boundaries) -> alt.LayerChart:
     if boundaries:
         b_df = pd.DataFrame(
             {"t": [b["time"] for b in boundaries],
+             "restante": [format_remaining(b["time"], duration) for b in boundaries],
              "label": [f'{b["label"]} ({b["confidence"]:.2f})' for b in boundaries]}
         )
         rules = (
             alt.Chart(b_df)
             .mark_rule(color="red", strokeWidth=2)
-            .encode(x="t:Q", tooltip=["t:Q", "label:N"])
+            .encode(x="t:Q", tooltip=["restante:N", "label:N"])
         )
         return (wave + rules).properties(height=220)
     return wave.properties(height=220)
@@ -97,6 +99,7 @@ if run:
                 "genre": t.genre,
                 "vibe": t.vibe,
                 "bpm": t.bpm,
+                "duration": t.duration,
                 "error": t.error,
                 "boundaries": [b.to_dict() for b in t.boundaries],
             }
@@ -122,13 +125,17 @@ if track["error"]:
     st.warning(f"Avviso in analisi: {track['error']}")
 
 # --- Forma d'onda con boundary sovrapposti ---
-st.altair_chart(_waveform_chart(track["path"], track["boundaries"]),
+duration = track.get("duration")
+st.altair_chart(_waveform_chart(track["path"], track["boundaries"], duration),
                 use_container_width=True)
 
 # --- Player al punto esatto ---
 boundaries = track["boundaries"]
 if boundaries:
-    labels = [f'{b["time"]:.1f}s — {b["label"]} ({b["confidence"]:.2f})' for b in boundaries]
+    labels = [
+        f'{format_remaining(b["time"], duration)} — {b["label"]} ({b["confidence"]:.2f})'
+        for b in boundaries
+    ]
     pick = st.selectbox("Ascolta dal boundary", options=range(len(boundaries)),
                         format_func=lambda i: labels[i])
     start = int(boundaries[pick]["time"])

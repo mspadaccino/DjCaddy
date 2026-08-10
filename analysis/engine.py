@@ -43,11 +43,13 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None) -> TrackAn
     genre = get_genre(filepath)
     bpm: float | None = None
     rms: float | None = None
+    duration: float | None = None
     boundaries = []
     error: str | None = None
 
     try:
         y, sr = load_audio(filepath)
+        duration = float(len(y) / sr) if sr else None
         try:
             window = y[: int(ANALYSIS_DURATION_SECONDS * sr)]
             bpm, rms = compute_bpm_rms(window, sr)
@@ -61,7 +63,7 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None) -> TrackAn
         error = f"load: {e}"
 
     track = TrackAnalysis(
-        path=filepath, genre=genre, bpm=bpm, rms=rms,
+        path=filepath, genre=genre, bpm=bpm, rms=rms, duration=duration,
         boundaries=boundaries, error=error,
     )
     if cache is not None:

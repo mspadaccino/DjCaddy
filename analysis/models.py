@@ -6,6 +6,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def format_remaining(time: float, duration: float | None) -> str:
+    """Formatta un istante come tempo rimanente `-MM:SS` dalla fine del brano.
+
+    Coerente con la visualizzazione di default di djay Pro (countdown). Se la
+    durata non è nota, ripiega sui secondi assoluti dall'inizio.
+    """
+    if duration is None:
+        return f"{time:.2f}"
+    remaining = max(0.0, duration - time)
+    minutes, seconds = divmod(int(round(remaining)), 60)
+    return f"-{minutes:02d}:{seconds:02d}"
+
+
 @dataclass
 class Boundary:
     """Un confine di frase suggerito all'interno di una traccia."""
@@ -36,6 +49,7 @@ class TrackAnalysis:
     genre: str
     bpm: float | None
     rms: float | None
+    duration: float | None = None   # secondi, per il tempo rimanente
     boundaries: list[Boundary] = field(default_factory=list)
     error: str | None = None
     vibe: str | None = None
@@ -46,6 +60,7 @@ class TrackAnalysis:
             "genre": self.genre,
             "bpm": self.bpm,
             "rms": self.rms,
+            "duration": self.duration,
             "boundaries": [b.to_dict() for b in self.boundaries],
             "error": self.error,
         }
@@ -57,6 +72,7 @@ class TrackAnalysis:
             genre=d["genre"],
             bpm=d["bpm"],
             rms=d["rms"],
+            duration=d.get("duration"),
             boundaries=[Boundary.from_dict(b) for b in d.get("boundaries", [])],
             error=d.get("error"),
         )
@@ -69,7 +85,8 @@ class TrackAnalysis:
             "bpm": round(self.bpm, 1) if self.bpm is not None else "",
             "vibe": self.vibe or "",
             "boundaries": "; ".join(
-                f"{b.time:.2f}({b.label} {b.confidence:.2f})" for b in self.boundaries
+                f"{format_remaining(b.time, self.duration)}({b.label} {b.confidence:.2f})"
+                for b in self.boundaries
             ),
             "error": self.error or "",
         }
