@@ -33,12 +33,9 @@ _N_FFT = 2048
 _HOP = 512
 _BEATS_PER_BAR = 4
 
-# Rilevamento vocal (euristico): quota di energia ARMONICA in banda voce.
-# Cattura il contenuto melodico/tonale in banda voce -> buono per la house
-# vocale, ma con falsi positivi sui lead strumentali (flag correggibile a mano).
-VOCAL_HZ_LOW = 300.0
-VOCAL_HZ_HIGH = 3400.0
-VOCAL_THRESHOLD = 0.35
+# Una sezione è "vocal" se almeno questa frazione è coperta da regioni cantate
+# (dallo stem vocale di Demucs, vedi vocals.py).
+VOCAL_SECTION_COVER = 0.10
 
 
 def _label(energy_rel: np.ndarray, bass_ratio: np.ndarray) -> list[str]:
@@ -72,7 +69,7 @@ def _label(energy_rel: np.ndarray, bass_ratio: np.ndarray) -> list[str]:
 
 
 def _section_features(y: np.ndarray, sr: int, starts: list[float], ends: list[float]):
-    """Energia media, quota di basso e quota vocale per sezione (STFT + HPSS)."""
+    """Energia media e quota di basso per ogni sezione (via STFT)."""
     import librosa
 
     S = np.abs(librosa.stft(y, n_fft=_N_FFT, hop_length=_HOP))
@@ -82,16 +79,8 @@ def _section_features(y: np.ndarray, sr: int, starts: list[float], ends: list[fl
     total = S.sum(axis=0)
     low = S[freqs < _LOW_HZ].sum(axis=0)
 
-    # Componente armonica: rimuove percussioni/hi-hat, lasciando voce e tonali.
-    harm = librosa.decompose.hpss(S)[0]
-    voc_band = (freqs >= VOCAL_HZ_LOW) & (freqs < VOCAL_HZ_HIGH)
-    harm_total = harm.sum(axis=0)
-    voc = harm[voc_band].sum(axis=0)
-
-    n_sec = len(starts)
-    energy = np.zeros(n_sec)
-    bass_ratio = np.zeros(n_sec)
-    vocal_ratio = np.zeros(n_sec)
+    energy = np.zeros(len(starts))
+    bass_ratio = np.zeros(len(starts))
     for i, (a, b) in enumerate(zip(starts, ends)):
         mask = (times >= a) & (times < b)
         if not mask.any():                       # sezione più corta di un frame
@@ -100,11 +89,27 @@ def _section_features(y: np.ndarray, sr: int, starts: list[float], ends: list[fl
         e = float(total[mask].mean())
         energy[i] = e
         bass_ratio[i] = float(low[mask].mean()) / e if e > 0 else 0.0
-        ht = float(harm_total[mask].mean())
-        vocal_ratio[i] = float(voc[mask].mean()) / ht if ht > 0 else 0.0
 
     peak = energy.max() if energy.size and energy.max() > 0 else 1.0
-    return energy / peak, bass_ratio, vocal_ratio
+    return energy / peak, bass_ratio
+
+
+def annotate_vocals(sections: list[Section], regions: list[tuple[float, float]]) -> None:
+    """Marca ogni sezione in base alla copertura da parte delle regioni cantate.
+
+    `vocal_score` = frazione della sezione coperta da voce (0..1); `vocal` è
+    True se la copertura supera VOCAL_SECTION_COVER.
+    """
+    for s in sections:
+        length = s.end - s.start
+        if length <= 0:
+            continue
+        covered = sum(
+            max(0.0, min(e, s.end) - max(st, s.start))
+            for st, e in regions if e > s.start and st < s.end
+        )
+        s.vocal_score = covered / length
+        s.vocal = s.vocal_score >= VOCAL_SECTION_COVER
 
 
 def classify_sections(
@@ -119,7 +124,7 @@ def classify_sections(
     starts = sorted({max(0.0, min(c, duration)) for c in cuts})
     ends = starts[1:] + [duration]
 
-    energy_rel, bass_ratio, vocal_ratio = _section_features(y, sr, starts, ends)
+    energy_rel, bass_ratio = _section_features(y, sr, starts, ends)
     labels = _label(energy_rel, bass_ratio)
 
     bar_seconds = (_BEATS_PER_BAR * 60.0 / bpm) if bpm else None
@@ -129,7 +134,5 @@ def classify_sections(
         sections.append(Section(
             start=starts[i], end=ends[i], label=labels[i],
             energy=float(energy_rel[i]), bars=bars,
-            vocal=bool(vocal_ratio[i] >= VOCAL_THRESHOLD),
-            vocal_score=float(vocal_ratio[i]),
         ))
     return sections

@@ -21,6 +21,7 @@ import streamlit as st
 from analysis.audio_features import ANALYSIS_SR, load_audio
 from analysis.engine import analyze_library, discover_tracks
 from analysis.models import SECTION_LABELS, format_elapsed, format_remaining
+from analysis.vocals import available as vocals_available
 from analysis.waveform import compute_frequency_waveform
 
 # Colori dei tag di sezione (accostati ai marker triangolari di djay Pro)
@@ -56,8 +57,8 @@ def _tag_text(label: str, start: float, duration, vocal: bool = False) -> str:
     return f"{mic}{label} {format_elapsed(start)} ({format_remaining(start, duration)})"
 
 
-def _waveform_figure(path_str: str, sections, duration) -> go.Figure:
-    """Waveform colorata (Plotly) + tag di sezione come triangoli hot-cue sull'asse."""
+def _waveform_figure(path_str: str, sections, duration, vocal_regions=None) -> go.Figure:
+    """Waveform colorata (Plotly) + regioni cantate + tag di sezione hot-cue."""
     df = _waveform_df(path_str)
     fig = go.Figure()
 
@@ -70,6 +71,11 @@ def _waveform_figure(path_str: str, sections, duration) -> go.Figure:
         )
 
     xmax = duration if duration else (float(df["t"].max()) if len(df) else 1.0)
+
+    # Regioni cantate: bande evidenziate (dove NON sovrapporre altre voci)
+    for st_, en_ in (vocal_regions or []):
+        fig.add_vrect(x0=st_, x1=en_, fillcolor="#ff5db1", opacity=0.18,
+                      line_width=0, layer="below")
 
     if sections:
         xs = [s["start"] for s in sections]
@@ -125,11 +131,17 @@ col_path, col_browse = st.columns([5, 1])
 folder = col_path.text_input("Percorso della cartella locale con gli mp3", key="folder")
 col_browse.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
 col_browse.button("📂 Sfoglia…", on_click=_pick_folder, use_container_width=True)
-col_run, col_nocache = st.columns([1, 2])
+col_run, col_nocache, col_voc = st.columns([1, 2, 2])
 with col_run:
     run = st.button("Analizza", type="primary")
 with col_nocache:
     no_cache = st.checkbox("Ignora la cache (rianalizza tutto)", value=False)
+with col_voc:
+    want_vocals = st.checkbox("Rileva voce (Demucs, lento)", value=vocals_available(),
+                              disabled=not vocals_available())
+if not vocals_available():
+    st.caption("Demucs non installato: rilevamento voce disattivato "
+               "(puoi comunque taggare i vocal a mano). Installa con `poetry install`.")
 
 if run:
     src = Path(folder).expanduser()
@@ -143,10 +155,11 @@ if run:
         def _cb(i: int, total: int, path: Path) -> None:
             progress.progress(i / total, text=f"[{i}/{total}] {path.name}")
 
-        tracks = analyze_library(src, use_cache=not no_cache, progress=_cb)
+        tracks = analyze_library(src, use_cache=not no_cache, progress=_cb,
+                                 detect_vocals=want_vocals)
         progress.empty()
         # Ripulisce gli slider/selectbox di sezione della run precedente
-        for k in [k for k in st.session_state if k.startswith(("st::", "lab::"))]:
+        for k in [k for k in st.session_state if k.startswith(("st::", "lab::", "voc::"))]:
             del st.session_state[k]
         st.session_state["tracks"] = [
             {
@@ -158,6 +171,7 @@ if run:
                 "duration": t.duration,
                 "error": t.error,
                 "sections": [s.to_dict() for s in t.sections],
+                "vocal_regions": [list(r) for r in t.vocal_regions],
             }
             for t in tracks
         ]
@@ -219,9 +233,13 @@ if track["sections"] and duration:
 else:
     st.info("Nessuna sezione rilevata per questa traccia.")
 
-# Riempie il grafico in cima con le sezioni (eventualmente) modificate
-chart_slot.plotly_chart(_waveform_figure(path, edited, duration),
-                        use_container_width=True)
+# Riempie il grafico in cima con le sezioni (eventualmente) modificate.
+# Le regioni cantate (bande rosa) restano quelle rilevate: sono la parte da
+# non sovrapporre ad altre voci in mixaggio.
+chart_slot.plotly_chart(
+    _waveform_figure(path, edited, duration, track.get("vocal_regions")),
+    use_container_width=True,
+)
 
 # Tabella riepilogativa subito sotto il grafico
 if edited:

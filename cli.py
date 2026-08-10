@@ -77,6 +77,8 @@ def main() -> None:
                         help="Mostra il piano di organizzazione senza copiare i file")
     parser.add_argument("--no-cache", action="store_true",
                         help="Non usa la cache: rianalizza tutti i file")
+    parser.add_argument("--no-vocals", action="store_true",
+                        help="Salta il rilevamento voce (Demucs), molto più veloce")
     args = parser.parse_args()
 
     if not args.source.is_dir():
@@ -87,7 +89,8 @@ def main() -> None:
         sys.exit("Nessun file audio (mp3/flac) trovato nella cartella sorgente.")
     print(f"Trovati {n} file. Analisi in corso...\n")
 
-    tracks = analyze_library(args.source, use_cache=not args.no_cache, progress=_progress)
+    tracks = analyze_library(args.source, use_cache=not args.no_cache,
+                             progress=_progress, detect_vocals=not args.no_vocals)
 
     print("\nRisultati:")
     errors = 0

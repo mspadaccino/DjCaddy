@@ -25,7 +25,8 @@ sia dal CLI batch sia dall'app Streamlit — nessuna logica duplicata.
 | `analysis/audio_features.py` | caricamento audio (librosa) + BPM e RMS in un'unica passata |
 | `analysis/vibe.py` | bucket di tempo + energia a percentili (two-pass) → vibe |
 | `analysis/structure.py` | segmentazione strutturale (Foote novelty su self-similarity) → phrase boundary |
-| `analysis/sections.py` | classificazione delle sezioni (Intro/Build-up/Drop/Breakdown/Outro) da arco di energia e presenza di basso; flag 🎤 vocal (euristico, via HPSS) |
+| `analysis/sections.py` | classificazione delle sezioni (Intro/Build-up/Drop/Breakdown/Outro) da arco di energia e presenza di basso |
+| `analysis/vocals.py` | rilevamento voce via source separation (Demucs): regioni cantate + flag 🎤 per sezione |
 | `analysis/waveform.py` | waveform colorata per bande di frequenza (stile djay Pro) |
 | `analysis/cache.py` | cache per-file (chiave = path, valida per mtime+size) |
 | `analysis/engine.py` | orchestrazione: two-pass, cache, piano di organizzazione |
@@ -94,6 +95,13 @@ orecchio.
 > La classificazione delle sezioni è **euristica** (regole su energia e basso,
 > soglie in `analysis/sections.py`): pensata come punto di partenza da correggere
 > a orecchio, non come verità. Le sezioni ambigue sono marcate `Groove`.
+
+Il **rilevamento voce** usa Demucs (source separation) per isolare lo stem
+vocale: le **regioni cantate** appaiono come bande rosa sul grafico (la parte da
+non sovrapporre ad altre voci in mixaggio) e le sezioni con voce ricevono il flag
+🎤. È accurato ma **pesante**: scarica un modello alla prima esecuzione e gira
+una rete neurale su ogni brano. È opzionale — con `--no-vocals` (CLI) o togliendo
+la spunta nell'app lo salti; se Demucs non è installato il flag resta manuale.
 
 ## Test
 

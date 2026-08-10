@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-CACHE_VERSION = 5  # v5: flag vocal per sezione
+CACHE_VERSION = 6  # v6: vocal da source separation (Demucs) + regioni cantate
 
 
 def default_cache_path() -> Path:

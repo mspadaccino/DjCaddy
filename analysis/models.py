@@ -93,6 +93,7 @@ class TrackAnalysis:
     duration: float | None = None   # secondi, per il tempo rimanente
     boundaries: list[Boundary] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
+    vocal_regions: list[tuple[float, float]] = field(default_factory=list)
     error: str | None = None
     vibe: str | None = None
 
@@ -105,6 +106,7 @@ class TrackAnalysis:
             "duration": self.duration,
             "boundaries": [b.to_dict() for b in self.boundaries],
             "sections": [s.to_dict() for s in self.sections],
+            "vocal_regions": [list(r) for r in self.vocal_regions],
             "error": self.error,
         }
 
@@ -118,6 +120,7 @@ class TrackAnalysis:
             duration=d.get("duration"),
             boundaries=[Boundary.from_dict(b) for b in d.get("boundaries", [])],
             sections=[Section.from_dict(s) for s in d.get("sections", [])],
+            vocal_regions=[tuple(r) for r in d.get("vocal_regions", [])],
             error=d.get("error"),
         )
 

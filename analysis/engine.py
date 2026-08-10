@@ -12,8 +12,9 @@ from pathlib import Path
 from .audio_features import ANALYSIS_DURATION_SECONDS, compute_bpm_rms, load_audio
 from .cache import AnalysisCache, default_cache_path
 from .models import TrackAnalysis
-from .sections import classify_sections
+from .sections import annotate_vocals, classify_sections
 from .structure import detect_boundaries
+from .vocals import vocal_envelope, vocal_regions
 from .tags import get_genre
 from .vibe import bpm_to_tempo_bucket, build_energy_labeler, compute_vibe
 
@@ -30,7 +31,8 @@ def discover_tracks(source: Path) -> list[Path]:
     )
 
 
-def analyze_track(filepath: Path, cache: AnalysisCache | None = None) -> TrackAnalysis:
+def analyze_track(filepath: Path, cache: AnalysisCache | None = None,
+                  detect_vocals: bool = True) -> TrackAnalysis:
     """Analizza una singola traccia (feature per-file). Cache-aware.
 
     Ogni fase è isolata: un file corrotto o un tag mancante non fa cadere il
@@ -47,6 +49,7 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None) -> TrackAn
     duration: float | None = None
     boundaries = []
     sections = []
+    regions = []
     error: str | None = None
 
     try:
@@ -62,12 +65,18 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None) -> TrackAn
             sections = classify_sections(y, sr, boundaries, duration, bpm)
         except Exception as e:
             error = f"{error}; structure: {e}" if error else f"structure: {e}"
+        if detect_vocals:
+            env = vocal_envelope(filepath)   # None se Demucs non disponibile
+            if env is not None:
+                regions = vocal_regions(env)
+                annotate_vocals(sections, regions)
     except Exception as e:
         error = f"load: {e}"
 
     track = TrackAnalysis(
         path=filepath, genre=genre, bpm=bpm, rms=rms, duration=duration,
-        boundaries=boundaries, sections=sections, error=error,
+        boundaries=boundaries, sections=sections, vocal_regions=regions,
+        error=error,
     )
     if cache is not None:
         cache.put(filepath, track.to_dict())
@@ -79,6 +88,7 @@ def analyze_library(
     use_cache: bool = True,
     cache: AnalysisCache | None = None,
     progress: ProgressFn | None = None,
+    detect_vocals: bool = True,
 ) -> list[TrackAnalysis]:
     """Analizza l'intera libreria in due passaggi.
 
@@ -95,7 +105,7 @@ def analyze_library(
     tracks: list[TrackAnalysis] = []
     total = len(paths)
     for i, p in enumerate(paths, start=1):
-        tracks.append(analyze_track(p, active_cache))
+        tracks.append(analyze_track(p, active_cache, detect_vocals=detect_vocals))
         if progress is not None:
             progress(i, total, p)
     if active_cache is not None:
