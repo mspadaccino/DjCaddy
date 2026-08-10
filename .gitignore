@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Poetry / venv
+.venv/
+dist/
+
+# Cache dell'analisi (di default in ~/.cache, ma anche eventuali copie locali)
+.dj_cache/
+*.dj_cache.json
+
+# OS
+.DS_Store
+
+# Streamlit
+.streamlit/secrets.toml

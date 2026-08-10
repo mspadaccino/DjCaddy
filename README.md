@@ -1,0 +1,95 @@
+# dj-library-tools
+
+Strumento locale (macOS) per analizzare una libreria di mp3 e preparare il
+lavoro di DJing su **djay Pro**:
+
+- classificazione automatica per **genere/vibe**,
+- organizzazione in cartelle `Genere/Vibe`,
+- identificazione di **phrase boundary** suggerite per il posizionamento
+  manuale degli hot cue.
+
+> **Nota sui cue point.** djay Pro conserva cue point e loop nel proprio
+> database interno, non nei tag dei file, e non espone un'importazione di cue
+> esterni. Lo strumento quindi **non scrive hot cue dentro djay Pro**: produce
+> timestamp *suggeriti* che confermi a orecchio nell'app di revisione e poi
+> posizioni a mano in djay Pro.
+
+## Architettura
+
+Un **motore di analisi condiviso** (`analysis/`, modulo Python puro) importato
+sia dal CLI batch sia dall'app Streamlit — nessuna logica duplicata.
+
+| Modulo | Responsabilità |
+| --- | --- |
+| `analysis/tags.py` | lettura tag ID3 (genere) via mutagen |
+| `analysis/audio_features.py` | caricamento audio (librosa) + BPM e RMS in un'unica passata |
+| `analysis/vibe.py` | bucket di tempo + energia a percentili (two-pass) → vibe |
+| `analysis/structure.py` | segmentazione strutturale (Foote novelty su self-similarity) → phrase boundary |
+| `analysis/cache.py` | cache per-file (chiave = path, valida per mtime+size) |
+| `analysis/engine.py` | orchestrazione: two-pass, cache, piano di organizzazione |
+| `cli.py` | entry point 1 — CLI batch |
+| `app.py` | entry point 2 — app Streamlit di revisione |
+
+**Caricamento audio.** Ogni file viene caricato **una sola volta** (22050 Hz,
+mono); BPM/RMS sono calcolati sui primi 60 s di quel segnale, la segmentazione
+sull'intero brano.
+
+**Vibe.** BPM → bucket di tempo (`Warm-Up`/`Groove`/`Peak-Time`/
+`High-Energy-Tempo`); RMS → percentili 33/66 relativi alla libreria →
+`Low`/`Mid`/`High`. Vibe finale es. `Peak-Time-High`. Bucket e percentili si
+regolano in `analysis/vibe.py`.
+
+## Setup
+
+Richiede **ffmpeg** a livello di sistema (librosa decodifica gli mp3 via
+audioread):
+
+```bash
+brew install ffmpeg
+```
+
+Dipendenze Python con Poetry (Python ^3.11):
+
+```bash
+poetry install
+```
+
+## Uso
+
+### CLI batch
+
+```bash
+# solo report a video
+poetry run python cli.py ~/Music/dj
+
+# report su file + dry-run dell'organizzazione (copia, non sposta)
+poetry run python cli.py ~/Music/dj --dest ~/Music/master --report report.csv --dry-run
+
+# organizza davvero in Genere/Vibe (senza sovrascrivere file esistenti)
+poetry run python cli.py ~/Music/dj --dest ~/Music/master
+```
+
+Il report (CSV o JSON) contiene per ogni traccia: path, genere, BPM, vibe e i
+timestamp delle phrase boundary suggerite. La cache evita di rianalizzare i
+file già processati: usa `--no-cache` per forzare la rianalisi.
+
+### App Streamlit (revisione)
+
+```bash
+poetry run streamlit run app.py
+```
+
+Indica il **percorso** della cartella (i file sono già su disco, niente
+upload), lancia l'analisi (stesso motore e cache del CLI), poi per ogni traccia
+rivedi la forma d'onda con i boundary sovrapposti, ascolti dal punto esatto e
+correggi/confermi i marker.
+
+## Test
+
+```bash
+poetry run pytest
+```
+
+I test coprono la logica pura (bucket/percentili, cache, novelty). L'analisi
+audio end-to-end va provata su un **piccolo sottoinsieme** di file prima di
+girare sull'intera libreria.

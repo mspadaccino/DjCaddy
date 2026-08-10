@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "dj-library-tools"
+version = "0.1.0"
+description = "Analisi di una libreria mp3 per DJing: classificazione genere/vibe e phrase boundary suggerite per il posizionamento manuale degli hot cue."
+authors = ["Maurizio Spadaccino <mspadaccino@gmail.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+mutagen = "^1.47"
+librosa = "^0.10"
+numpy = ">=1.26"
+streamlit = "^1.37"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
