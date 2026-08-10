@@ -68,6 +68,8 @@ class TrackAnalysis:
             "genre": self.genre,
             "bpm": round(self.bpm, 1) if self.bpm is not None else "",
             "vibe": self.vibe or "",
-            "boundaries": ";".join(f"{b.time:.2f}" for b in self.boundaries),
+            "boundaries": "; ".join(
+                f"{b.time:.2f}({b.label} {b.confidence:.2f})" for b in self.boundaries
+            ),
             "error": self.error or "",
         }

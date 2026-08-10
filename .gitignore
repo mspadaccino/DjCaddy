@@ -12,6 +12,12 @@ dist/
 .dj_cache/
 *.dj_cache.json
 
+# Report generati dall'analisi
+report.csv
+report.json
+*.report.csv
+*.report.json
+
 # OS
 .DS_Store
 
