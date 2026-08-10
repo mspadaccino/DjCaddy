@@ -25,6 +25,8 @@ sia dal CLI batch sia dall'app Streamlit — nessuna logica duplicata.
 | `analysis/audio_features.py` | caricamento audio (librosa) + BPM e RMS in un'unica passata |
 | `analysis/vibe.py` | bucket di tempo + energia a percentili (two-pass) → vibe |
 | `analysis/structure.py` | segmentazione strutturale (Foote novelty su self-similarity) → phrase boundary |
+| `analysis/sections.py` | classificazione delle sezioni (Intro/Build-up/Drop/Breakdown/Outro) da arco di energia e presenza di basso |
+| `analysis/waveform.py` | waveform colorata per bande di frequenza (stile djay Pro) |
 | `analysis/cache.py` | cache per-file (chiave = path, valida per mtime+size) |
 | `analysis/engine.py` | orchestrazione: two-pass, cache, piano di organizzazione |
 | `cli.py` | entry point 1 — CLI batch |
@@ -83,8 +85,15 @@ poetry run streamlit run app.py
 Indica il **percorso** della cartella (i file sono già su disco, niente
 upload), lancia l'analisi (stesso motore e cache del CLI), poi per ogni traccia
 rivedi la **forma d'onda colorata per bande di frequenza** (stile djay Pro:
-rosso = bassi, verde = medi, blu = alti) con i boundary sovrapposti, ascolti
-dal punto esatto e correggi/confermi i marker.
+rosso = bassi, verde = medi, blu = alti) con i **tag di sezione** sovrapposti
+(Intro/Build-up/Drop/Breakdown/Outro). Per ogni tag uno **slider** sposta
+l'inizio della sezione e un menù ne cambia l'etichetta; il grafico e il report
+scaricabile si aggiornano. Ascolti dall'inizio di ogni sezione per confermare a
+orecchio.
+
+> La classificazione delle sezioni è **euristica** (regole su energia e basso,
+> soglie in `analysis/sections.py`): pensata come punto di partenza da correggere
+> a orecchio, non come verità. Le sezioni ambigue sono marcate `Groove`.
 
 ## Test
 

@@ -36,13 +36,17 @@ from analysis.engine import (
 )
 from analysis.models import TrackAnalysis
 
-REPORT_COLUMNS = ["path", "genre", "bpm", "vibe", "boundaries", "error"]
+REPORT_COLUMNS = ["path", "genre", "bpm", "vibe", "sections", "boundaries", "error"]
 
 
 def _write_report(tracks: list[TrackAnalysis], out: Path, fmt: str) -> None:
     if fmt == "json":
         payload = [
-            {**t.to_row(), "boundaries_detail": [b.to_dict() for b in t.boundaries]}
+            {
+                **t.to_row(),
+                "sections_detail": [s.to_dict() for s in t.sections],
+                "boundaries_detail": [b.to_dict() for b in t.boundaries],
+            }
             for t in tracks
         ]
         out.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -89,8 +93,9 @@ def main() -> None:
     errors = 0
     for t in tracks:
         bpm = f"{t.bpm:.0f}" if t.bpm is not None else "N/D"
-        nb = len(t.boundaries)
-        print(f"  {t.path.name}  ->  {t.genre}/{t.vibe}  (BPM: {bpm}, boundary: {nb})")
+        secs = " | ".join(s.label for s in t.sections) or "-"
+        print(f"  {t.path.name}  ->  {t.genre}/{t.vibe}  (BPM: {bpm})")
+        print(f"      sezioni: {secs}")
         if t.error:
             errors += 1
             print(f"      [WARN] {t.error}")

@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-CACHE_VERSION = 2  # v2: aggiunta la durata (per il tempo rimanente)
+CACHE_VERSION = 3  # v3: aggiunte le sezioni classificate
 
 
 def default_cache_path() -> Path:

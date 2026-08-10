@@ -5,6 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# Tassonomia delle sezioni (struttura dance/house/techno "da club").
+# "Groove" è il fallback per ciò che non ricade chiaramente nelle altre.
+INTRO = "Intro"
+BUILDUP = "Build-up"
+DROP = "Drop/Chorus"
+BREAKDOWN = "Breakdown"
+OUTRO = "Outro"
+GROOVE = "Groove"
+SECTION_LABELS = [INTRO, BUILDUP, DROP, BREAKDOWN, OUTRO, GROOVE]
+
 
 def format_remaining(time: float, duration: float | None) -> str:
     """Formatta un istante come tempo rimanente `-MM:SS` dalla fine del brano.
@@ -36,6 +46,26 @@ class Boundary:
 
 
 @dataclass
+class Section:
+    """Una sezione strutturale classificata (fra due boundary)."""
+
+    start: float          # secondi dall'inizio
+    end: float            # secondi dall'inizio
+    label: str            # una delle SECTION_LABELS
+    energy: float = 0.0   # 0..1, energia relativa al massimo del brano
+    bars: float | None = None  # lunghezza stimata in battute (da BPM)
+
+    def to_dict(self) -> dict:
+        return {"start": self.start, "end": self.end, "label": self.label,
+                "energy": self.energy, "bars": self.bars}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Section":
+        return cls(start=d["start"], end=d["end"], label=d["label"],
+                   energy=d.get("energy", 0.0), bars=d.get("bars"))
+
+
+@dataclass
 class TrackAnalysis:
     """Risultato dell'analisi per singola traccia.
 
@@ -51,6 +81,7 @@ class TrackAnalysis:
     rms: float | None
     duration: float | None = None   # secondi, per il tempo rimanente
     boundaries: list[Boundary] = field(default_factory=list)
+    sections: list[Section] = field(default_factory=list)
     error: str | None = None
     vibe: str | None = None
 
@@ -62,6 +93,7 @@ class TrackAnalysis:
             "rms": self.rms,
             "duration": self.duration,
             "boundaries": [b.to_dict() for b in self.boundaries],
+            "sections": [s.to_dict() for s in self.sections],
             "error": self.error,
         }
 
@@ -74,6 +106,7 @@ class TrackAnalysis:
             rms=d["rms"],
             duration=d.get("duration"),
             boundaries=[Boundary.from_dict(b) for b in d.get("boundaries", [])],
+            sections=[Section.from_dict(s) for s in d.get("sections", [])],
             error=d.get("error"),
         )
 
@@ -87,6 +120,11 @@ class TrackAnalysis:
             "boundaries": "; ".join(
                 f"{format_remaining(b.time, self.duration)}({b.label} {b.confidence:.2f})"
                 for b in self.boundaries
+            ),
+            "sections": "; ".join(
+                f"{s.label} {format_remaining(s.start, self.duration)}"
+                + (f" [{s.bars:.0f}b]" if s.bars else "")
+                for s in self.sections
             ),
             "error": self.error or "",
         }

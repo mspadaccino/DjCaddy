@@ -12,6 +12,7 @@ from pathlib import Path
 from .audio_features import ANALYSIS_DURATION_SECONDS, compute_bpm_rms, load_audio
 from .cache import AnalysisCache, default_cache_path
 from .models import TrackAnalysis
+from .sections import classify_sections
 from .structure import detect_boundaries
 from .tags import get_genre
 from .vibe import bpm_to_tempo_bucket, build_energy_labeler, compute_vibe
@@ -45,6 +46,7 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None) -> TrackAn
     rms: float | None = None
     duration: float | None = None
     boundaries = []
+    sections = []
     error: str | None = None
 
     try:
@@ -57,6 +59,7 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None) -> TrackAn
             error = f"features: {e}"
         try:
             boundaries = detect_boundaries(y, sr)
+            sections = classify_sections(y, sr, boundaries, duration, bpm)
         except Exception as e:
             error = f"{error}; structure: {e}" if error else f"structure: {e}"
     except Exception as e:
@@ -64,7 +67,7 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None) -> TrackAn
 
     track = TrackAnalysis(
         path=filepath, genre=genre, bpm=bpm, rms=rms, duration=duration,
-        boundaries=boundaries, error=error,
+        boundaries=boundaries, sections=sections, error=error,
     )
     if cache is not None:
         cache.put(filepath, track.to_dict())
