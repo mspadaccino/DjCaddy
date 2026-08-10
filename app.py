@@ -11,16 +11,18 @@ I file mp3 richiedono ffmpeg installato a livello di sistema (brew install ffmpe
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 from analysis.audio_features import ANALYSIS_SR, load_audio
-from analysis.engine import AUDIO_EXTENSIONS, analyze_file
+from analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
 from analysis.models import SECTION_LABELS, format_elapsed, format_remaining
 from analysis.sections import VOCAL_SECTION_COVER
 from analysis.vocals import VOCAL_FLOOR, available as vocals_available
@@ -76,70 +78,161 @@ def _waveform_df(path_str: str, points: int = 1600) -> pd.DataFrame:
     return pd.DataFrame({"t": t, "amp": amp, "color": colors})
 
 
-def _tag_text(label: str, start: float, duration, vocal: bool = False) -> str:
-    """Etichetta del tag: tipo (con 🎤 se vocal), tempo dall'inizio e residuo."""
-    mic = "🎤 " if vocal else ""
-    return f"{mic}{label} {format_elapsed(start)} ({format_remaining(start, duration)})"
-
-
-def _waveform_figure(path_str: str, sections, duration, vocal_regions=None,
-                     playhead=None) -> go.Figure:
-    """Waveform colorata (Plotly) + regioni cantate + tag di sezione hot-cue."""
-    df = _waveform_df(path_str)
-    fig = go.Figure()
-
-    if len(df):
-        width = float(df["t"].iloc[1] - df["t"].iloc[0]) if len(df) > 1 else 0.1
-        fig.add_bar(
-            x=df["t"], y=(2 * df["amp"]), base=(-df["amp"]),
-            marker=dict(color=list(df["color"])), width=width,
-            hoverinfo="skip", showlegend=False,
-        )
-
-    xmax = duration if duration else (float(df["t"].max()) if len(df) else 1.0)
-
-    # Regioni cantate: bande evidenziate (dove NON sovrapporre altre voci)
-    for st_, en_ in (vocal_regions or []):
-        fig.add_vrect(x0=st_, x1=en_, fillcolor="#ff5db1", opacity=0.18,
-                      line_width=0, layer="below")
-
-    if sections:
-        xs = [s["start"] for s in sections]
-        cols = [SECTION_COLORS.get(s["label"], "#ffffff") for s in sections]
-        texts = [_tag_text(s["label"], s["start"], duration, s.get("vocal", False))
-                 for s in sections]
-
-        # Linee verticali tenui in corrispondenza dei tagli
-        for x, c in zip(xs, cols):
-            fig.add_vline(x=x, line=dict(color=c, width=1), opacity=0.35)
-
-        # Triangoli hot-cue sull'asse orizzontale, colorati per tipo
-        fig.add_scatter(
-            x=xs, y=[-1.12] * len(xs), mode="markers",
-            marker=dict(symbol="triangle-up", size=15, color=cols,
-                        line=dict(color="#0f0f12", width=1)),
-            hovertext=texts, hoverinfo="text", showlegend=False,
-        )
-        # Etichetta accanto a ogni triangolo (tipo + tempi), colore del tipo
-        for x, c, txt in zip(xs, cols, texts):
-            fig.add_annotation(
-                x=x, y=-1.12, text=txt, showarrow=False,
-                xanchor="left", yanchor="middle", xshift=8,
-                font=dict(size=10, color=c),
+@st.cache_data(show_spinner=False)
+def _audio_data_uri(path_str: str, mtime: float) -> str | None:
+    """Prepara un mp3 compatto (ffmpeg) da incorporare nel player, in cache."""
+    src = Path(path_str)
+    token = hashlib.md5(f"{path_str}:{mtime}".encode()).hexdigest()
+    tmp = Path(tempfile.gettempdir()) / f"wavecut_{token}.mp3"
+    try:
+        if not tmp.exists():
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(src), "-ac", "1", "-b:a", "96k",
+                 "-f", "mp3", str(tmp)],
+                check=True, capture_output=True,
             )
+        return "data:audio/mpeg;base64," + base64.b64encode(tmp.read_bytes()).decode()
+    except Exception:
+        if src.suffix.lower() == ".mp3":   # fallback: incorpora l'mp3 originale
+            try:
+                return "data:audio/mpeg;base64," + base64.b64encode(src.read_bytes()).decode()
+            except Exception:
+                return None
+        return None
 
-    # Testina di riproduzione
-    if playhead is not None:
-        fig.add_vline(x=playhead, line=dict(color="#ffe14d", width=2), opacity=0.95)
 
-    fig.update_layout(
-        height=280, margin=dict(l=10, r=10, t=10, b=10),
-        paper_bgcolor="#0f0f12", plot_bgcolor="#0f0f12", bargap=0,
-        xaxis=dict(title="secondi", range=[0, xmax], color="#bbb",
-                   gridcolor="#2a2a2a", zeroline=False),
-        yaxis=dict(visible=False, range=[-1.4, 1.05], fixedrange=True),
-    )
-    return fig
+# --- Componente CCv2: waveform interattiva + audio sincronizzato ---
+_PLAYER_HTML = """
+<div class="wc-wrap" style="width:100%;font-family:system-ui,-apple-system,sans-serif;">
+  <canvas class="wc-canvas" style="width:100%;height:200px;display:block;
+    border-radius:6px;cursor:pointer;background:#0f0f12;"></canvas>
+  <div style="display:flex;align-items:center;gap:12px;margin-top:6px;">
+    <audio class="wc-audio" controls preload="auto" style="flex:1;height:34px;"></audio>
+    <span class="wc-time" style="color:#bbb;font-size:12px;
+      font-variant-numeric:tabular-nums;white-space:nowrap;">00:00.0 / 00:00.0</span>
+  </div>
+</div>
+"""
+
+_PLAYER_JS = """
+export default function (component) {
+  const { data, parentElement } = component;
+  const root = parentElement;
+
+  function fmt(t) {
+    if (!isFinite(t) || t < 0) t = 0;
+    const m = Math.floor(t / 60);
+    const s = (t - m * 60);
+    return String(m).padStart(2, "0") + ":" + s.toFixed(1).padStart(4, "0");
+  }
+
+  function buildWave(ui) {
+    const cv = ui.canvas, d = ui.data;
+    const dpr = window.devicePixelRatio || 1;
+    ui.dpr = dpr;
+    const cw = cv.clientWidth || 600, ch = cv.clientHeight || 200;
+    cv.width = Math.round(cw * dpr);
+    cv.height = Math.round(ch * dpr);
+    const off = document.createElement("canvas");
+    off.width = cv.width; off.height = cv.height;
+    const ctx = off.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = "#0f0f12"; ctx.fillRect(0, 0, cw, ch);
+    const dur = d.duration || 1, mid = ch / 2;
+    (d.regions || []).forEach(([s, e]) => {
+      const x0 = s / dur * cw, x1 = e / dur * cw;
+      ctx.fillStyle = "rgba(255,93,177,0.18)";
+      ctx.fillRect(x0, 0, Math.max(1, x1 - x0), ch);
+    });
+    const amp = d.amp || [], col = d.colors || [], n = amp.length;
+    ctx.lineWidth = Math.max(1, cw / Math.max(1, n));
+    for (let i = 0; i < n; i++) {
+      const x = i / n * cw, h = amp[i] * mid;
+      ctx.strokeStyle = col[i] || "#888";
+      ctx.beginPath(); ctx.moveTo(x, mid - h); ctx.lineTo(x, mid + h); ctx.stroke();
+    }
+    (d.sections || []).forEach(sec => {
+      const x = sec.t / dur * cw;
+      ctx.strokeStyle = sec.color; ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ch); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = sec.color;
+      ctx.beginPath(); ctx.moveTo(x - 4, ch - 1); ctx.lineTo(x + 4, ch - 1);
+      ctx.lineTo(x, ch - 9); ctx.closePath(); ctx.fill();
+      ctx.font = "10px system-ui"; ctx.fillText(sec.label, x + 5, 12);
+    });
+    ui.wave = off;
+  }
+
+  function draw(ui) {
+    const cv = ui.canvas;
+    if (!ui.data) return;
+    if (Math.abs(cv.clientWidth * (ui.dpr || 1) - cv.width) > 1) buildWave(ui);
+    const ctx = cv.getContext("2d");
+    if (ui.wave) ctx.drawImage(ui.wave, 0, 0);
+    const dur = ui.data.duration || 1;
+    const dpr = ui.dpr || 1;
+    const x = (ui.audio.currentTime / dur) * cv.clientWidth * dpr;
+    ctx.save();
+    ctx.strokeStyle = "#ffe14d"; ctx.lineWidth = 2 * dpr;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cv.height); ctx.stroke();
+    ctx.restore();
+    ui.timeEl.textContent = fmt(ui.audio.currentTime) + " / " + fmt(dur);
+  }
+
+  let ui = root.__wc;
+  if (!ui) {
+    const canvas = root.querySelector(".wc-canvas");
+    const audio = root.querySelector(".wc-audio");
+    const timeEl = root.querySelector(".wc-time");
+    ui = root.__wc = { canvas, audio, timeEl, data: null, wave: null, raf: null, dpr: 1 };
+    canvas.addEventListener("click", (e) => {
+      const r = canvas.getBoundingClientRect();
+      if (ui.data && ui.data.duration) {
+        ui.audio.currentTime = ((e.clientX - r.left) / r.width) * ui.data.duration;
+      }
+    });
+    const loop = () => { draw(ui); ui.raf = requestAnimationFrame(loop); };
+    ui.raf = requestAnimationFrame(loop);
+  }
+  ui.data = data;
+  if (ui.audio.dataset.aid !== data.audioId) {   // cambia sorgente solo se serve
+    ui.audio.src = data.audio;
+    ui.audio.dataset.aid = data.audioId;
+  }
+  buildWave(ui);
+
+  return () => { if (ui.raf) cancelAnimationFrame(ui.raf); };
+}
+"""
+
+_WAVE_PLAYER = st.components.v2.component(
+    "wavecut_player", html=_PLAYER_HTML, js=_PLAYER_JS,
+)
+
+
+def wave_player(path: str, sections, regions, duration, key: str) -> None:
+    """Monta il player interattivo (waveform + audio sincronizzato)."""
+    mtime = Path(path).stat().st_mtime
+    audio = _audio_data_uri(path, mtime)
+    if audio is None:
+        st.warning("Player interattivo non disponibile (serve ffmpeg): uso il player base.")
+        mime = "audio/flac" if path.lower().endswith(".flac") else "audio/mp3"
+        st.audio(Path(path).read_bytes(), format=mime)
+        return
+    df = _waveform_df(path)
+    sec = [{"t": float(s["start"]),
+            "label": ("🎤 " if s.get("vocal") else "") + s["label"],
+            "color": SECTION_COLORS.get(s["label"], "#ffffff")} for s in sections]
+    _WAVE_PLAYER(key=key, data={
+        "amp": [round(float(a), 3) for a in df["amp"].tolist()],
+        "colors": df["color"].tolist(),
+        "duration": float(duration or 0.0),
+        "sections": sec,
+        "regions": [[float(a), float(b)] for a, b in regions],
+        "audio": audio,
+        "audioId": f"{path}:{mtime}",
+    })
 
 
 def _pick_file() -> None:
@@ -165,7 +258,8 @@ col_run, col_nocache, col_voc = st.columns([1, 2, 2])
 with col_run:
     run = st.button("Analizza", type="primary")
 with col_nocache:
-    no_cache = st.checkbox("Ignora la cache (rianalizza)", value=False)
+    force = st.checkbox("Force analysis if exists", value=False,
+                        help="Rianalizza anche se esiste già il file <nome>_analysis.json")
 with col_voc:
     want_vocals = st.checkbox("Rileva voce (Demucs, lento)", value=vocals_available(),
                               disabled=not vocals_available())
@@ -180,9 +274,14 @@ if run:
     elif src.suffix.lower() not in AUDIO_EXTENSIONS:
         st.error(f"Formato non supportato ({src.suffix}). Usa mp3 o flac.")
     else:
-        with st.spinner(f"Analisi di {src.name} in corso… "
-                        "(la prima volta con voce può richiedere qualche minuto)"):
-            t = analyze_file(src, use_cache=not no_cache, detect_vocals=want_vocals)
+        existing = None if force else load_analysis(src)
+        if existing is not None:
+            t, from_file = existing, True
+        else:
+            with st.spinner(f"Analisi di {src.name} in corso… "
+                            "(la prima volta con voce può richiedere qualche minuto)"):
+                t = analyze_file(src, use_cache=not force, detect_vocals=want_vocals)
+            from_file = False
         # Ripulisce gli slider di sezione della run precedente
         for k in [k for k in st.session_state if k.startswith(("st::", "lab::", "floor::"))]:
             del st.session_state[k]
@@ -198,6 +297,7 @@ if run:
             "vocal_regions": [list(r) for r in t.vocal_regions],
             "vocal_ratio": t.vocal_ratio,
             "vocal_fps": t.vocal_fps,
+            "from_file": from_file,
         }
 
 track = st.session_state.get("track")
@@ -205,7 +305,10 @@ if not track:
     st.info("Scegli un brano e premi «Analizza» per iniziare.")
     st.stop()
 
-st.success(f"Analizzato: {track['name']}")
+if track.get("from_file"):
+    st.success(f"Caricato da {Path(track['name']).stem}_analysis.json: {track['name']}")
+else:
+    st.success(f"Analizzato: {track['name']}")
 
 bpm_txt = f"{track['bpm']:.0f}" if track["bpm"] is not None else "N/D"
 st.markdown(f"**{track['genre']}** — {track['vibe']} — BPM {bpm_txt}")
@@ -216,11 +319,10 @@ duration = track.get("duration")
 path = track["path"]
 bar_seconds = (4 * 60.0 / track["bpm"]) if track["bpm"] else None
 
-# Ordine visivo: grafico, player+selettore, tabella cue, tabella cluster vocali.
+# Ordine visivo: player interattivo, tabella cue, tabella cluster vocali.
 # I controlli (soglia voce, slider sezioni) stanno sotto e riempiono questi
 # contenitori, così tutto si aggiorna live.
-chart_slot = st.empty()
-player_container = st.container()
+player_slot = st.container()
 cues_container = st.container()
 vocals_container = st.container()
 
@@ -266,53 +368,14 @@ if track["sections"] and duration:
 else:
     st.info("Nessuna sezione rilevata per questa traccia.")
 
-# --- Punti di cue (sezioni + parti vocali) e stato di riproduzione ---
-cue_points = [(s["start"], f'{format_remaining(s["start"], duration)} — {s["label"]}')
-              for s in edited]
-cue_points += [(st_, f'{format_remaining(st_, duration)} — 🎤 Voce')
-               for st_, _ in regions_live]
-cue_points.sort(key=lambda c: c[0])
-
-pos_key = f"pos::{path}"
-goto_key = f"goto::{path}"
-if pos_key not in st.session_state:
-    st.session_state[pos_key] = 0.0
-
-
-def _seek_to_cue():
-    sel = st.session_state.get(goto_key)
-    if isinstance(sel, int) and 0 <= sel < len(cue_points):
-        st.session_state[pos_key] = float(cue_points[sel][0])
-
-
-playhead = float(st.session_state.get(pos_key, 0.0))
-
-# --- Grafico (in cima) con sezioni, regioni cantate e testina di riproduzione ---
-chart_slot.plotly_chart(
-    _waveform_figure(path, edited, duration, regions_live, playhead),
-    use_container_width=True,
-)
-
-# --- Controllo di riproduzione subito sotto il grafico ---
-with player_container:
+# --- Player interattivo (waveform + audio sincronizzato), sotto l'header ---
+with player_slot:
     if duration:
-        col_slider, col_goto = st.columns([3, 2])
-        col_slider.slider("Posizione (s)", 0.0, float(duration), step=0.1, key=pos_key)
-        if cue_points:
-            cur = st.session_state.get(goto_key)
-            if not isinstance(cur, int) or cur >= len(cue_points):
-                st.session_state[goto_key] = 0
-            col_goto.selectbox("Salta a…", options=range(len(cue_points)),
-                               format_func=lambda i: cue_points[i][1],
-                               key=goto_key, on_change=_seek_to_cue)
-    pos = float(st.session_state.get(pos_key, 0.0))
-    st.caption(f"▶ {format_elapsed(pos)} ({format_remaining(pos, duration)})")
-    try:
-        audio_path = Path(path)
-        mime = "audio/flac" if audio_path.suffix.lower() == ".flac" else "audio/mp3"
-        st.audio(audio_path.read_bytes(), format=mime, start_time=int(pos))
-    except Exception as e:
-        st.error(f"Impossibile aprire l'audio: {e}")
+        wave_player(path, edited, regions_live, duration, key=f"player::{path}")
+        st.caption("Clic sull'onda per spostarti al punto · ▶ per ascoltare · "
+                   "linea gialla = testina, bande rosa = voce, triangoli = sezioni.")
+    else:
+        st.info("Durata non disponibile: player non mostrabile.")
 
 # --- Tabella dei cue (sezioni) ---
 if edited:

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -89,9 +90,38 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None,
     return track
 
 
+def sidecar_path(filepath: Path) -> Path:
+    """Percorso del file di analisi accanto al brano: <nome>_analysis.json."""
+    return filepath.with_name(f"{filepath.stem}_analysis.json")
+
+
+def save_analysis(track: TrackAnalysis) -> Path | None:
+    """Salva l'analisi come sidecar accanto al brano. Best-effort."""
+    p = sidecar_path(track.path)
+    try:
+        p.write_text(json.dumps(track.to_dict(), ensure_ascii=False))
+        return p
+    except Exception:
+        return None
+
+
+def load_analysis(filepath: Path) -> TrackAnalysis | None:
+    """Ricarica l'analisi dal sidecar, se esiste ed è leggibile."""
+    p = sidecar_path(filepath)
+    if not p.exists():
+        return None
+    try:
+        d = json.loads(p.read_text())
+        track = TrackAnalysis.from_dict(filepath, d)
+        track.vibe = bpm_to_tempo_bucket(track.bpm)
+        return track
+    except Exception:
+        return None
+
+
 def analyze_file(filepath: Path, use_cache: bool = True,
                  detect_vocals: bool = True) -> TrackAnalysis:
-    """Analizza un singolo brano e ne restituisce il risultato.
+    """Analizza un singolo brano, salva il sidecar e restituisce il risultato.
 
     La `vibe` completa richiede una libreria (energia a percentili relativi):
     con un brano solo assegna solo il bucket di tempo, che è ben definito.
@@ -101,6 +131,7 @@ def analyze_file(filepath: Path, use_cache: bool = True,
     if cache is not None:
         cache.save()
     track.vibe = bpm_to_tempo_bucket(track.bpm)
+    save_analysis(track)
     return track
 
 

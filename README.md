@@ -84,7 +84,10 @@ poetry run streamlit run app.py
 ```
 
 Scegli un **singolo brano** (campo path o «Sfoglia…», i file sono già su disco),
-lancia l'analisi (stesso motore e cache del CLI), poi
+lancia l'analisi. Ogni analisi salva un **sidecar** `<nome>_analysis.json`
+accanto al brano: alla ricarica successiva, se il file esiste e *Force analysis
+if exists* è spento, i risultati vengono **ricaricati da lì** senza rianalizzare
+(niente Demucs). Poi
 rivedi la **forma d'onda colorata per bande di frequenza** (stile djay Pro:
 rosso = bassi, verde = medi, blu = alti) con i **tag di sezione** sovrapposti
 (Intro/Build-up/Drop/Breakdown/Outro). Per ogni tag uno **slider** sposta

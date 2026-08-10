@@ -18,6 +18,9 @@ report.json
 *.report.csv
 *.report.json
 
+# Sidecar di analisi per-brano (accanto ai file audio)
+*_analysis.json
+
 # OS
 .DS_Store
 
