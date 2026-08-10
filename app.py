@@ -274,12 +274,9 @@ cue_points += [(st_, f'{format_remaining(st_, duration)} — 🎤 Voce')
                for st_, _ in regions_live]
 cue_points.sort(key=lambda c: c[0])
 with player_container:
-    goto_key = f"goto::{path}"
-    if st.session_state.get(goto_key, 0) >= len(cue_points):  # opzioni cambiate
-        st.session_state[goto_key] = 0
     if cue_points:
         pick = st.selectbox("Vai a…", options=range(len(cue_points)),
-                            format_func=lambda i: cue_points[i][1], key=goto_key)
+                            format_func=lambda i: cue_points[i][1])
         start = int(cue_points[pick][0])
     else:
         start = 0
