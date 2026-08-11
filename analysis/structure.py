@@ -24,6 +24,7 @@ from .models import Boundary
 # Parametri (in "beat", non secondi: seguono la griglia musicale)
 KERNEL_HALF_BEATS = 16     # semi-lato del kernel a scacchiera (~4 battute in 4/4)
 MIN_GAP_BEATS = 16         # distanza minima fra due boundary (~4 battute)
+EDGE_GAP_BEATS = 4         # distanza minima dai bordi del brano (~1 battuta)
 PEAK_DELTA = 0.10          # soglia relativa di prominenza del picco
 MIN_BEATS = 2 * KERNEL_HALF_BEATS + 1  # brani troppo corti: nessun boundary
 
@@ -53,6 +54,25 @@ def _novelty(ssm: np.ndarray, half: int) -> np.ndarray:
     if peak > 0:
         nov = nov / peak
     return nov
+
+
+def _keep_away_from_edges(peaks, last_beat_idx: int, gap_beats: int = EDGE_GAP_BEATS):
+    """Scarta i picchi che ritaglierebbero una sezione più corta di una battuta.
+
+    `fix_frames` aggiunge due frame sintetici, uno a 0 e uno a fine traccia,
+    che non sono beat rilevati; con il padding `edge` della SSM producono
+    picchi di novelty spuri proprio sui bordi. Su un brano reale usciva un
+    boundary a 0.046 s, cioè una sezione di 46 ms: inutile da ascoltare e,
+    peggio, uno degli 8 pad hot-cue di djay Pro sprecato su un doppione del
+    cue a inizio brano.
+
+    La soglia è UNA BATTUTA, non la distanza minima fra due boundary
+    (MIN_GAP_BEATS, ~4 battute): sui bordi serve solo a togliere le schegge,
+    e l'outro di un brano da club dura spesso pochi secondi — con la soglia
+    piena sparirebbe, insieme al punto di mix-out che a un DJ serve. Pura,
+    testabile.
+    """
+    return [p for p in peaks if gap_beats <= p <= last_beat_idx - gap_beats]
 
 
 def _energy_label(rms_sync: np.ndarray, idx: int, w: int = 8) -> str:
@@ -123,7 +143,7 @@ def detect_boundaries(y: np.ndarray, sr: int) -> list[Boundary]:
 
     boundaries: list[Boundary] = []
     last_beat_idx = len(beat_times) - 1
-    for p in peaks:
+    for p in _keep_away_from_edges(peaks, last_beat_idx):
         col = int(min(p, last_beat_idx))          # colonna sync -> onset esatto del beat p
         time = float(beat_times[col])
         conf = float(nov[int(min(p, n - 1))])

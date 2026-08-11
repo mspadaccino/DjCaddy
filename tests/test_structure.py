@@ -1,6 +1,12 @@
 import numpy as np
 
-from analysis.structure import _checkerboard_kernel, _novelty
+from analysis.structure import (
+    EDGE_GAP_BEATS,
+    MIN_GAP_BEATS,
+    _checkerboard_kernel,
+    _keep_away_from_edges,
+    _novelty,
+)
 
 
 def test_checkerboard_kernel_shape_and_antisymmetry():
@@ -23,3 +29,29 @@ def test_novelty_peaks_at_block_change():
     assert nov.max() == 1.0                 # normalizzata
     # Il picco di novelty cade vicino al confine fra i due blocchi
     assert abs(int(np.argmax(nov)) - n // 2) <= 2
+
+
+# --- confini troppo vicini ai bordi del brano ------------------------------
+
+def test_keep_away_from_edges_drops_boundary_at_track_start():
+    """Il caso reale: il frame sintetico a 0 produceva un boundary a
+    0.046 s, cioè una sezione di 46 ms — e uno degli 8 pad hot-cue sprecato
+    su un doppione del cue a inizio brano."""
+    assert _keep_away_from_edges([0, 1, 40, 100], last_beat_idx=200) == [40, 100]
+
+
+def test_keep_away_from_edges_drops_sliver_at_track_end():
+    assert _keep_away_from_edges([40, 199, 200], last_beat_idx=200) == [40]
+
+
+def test_keep_away_from_edges_keeps_short_outro():
+    """La soglia sui bordi è UNA battuta, non le 4 richieste fra due
+    boundary: l'outro di un brano da club dura spesso pochi secondi e con
+    la soglia piena sparirebbe — insieme al punto di mix-out."""
+    assert EDGE_GAP_BEATS < MIN_GAP_BEATS
+    kept = _keep_away_from_edges([4, 195], last_beat_idx=200)
+    assert kept == [4, 195]
+
+
+def test_keep_away_from_edges_on_very_short_track_can_drop_everything():
+    assert _keep_away_from_edges([1, 6], last_beat_idx=7) == []
