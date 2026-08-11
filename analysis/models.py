@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+_MMSS_RE = re.compile(r"^\s*(\d+):(\d{1,2}(?:\.\d+)?)\s*$")
 
 # Tassonomia delle sezioni (struttura dance/house/techno "da club").
 # "Groove" è il fallback per ciò che non ricade chiaramente nelle altre.
@@ -55,6 +58,17 @@ def format_remaining(time: float, duration: float | None) -> str:
     remaining = round(max(0.0, duration - time), 1)
     minutes, seconds = divmod(remaining, 60)
     return f"-{int(minutes):02d}:{seconds:04.1f}"
+
+
+def parse_mmss(text: str) -> float | None:
+    """Converte 'MM:SS' o 'MM:SS.d' in secondi. None se il testo non è valido."""
+    m = _MMSS_RE.match(text)
+    if not m:
+        return None
+    seconds = float(m.group(2))
+    if seconds >= 60:
+        return None
+    return int(m.group(1)) * 60 + seconds
 
 
 @dataclass

@@ -32,6 +32,7 @@ from analysis.models import (
     VOCAL_START,
     format_elapsed,
     format_remaining,
+    parse_mmss,
 )
 from analysis.vocals import VOCAL_FLOOR, available as vocals_available
 from analysis.vocals import vocal_regions
@@ -383,33 +384,46 @@ for j, (vs, ve) in enumerate(regions_live):
             continue
         base_rows.append({"_id": rid, "_kind": "vocal", "Tag": label, "Start": float(t)})
 
+def _compute_ends(frame: pd.DataFrame) -> pd.DataFrame:
+    """Ricalcola End/Beats (numerici) dai valori correnti di Start.
+
+    Solo fra sezioni consecutive nell'ordine cronologico corrente; i
+    marcatori vocali sono punti, non hanno una durata propria.
+    """
+    sec_mask = frame["_kind"] == "section"
+    sec_starts = frame.loc[sec_mask, "Start"].tolist()
+    sec_ends = sec_starts[1:] + [duration]
+    end_by_id = dict(zip(frame.index[sec_mask], sec_ends))
+    frame["End"] = frame.index.map(lambda i: end_by_id.get(i))
+    frame["Beats"] = frame.apply(
+        lambda r: round((r["End"] - r["Start"]) / beat_seconds, 1)
+        if pd.notna(r["End"]) and beat_seconds else None,
+        axis=1,
+    )
+    return frame
+
+
 # --- Ordina per tempo corrente (solo per la visualizzazione: l'id resta
 # l'indice stabile, così Streamlit riaggancia gli edit alla riga giusta anche
 # se la posizione visiva cambia) ---
 if base_rows:
     df = pd.DataFrame(base_rows).set_index("_id").sort_values("Start")
+    df = _compute_ends(df)
 
-    # End/Beats: calcolati solo fra sezioni consecutive nell'ordine cronologico
-    # corrente; i marcatori vocali sono punti, non hanno una durata propria.
-    sec_mask = df["_kind"] == "section"
-    sec_starts = df.loc[sec_mask, "Start"].tolist()
-    sec_ends = sec_starts[1:] + [duration]
-    end_by_id = dict(zip(df.index[sec_mask], sec_ends))
-    df["End"] = df.index.map(lambda i: end_by_id.get(i))
-    df["Beats"] = df.apply(
-        lambda r: round((r["End"] - r["Start"]) / beat_seconds, 1)
-        if pd.notna(r["End"]) and beat_seconds else None,
-        axis=1,
-    )
     df["Play"] = "▶"
     df["Del"] = "🗑"
     df.insert(0, "#", range(1, len(df) + 1))
 
     # Stash per i callback dei bottoni (che non vedono le variabili locali di
-    # questo run): id in ordine di visualizzazione + Start corrente di ognuno.
+    # questo run): id in ordine di visualizzazione + Start corrente (secondi)
+    # di ognuno — sempre numerico, indipendentemente da come viene mostrato.
     st.session_state[f"row_order::{path}"] = df.index.tolist()
     for rid, val in zip(df.index, df["Start"]):
         st.session_state[f"row_start::{path}::{rid}"] = float(val)
+
+    # Solo per la visualizzazione/edit in tabella: mm:ss invece di secondi.
+    df["Start"] = df["Start"].map(format_elapsed)
+    df["End"] = df["End"].map(lambda v: format_elapsed(v) if pd.notna(v) else "–")
 
     play_key = f"play_col::{path}"
     del_key = f"del_col::{path}"
@@ -455,18 +469,33 @@ if base_rows:
             "Tag": st.column_config.SelectboxColumn(
                 options=SECTION_LABELS + [VOCAL_START, VOCAL_END], required=True,
             ),
-            "Start": st.column_config.NumberColumn(
-                "Start (s)", min_value=0.0, max_value=float(duration), step=0.1, format="%.1f",
+            "Start": st.column_config.TextColumn(
+                "Start (mm:ss)", help="Formato mm:ss o mm:ss.d, es. 1:07.3",
             ),
-            "End": st.column_config.NumberColumn(
-                "End (s)", format="%.1f", disabled=True,
-            ),
+            "End": st.column_config.TextColumn("End (mm:ss)", disabled=True),
             "Beats": st.column_config.NumberColumn(disabled=True),
             "Del": st.column_config.ButtonColumn(
                 "🗑", on_click=_on_delete_click, key=del_key, width="small",
             ),
         },
     )
+
+    # Riconverte Start da mm:ss a secondi; in caso di formato non valido
+    # mantiene il valore precedente della riga invece di far cadere l'app.
+    bad_rows = 0
+    parsed_starts = {}
+    for rid, row in edited_df.iterrows():
+        val = parse_mmss(str(row["Start"]))
+        if val is None:
+            val = st.session_state.get(f"row_start::{path}::{rid}", 0.0)
+            bad_rows += 1
+        parsed_starts[rid] = val
+    if bad_rows:
+        st.warning(f"Formato non valido (atteso mm:ss) per {bad_rows} riga/e: "
+                   "valore precedente mantenuto.")
+
+    edited_df["Start"] = edited_df.index.map(parsed_starts).astype(float)
+    edited_df = _compute_ends(edited_df)  # ricalcola End/Beats numerici dai nuovi Start
 
     # Riporta gli edit di Start/Tag nello stato persistito (solo per le
     # sezioni: i marcatori vocali derivano dalla soglia, non hanno un id
