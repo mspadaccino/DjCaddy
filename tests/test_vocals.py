@@ -16,7 +16,9 @@ def _envelope():
 
 
 def test_vocal_regions_merge_and_min_length():
-    regions = vocal_regions(_envelope())
+    # Soglia esplicita: il test verifica la logica di merge/durata minima,
+    # indipendentemente da quale sia il default prodotto del momento.
+    regions = vocal_regions(_envelope(), floor=0.30)
     assert len(regions) == 1
     st, en = regions[0]
     assert abs(st - 2.0) < 0.1
@@ -24,10 +26,11 @@ def test_vocal_regions_merge_and_min_length():
 
 
 def test_vocal_regions_instrumental_no_regions():
-    # Strumentale: solo bleed sotto soglia -> nessuna regione (caso WTP)
+    # Strumentale: solo bleed sotto soglia -> nessuna regione (caso WTP).
+    # Soglia esplicita, non legata al default prodotto corrente.
     times = np.round(np.arange(0, 10, 0.1), 3)
     ratio = np.full_like(times, 0.12)
-    assert vocal_regions((times, ratio)) == []
+    assert vocal_regions((times, ratio), floor=0.30) == []
 
 
 def test_vocal_regions_empty():

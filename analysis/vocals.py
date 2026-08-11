@@ -20,7 +20,7 @@ _model = None  # modello Demucs riusato fra le tracce (caricarlo è costoso)
 # Estrazione delle regioni cantate dall'inviluppo di dominanza vocale (voce/mix).
 # Soglia ASSOLUTA: sul cantato vero il rapporto è alto, sul solo bleed di uno
 # strumentale resta basso ovunque -> niente falsi positivi (es. WTP).
-VOCAL_FLOOR = 0.30     # frazione minima di voce nel mix per dire "c'è voce"
+VOCAL_FLOOR = 0.1      # frazione minima di voce nel mix per dire "c'è voce"
 MERGE_GAP_S = 1.0      # unisce regioni separate da pause brevi
 MIN_REGION_S = 2.0     # scarta sprazzi troppo brevi
 
