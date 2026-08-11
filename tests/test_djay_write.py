@@ -7,6 +7,7 @@ from analysis.djay_write import (
     DjayWriteError,
     PAD_COLORS,
     _encode,
+    _Parser,
     _parse,
     _read_all_slots,
     read_cue_points,
@@ -435,3 +436,66 @@ def test_plan_djay_markers_output_is_writable():
     assert _encode(updated, _parse(updated)) == updated
     assert len(read_cue_points(updated)) == 8
     assert [lr.slot for lr in read_loop_regions(updated)] == list(range(8))
+
+
+# --- riferimenti fra oggetti (\x02) ----------------------------------------
+
+def _blob_with_fingerprint_ref():
+    """Blob con un oggetto impronta audio e un campo che lo REFERENZIA, come
+    su 910 delle 927 tracce reali della libreria."""
+    root = _parse(REAL_1CUE_ORANGE)
+    fingerprint = ("obj", ("str", b"ADCAudioAlignmentFingerprint"),
+                   [(b"timestampIdentifierData", ("data", b"x" * 12)),
+                    (b"version", ("int", 0x2E, 0))])
+    root[2].append((b"audioAlignmentFingerprint", fingerprint))
+    root[2].append((b"timestampIdentifier", ("objref", fingerprint)))
+    return _encode(REAL_1CUE_ORANGE, root)
+
+
+def _ref_target(blob):
+    """(classe, indice nella tabella degli oggetti) del bersaglio del
+    riferimento, riletti dal blob."""
+    parser = _Parser(blob)
+    root = parser.value()
+    ref = dict(root[2])[b"timestampIdentifier"]
+    assert ref[0] == "objref"
+    idx = next(i for i, n in enumerate(parser.objects) if n is ref[1])
+    return ref[1][1][1], idx
+
+
+def test_object_reference_round_trips():
+    blob = _blob_with_fingerprint_ref()
+    assert _encode(blob, _parse(blob)) == blob
+    assert _ref_target(blob)[0] == b"ADCAudioAlignmentFingerprint"
+
+
+def test_object_reference_is_renumbered_when_markers_are_added():
+    """La regressione che impediva a djay Pro di caricare il brano:
+    `-[ADCCuePoint fingerprintFloatsArray]: unrecognized selector`. Il campo
+    timestampIdentifier è un PUNTATORE all'impronta audio; aggiungere cue e
+    loop sposta l'impronta più avanti nella tabella degli oggetti, e un
+    puntatore non aggiornato finisce su un ADCCuePoint."""
+    blob = _blob_with_fingerprint_ref()
+    _, before = _ref_target(blob)
+
+    updated = write_markers(
+        blob,
+        cues=[CuePoint(time=float(i), pad=i) for i in range(8)],
+        loops=[LoopRegion(start=float(i) + 100, end=float(i) + 105, slot=i)
+               for i in range(8)],
+    )
+    cls, after = _ref_target(updated)
+
+    assert after > before, "l'indice non è stato ricalcolato"
+    assert cls == b"ADCAudioAlignmentFingerprint"
+    assert _encode(updated, _parse(updated)) == updated
+
+
+def test_parse_refuses_forward_object_reference():
+    """Un riferimento a un oggetto non ancora serializzato non si saprebbe
+    riscrivere: meglio fermarsi che tirare a indovinare."""
+    blob = _blob_with_fingerprint_ref()
+    tag = blob.rindex(b"\x02" + bytes([_ref_target(blob)[1]]))
+    corrupted = blob[:tag + 1] + b"\xfe" + blob[tag + 2:]
+    with pytest.raises(DjayWriteError):
+        _parse(corrupted)

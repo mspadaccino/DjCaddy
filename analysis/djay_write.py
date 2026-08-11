@@ -31,6 +31,20 @@ catturati da djay Pro, identici al bit):
    coda del blob (nomi dei campi `playCount`, `timestampIdentifier`, ...)
    punterebbero a stringhe sbagliate.
 
+1-bis. TABELLA DEGLI OGGETTI. Allo stesso modo ogni oggetto, collezione o
+   blob binario riceve un indice nell'ordine in cui COMINCIA, e `\\x02
+   <indice>` è un riferimento a un oggetto già serializzato. Il campo
+   `timestampIdentifier` è proprio questo: un puntatore all'oggetto
+   `ADCAudioAlignmentFingerprint`. Vale la stessa trappola delle stringhe,
+   con conseguenze peggiori: aggiungere dei cue sposta l'impronta audio più
+   avanti nella numerazione, e un riferimento non aggiornato finisce su un
+   `ADCCuePoint`. djay Pro allora chiama un metodo dell'impronta su un cue
+   point e si rifiuta di caricare il brano
+   ("-[ADCCuePoint fingerprintFloatsArray]: unrecognized selector").
+   È anche la spiegazione del fatto che `timestampIdentifier` "cambia a
+   ogni modifica dei cue" (osservato 4 -> 8 -> 10 su tre catture reali):
+   non è un checksum, è un puntatore che djay rinumera.
+
 2. ALLINEAMENTO A 4 BYTE. Ogni scalare multi-byte (float32, uint32, e la
    lunghezza/il contenuto dei blob binari) è allineato a 4 byte rispetto
    all'INIZIO del blob, con byte 0x00 di riempimento. Spostare qualunque
@@ -173,6 +187,9 @@ class DjayWriteError(Exception):
 #   ("coll", tag: int, [nodi])  collezione
 #   ("obj", classe, [(nome, valore)])   oggetto con nome di classe
 #   ("struct", [(nome, valore)])        struttura anonima a campi contati
+#   ("objref", nodo)            riferimento a un oggetto già serializzato:
+#                               tiene il NODO, non l'indice, così il numero
+#                               viene ricalcolato in scrittura
 
 # Valori senza payload: il tag stesso è il valore (0x0e compare come
 # `useStraightBeats`, quindi è un booleano; 0x2c-0x2f sono interi brevi,
@@ -186,7 +203,7 @@ class _Parser:
         self.b = blob
         self.p = _HEADER_SIZE
         self.strings: list[bytes] = []
-        self.objects = 0
+        self.objects: list = []   # nell'ordine in cui cominciano, per \x02
 
     def _fail(self, what: str) -> None:
         raise DjayWriteError(
@@ -239,40 +256,52 @@ class _Parser:
             self.p += 4
             return ("f32", v)
 
-        if tag in (0x0F, 0x02):  # intero, valore nel byte successivo
+        if tag == 0x0F:  # intero, valore nel byte successivo
             self.p += 2
             return ("int", tag, self.b[self.p - 1])
+
+        if tag == 0x02:  # riferimento a un oggetto già serializzato
+            self.p += 2
+            idx = self.b[self.p - 1]
+            if idx >= len(self.objects) or self.objects[idx] is None:
+                # Un riferimento in avanti, o a un oggetto che ci contiene,
+                # non si saprebbe riscrivere: meglio fermarsi che indovinare.
+                self._fail("riferimento a un oggetto non ancora serializzato")
+            return ("objref", self.objects[idx])
 
         if tag in _INLINE_VALUE_TAGS:  # valore codificato nel tag stesso
             self.p += 1
             return ("int", tag, 0)
 
+        # Da qui in poi sono tutti "oggetti": prendono un indice nella
+        # tabella PRIMA di leggere il contenuto (quindi un contenitore ha
+        # sempre un indice più basso di ciò che contiene).
         if tag == 0x15:  # blob binario
             self.p += 1
+            slot = self._reserve()
             n = self._u32()
             if self.p + n > len(self.b):
                 self._fail("blob binario troncato")
             d = self.b[self.p:self.p + n]
             self.p += n
             self._align()
-            self.objects += 1
-            return ("data", d)
+            return self._store(slot, ("data", d))
 
         if tag in _COLLECTION_TAGS:
             self.p += 1
+            slot = self._reserve()
             n = self._u32()
-            self.objects += 1
-            return ("coll", tag, [self.value() for _ in range(n)])
+            return self._store(slot, ("coll", tag, [self.value() for _ in range(n)]))
 
         if tag == 0x18:  # struttura anonima: N coppie valore/nome, senza chiusura
             self.p += 1
+            slot = self._reserve()
             n = self._u32()
-            self.objects += 1
-            return ("struct", [self._field() for _ in range(n)])
+            return self._store(slot, ("struct", [self._field() for _ in range(n)]))
 
         if tag == 0x2B:  # oggetto: nome classe, poi coppie valore/nome
             self.p += 1
-            self.objects += 1
+            slot = self._reserve()
             cls = self.value()
             fields = []
             while True:
@@ -282,9 +311,17 @@ class _Parser:
                     self.p += 1
                     break
                 fields.append(self._field())
-            return ("obj", cls, fields)
+            return self._store(slot, ("obj", cls, fields))
 
         self._fail(f"tag sconosciuto 0x{tag:02x}")
+
+    def _reserve(self) -> int:
+        self.objects.append(None)
+        return len(self.objects) - 1
+
+    def _store(self, slot: int, node):
+        self.objects[slot] = node
+        return node
 
     def _field(self) -> tuple[bytes, tuple]:
         """Un campo: prima il valore, poi il nome."""
@@ -303,6 +340,13 @@ class _Encoder:
         self.out = bytearray(header_prefix[:8].ljust(_HEADER_SIZE, b"\x00"))
         self.index: dict[bytes, int] = {}
         self.objects = 0
+        self.obj_index: dict[int, int] = {}   # id(nodo) -> indice assegnato
+
+    def _register(self, node) -> None:
+        """Assegna a `node` il prossimo indice della tabella degli oggetti.
+        Va chiamato PRIMA di scriverne il contenuto, come fa il parser."""
+        self.obj_index[id(node)] = self.objects
+        self.objects += 1
 
     def _align(self) -> None:
         while len(self.out) % 4:
@@ -333,25 +377,33 @@ class _Encoder:
         elif kind == "int":
             tag, val = node[1], node[2]
             self.out += bytes([tag]) if tag in _INLINE_VALUE_TAGS else bytes([tag, val])
+        elif kind == "objref":
+            target = self.obj_index.get(id(node[1]))
+            if target is None:
+                raise DjayWriteError(
+                    "Riferimento a un oggetto non ancora scritto: mi fermo "
+                    "invece di produrre un puntatore sbagliato."
+                )
+            self.out += b"\x02" + bytes([target])
         elif kind == "data":
-            self.objects += 1
+            self._register(node)
             self.out += b"\x15"
             self._u32(len(node[1]))
             self.out += node[1]
             self._align()
         elif kind == "coll":
-            self.objects += 1
+            self._register(node)
             self.out += bytes([node[1]])
             self._u32(len(node[2]))
             for item in node[2]:
                 self.value(item)
         elif kind == "struct":
-            self.objects += 1
+            self._register(node)
             self.out += b"\x18"
             self._u32(len(node[1]))
             self._fields(node[1])
         elif kind == "obj":
-            self.objects += 1
+            self._register(node)
             self.out += b"\x2b"
             self.value(node[1])
             self._fields(node[2])
