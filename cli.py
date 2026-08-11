@@ -28,6 +28,7 @@ import json
 import sys
 from pathlib import Path
 
+from analysis.dj_export import read_title_artist, section_cues, write_rekordbox_xml
 from analysis.engine import (
     analyze_library,
     build_organize_plan,
@@ -79,6 +80,11 @@ def main() -> None:
                         help="Ignore the cache: re-analyze every file")
     parser.add_argument("--no-vocals", action="store_true",
                         help="Skip vocal detection (Demucs), much faster")
+    parser.add_argument("--rekordbox-xml", type=Path, default=None,
+                        help="Write a rekordbox-compatible XML collection with section "
+                             "tags as cue points (import into rekordbox directly, or "
+                             "convert to Serato/Traktor/djay Pro with a third-party tool "
+                             "such as DJ Conversion Utility or MIXO)")
     args = parser.parse_args()
 
     if not args.source.is_dir():
@@ -108,6 +114,20 @@ def main() -> None:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         _write_report(tracks, args.report, fmt)
         print(f"\nReport ({fmt}) written to: {args.report}")
+
+    if args.rekordbox_xml is not None:
+        entries = []
+        for t in tracks:
+            title, artist = read_title_artist(t.path)
+            entries.append({
+                "path": t.path, "name": title, "artist": artist, "genre": t.genre,
+                "bpm": t.bpm, "duration": t.duration, "cues": section_cues(t.sections),
+            })
+        args.rekordbox_xml.parent.mkdir(parents=True, exist_ok=True)
+        write_rekordbox_xml(entries, args.rekordbox_xml)
+        print(f"\nrekordbox XML written to: {args.rekordbox_xml}")
+        print("Import it in rekordbox directly, or convert it to Serato/Traktor/djay Pro "
+              "with a third-party tool (DJ Conversion Utility, MIXO, Lexicon).")
 
     if args.dest is not None:
         plan = build_organize_plan(tracks, args.dest)

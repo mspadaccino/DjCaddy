@@ -23,7 +23,8 @@ import streamlit as st
 
 from analysis.audio_features import ANALYSIS_SR, load_audio
 from analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
-from analysis.models import SECTION_LABELS, format_elapsed, format_remaining
+from analysis.dj_export import build_rekordbox_xml, read_title_artist
+from analysis.models import SECTION_COLORS, SECTION_LABELS, format_elapsed, format_remaining
 from analysis.sections import VOCAL_SECTION_COVER
 from analysis.vocals import VOCAL_FLOOR, available as vocals_available
 from analysis.vocals import vocal_regions
@@ -50,16 +51,6 @@ def _live_regions(track: dict, floor: float):
         times = np.arange(len(ratio)) / fps
         return vocal_regions((times, np.asarray(ratio, dtype=float)), floor=floor)
     return [tuple(r) for r in track.get("vocal_regions", [])]  # fallback: senza inviluppo
-
-# Colori dei tag di sezione (accostati ai marker triangolari di djay Pro)
-SECTION_COLORS = {
-    "Intro": "#8e9aa6",
-    "Build-up": "#f2a33c",
-    "Drop/Chorus": "#e0503b",
-    "Breakdown": "#3d9be0",
-    "Outro": "#8e9aa6",
-    "Groove": "#3fbf7f",
-}
 
 st.set_page_config(page_title="Wavecut — Phrase analyzer", page_icon="🌊", layout="wide")
 st.title("🌊 Wavecut — Phrase analyzer")
@@ -408,11 +399,28 @@ if edited:
     } for s in edited]
     report_df = pd.DataFrame(rows)
     cues_container.dataframe(report_df, width="stretch", hide_index=True)
-    cues_container.download_button(
+    dl_col, xml_col = cues_container.columns(2)
+    dl_col.download_button(
         "Download sections (CSV)",
         data=report_df.to_csv(index=False).encode(),
         file_name=f"{Path(track['name']).stem}_sections.csv",
         mime="text/csv",
+    )
+    title, artist = read_title_artist(Path(path))
+    xml_str = build_rekordbox_xml([{
+        "path": Path(path), "name": title, "artist": artist, "genre": track["genre"],
+        "bpm": track["bpm"], "duration": duration,
+        "cues": [{"name": f'{"VOCAL " if s.get("vocal") else ""}{s["label"]}',
+                  "start": s["start"], "color": SECTION_COLORS.get(s["label"], "#ffffff")}
+                for s in edited],
+    }])
+    xml_col.download_button(
+        "Export cues to rekordbox XML",
+        data=xml_str.encode("utf-8"),
+        file_name=f"{Path(track['name']).stem}_rekordbox.xml",
+        mime="application/xml",
+        help="Import directly into rekordbox, or convert to Serato/Traktor/djay Pro "
+             "with a third-party tool (DJ Conversion Utility, MIXO, Lexicon).",
     )
 
 # --- Vocal clusters table (below the cue table) ---

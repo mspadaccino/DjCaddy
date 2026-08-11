@@ -11,7 +11,8 @@ Local tool (macOS) to analyze an mp3/flac library and prepare DJ work in
 > internal database, not in the file tags, and does not expose an import for
 > external cues. So this tool **does not write hot cues into djay Pro**: it
 > produces *suggested* timestamps that you confirm by ear in the review app and
-> then place manually in djay Pro.
+> then place manually in djay Pro — or export them as **rekordbox XML** (see
+> below) and use a third-party converter to reach djay Pro, Serato or Traktor.
 
 ## Architecture
 
@@ -27,6 +28,7 @@ the batch CLI and the Streamlit app — no duplicated logic.
 | `analysis/sections.py` | section classification (Intro/Build-up/Drop/Breakdown/Outro) from energy arc and bass presence |
 | `analysis/vocals.py` | vocal detection via source separation (Demucs): sung regions + 🎤 flag per section |
 | `analysis/waveform.py` | frequency-band colored waveform (djay Pro style) |
+| `analysis/dj_export.py` | export section cues to rekordbox XML (the hub format for third-party DJ software converters) |
 | `analysis/cache.py` | per-file cache (key = path, valid by mtime+size) |
 | `analysis/engine.py` | orchestration: two-pass, cache, organize plan |
 | `cli.py` | entry point 1 — batch CLI |
@@ -103,6 +105,30 @@ overlap with other vocals while mixing) and sections with vocals get the 🎤 fl
 It is accurate but **heavy**: it downloads a model on first run and runs a neural
 network on each track. It is optional — skip it with `--no-vocals` (CLI) or by
 unchecking the box in the app; if Demucs is not installed the flag stays manual.
+
+## Exporting cues to other DJ software
+
+Section tags can be exported as a **rekordbox XML** collection — the format
+most DJ software converters accept as input:
+
+```bash
+# whole library, one collection.xml with all tracks' cues
+poetry run python cli.py ~/Music/dj --rekordbox-xml collection.xml
+```
+
+In the app, a single track's **confirmed** sections (after you've adjusted the
+sliders/labels) can be downloaded the same way from the "Export cues to
+rekordbox XML" button.
+
+- **rekordbox**: import the XML directly (File → Import Collection).
+- **Serato / Traktor / djay Pro**: rekordbox XML is the format that
+  third-party converters — [DJ Conversion Utility](https://atgr-production-team.sellfy.store/p/emuy/),
+  [MIXO](https://www.mixo.dj/), [Lexicon](https://www.lexicondj.com/) — accept
+  to produce a library those apps can import. This tool does not talk to those
+  converters directly; you run them yourself on the exported XML.
+
+There is no verified way to write cues straight into Serato's file tags or into
+djay Pro's own database from here — see the note on cue points above.
 
 ## Tests
 

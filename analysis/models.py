@@ -15,6 +15,17 @@ OUTRO = "Outro"
 GROOVE = "Groove"
 SECTION_LABELS = [INTRO, BUILDUP, DROP, BREAKDOWN, OUTRO, GROOVE]
 
+# Colori dei tag di sezione, condivisi fra la UI (waveform) e l'export dei cue
+# (es. i colori dei marker in Rekordbox).
+SECTION_COLORS = {
+    INTRO: "#8e9aa6",
+    BUILDUP: "#f2a33c",
+    DROP: "#e0503b",
+    BREAKDOWN: "#3d9be0",
+    OUTRO: "#8e9aa6",
+    GROOVE: "#3fbf7f",
+}
+
 
 def format_elapsed(time: float) -> str:
     """Formatta un istante come tempo trascorso dall'inizio `MM:SS.d`."""
