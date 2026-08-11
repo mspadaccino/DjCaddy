@@ -24,6 +24,10 @@ import streamlit as st
 from analysis.audio_features import ANALYSIS_SR, load_audio
 from analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
 from analysis.dj_export import build_rekordbox_xml, read_title_artist
+from analysis.djay_write import CuePoint as DjayCuePoint
+from analysis.djay_write import DjayWriteError, is_djay_running
+from analysis.djay_write import preview_write as djay_preview_write
+from analysis.djay_write import write_new_cues as djay_write_new_cues
 from analysis.models import (
     SECTION_COLORS,
     SECTION_LABELS,
@@ -372,17 +376,23 @@ if track["sections"] and duration:
         label_key = f"seclabel::{path}::{i}"
         st.session_state.setdefault(start_key, float(s["start"]))
         st.session_state.setdefault(label_key, s["label"])
+        pad_key = f"pad::{path}::{rid}"
+        st.session_state.setdefault(pad_key, 0)
         base_rows.append({
             "_id": rid, "_kind": "section",
             "Tag": st.session_state[label_key],
             "Start": st.session_state[start_key],
+            "Pad": st.session_state[pad_key],
         })
 
 for j, (vs, ve) in enumerate(regions_live):
     for rid, label, t in ((f"vs{j}", VOCAL_START, vs), (f"ve{j}", VOCAL_END, ve)):
         if rid in deleted_vocal:
             continue
-        base_rows.append({"_id": rid, "_kind": "vocal", "Tag": label, "Start": float(t)})
+        pad_key = f"pad::{path}::{rid}"
+        st.session_state.setdefault(pad_key, 0)
+        base_rows.append({"_id": rid, "_kind": "vocal", "Tag": label, "Start": float(t),
+                          "Pad": st.session_state[pad_key]})
 
 def _compute_ends(frame: pd.DataFrame) -> pd.DataFrame:
     """Ricalcola End/Beats (numerici) dai valori correnti di Start.
@@ -460,7 +470,7 @@ if base_rows:
         df,
         key=f"cue_table::{path}",
         hide_index=True,
-        column_order=["#", "Play", "Tag", "Start", "End", "Beats", "Del"],
+        column_order=["#", "Play", "Tag", "Start", "End", "Beats", "Pad", "Del"],
         column_config={
             "#": st.column_config.NumberColumn(disabled=True),
             "Play": st.column_config.ButtonColumn(
@@ -474,6 +484,11 @@ if base_rows:
             ),
             "End": st.column_config.TextColumn("End (mm:ss)", disabled=True),
             "Beats": st.column_config.NumberColumn(disabled=True),
+            "Pad": st.column_config.NumberColumn(
+                "Pad", min_value=0, max_value=7, step=1,
+                help="Slot hot cue di djay Pro (0-7): determina il colore del "
+                     "cue quando lo scrivi nella libreria djay Pro.",
+            ),
             "Del": st.column_config.ButtonColumn(
                 "🗑", on_click=_on_delete_click, key=del_key, width="small",
             ),
@@ -497,16 +512,17 @@ if base_rows:
     edited_df["Start"] = edited_df.index.map(parsed_starts).astype(float)
     edited_df = _compute_ends(edited_df)  # ricalcola End/Beats numerici dai nuovi Start
 
-    # Riporta gli edit di Start/Tag nello stato persistito (solo per le
-    # sezioni: i marcatori vocali derivano dalla soglia, non hanno un id
-    # editabile stabile oltre la sessione corrente della soglia).
+    # Riporta gli edit nello stato persistito: Start/Tag solo per le sezioni
+    # (i marcatori vocali derivano dalla soglia, non hanno un id editabile
+    # stabile oltre la sessione corrente della soglia); Pad per ogni riga.
     for rid, row in edited_df.iterrows():
+        st.session_state[f"pad::{path}::{rid}"] = int(row["Pad"]) if pd.notna(row["Pad"]) else 0
         if rid.startswith("sec"):
             i = int(rid[3:])
             st.session_state[f"secstart::{path}::{i}"] = float(row["Start"])
             st.session_state[f"seclabel::{path}::{i}"] = row["Tag"]
 else:
-    edited_df = pd.DataFrame(columns=["_kind", "Tag", "Start", "End"])
+    edited_df = pd.DataFrame(columns=["_kind", "Tag", "Start", "End", "Pad"])
     st.info("No cues to show for this track.")
 
 # --- Marcatori per il grafico (tag + colore), dalla tabella corrente ---
@@ -561,3 +577,58 @@ if not edited_df.empty:
         help="Import directly into rekordbox, or convert to Serato/Traktor/djay Pro "
              "with a third-party tool (DJ Conversion Utility, MIXO, Lexicon).",
     )
+
+# --- Scrittura diretta nel database live di djay Pro (Mac) ---
+st.divider()
+st.subheader("Update your djay Pro library")
+st.caption(
+    "Adds the tags in the table above as hot cues directly into your djay "
+    "Pro library — no XML export/import needed. Set the **Pad** column above "
+    "to choose which djay Pro hot-cue slot (0-7) each tag becomes; djay "
+    "assigns the on-screen color from the pad number, there's no separate "
+    "color to set. Works only for tracks that **already have at least one "
+    "cue point set manually in djay Pro** (a real limitation, not yet "
+    "verified safe for tracks with none). Running this twice adds "
+    "duplicate cues — delete the ones you don't want before re-running."
+)
+
+if not edited_df.empty:
+    djay_cues = [
+        DjayCuePoint(time=float(row["Start"]),
+                    number=int(row["Pad"]) if pd.notna(row["Pad"]) else 0)
+        for _, row in edited_df.iterrows()
+    ]
+    preview_key = f"djay_preview::{path}"
+
+    if st.button("Preview djay Pro update"):
+        try:
+            result = djay_preview_write(Path(path), djay_cues)
+            st.session_state[preview_key] = {"ok": True, "result": result, "cues": djay_cues}
+        except DjayWriteError as e:
+            st.session_state[preview_key] = {"ok": False, "error": str(e)}
+
+    preview = st.session_state.get(preview_key)
+    if preview:
+        if not preview["ok"]:
+            st.error(preview["error"])
+        else:
+            res = preview["result"]
+            st.success(
+                f"Track found in djay Pro ({len(res.cues_before)} existing cue(s)). "
+                f"{len(djay_cues)} cue(s) below would be added."
+            )
+            st.dataframe(
+                pd.DataFrame([{"start_s": round(c.time, 2), "pad": c.number}
+                             for c in djay_cues]),
+                width="stretch", hide_index=True,
+            )
+            if is_djay_running():
+                st.warning("djay Pro appears to be running — quit it before writing, "
+                          "to avoid conflicts with its own auto-save.")
+            if st.button("Write to djay Pro now", type="primary"):
+                try:
+                    write_res = djay_write_new_cues(Path(path), preview["cues"])
+                    st.success(f"{write_res.message} Backup saved to: {write_res.backup_path}")
+                    del st.session_state[preview_key]
+                except DjayWriteError as e:
+                    st.error(f"Write failed, nothing was changed: {e}")
