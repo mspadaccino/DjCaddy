@@ -21,6 +21,11 @@ report.json
 # Sidecar di analisi per-brano (accanto ai file audio)
 *_analysis.json
 
+# File audio di test (materiale con copyright: mai committare)
+test_mp3/
+*.mp3
+*.flac
+
 # OS
 .DS_Store
 

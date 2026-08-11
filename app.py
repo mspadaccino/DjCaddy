@@ -149,7 +149,7 @@ export default function (component) {
     const dur = d.duration || 1, mid = ch / 2;
     (d.regions || []).forEach(([s, e]) => {
       const x0 = s / dur * cw, x1 = e / dur * cw;
-      ctx.fillStyle = "rgba(255,93,177,0.18)";
+      ctx.fillStyle = "rgba(255,93,177,0.32)";
       ctx.fillRect(x0, 0, Math.max(1, x1 - x0), ch);
     });
     const amp = d.amp || [], col = d.colors || [], n = amp.length;
@@ -324,28 +324,11 @@ if not track:
     st.info("Pick a track and press “Analyze” to start.")
     st.stop()
 
-if track.get("from_file"):
-    st.success(f"Loaded from {Path(track['name']).stem}_analysis.json: {track['name']}")
-else:
-    st.success(f"Analyzed: {track['name']}")
-
-bpm_txt = f"{track['bpm']:.0f}" if track["bpm"] is not None else "N/A"
-st.markdown(f"**{track['genre']}** — {track['vibe']} — BPM {bpm_txt}")
-if track["error"]:
-    st.warning(f"Analysis warning: {track['error']}")
-
 duration = track.get("duration")
 path = track["path"]
 bar_seconds = (4 * 60.0 / track["bpm"]) if track["bpm"] else None
 
-# Ordine visivo: player interattivo, tabella cue, tabella cluster vocali.
-# I controlli (soglia voce, slider sezioni) stanno sotto e riempiono questi
-# contenitori, così tutto si aggiorna live.
-player_slot = st.container()
-cues_container = st.container()
-vocals_container = st.container()
-
-# --- Vocal threshold (live): recompute sung regions without re-running Demucs ---
+# --- Vocal threshold (live), right below the Analyze controls above ---
 has_env = bool(track.get("vocal_ratio"))
 if has_env:
     vocal_floor = st.slider(
@@ -356,6 +339,23 @@ if has_env:
 else:
     vocal_floor = VOCAL_FLOOR
 regions_live = _live_regions(track, vocal_floor)
+
+if track.get("from_file"):
+    st.success(f"Loaded from {Path(track['name']).stem}_analysis.json: {track['name']}")
+else:
+    st.success(f"Analyzed: {track['name']}")
+
+bpm_txt = f"{track['bpm']:.0f}" if track["bpm"] is not None else "N/A"
+st.markdown(f"**{track['genre']}** — {track['vibe']} — BPM {bpm_txt}")
+if track["error"]:
+    st.warning(f"Analysis warning: {track['error']}")
+
+# Ordine visivo: player interattivo, tabella cue, tabella cluster vocali.
+# I controlli (slider sezioni) stanno sotto e riempiono questi contenitori,
+# così tutto si aggiorna live.
+player_slot = st.container()
+cues_container = st.container()
+vocals_container = st.container()
 
 # --- Sliders: move the start or change the label of each tag ---
 st.subheader("Section tags")
