@@ -24,23 +24,18 @@ import streamlit as st
 from analysis.audio_features import ANALYSIS_SR, load_audio
 from analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
 from analysis.dj_export import build_rekordbox_xml, read_title_artist
-from analysis.models import SECTION_COLORS, SECTION_LABELS, format_elapsed, format_remaining
-from analysis.sections import VOCAL_SECTION_COVER
+from analysis.models import (
+    SECTION_COLORS,
+    SECTION_LABELS,
+    VOCAL_END,
+    VOCAL_MARKER_COLORS,
+    VOCAL_START,
+    format_elapsed,
+    format_remaining,
+)
 from analysis.vocals import VOCAL_FLOOR, available as vocals_available
 from analysis.vocals import vocal_regions
 from analysis.waveform import compute_frequency_waveform
-
-
-def _covered_fraction(start: float, end: float, regions) -> float:
-    """Frazione di [start, end] coperta dalle regioni cantate."""
-    length = end - start
-    if length <= 0:
-        return 0.0
-    covered = sum(
-        max(0.0, min(e, end) - max(st, start))
-        for st, e in regions if e > start and st < end
-    )
-    return covered / length
 
 
 def _live_regions(track: dict, floor: float):
@@ -210,6 +205,13 @@ export default function (component) {
     ui.audio.src = data.audio;
     ui.audio.dataset.aid = data.audioId;
   }
+  if (data.seekToken !== undefined && data.seekToken !== ui.lastSeekToken) {
+    ui.lastSeekToken = data.seekToken;
+    if (data.seekTo !== undefined && data.seekTo !== null) {
+      ui.audio.currentTime = data.seekTo;
+      ui.audio.play().catch(() => {});
+    }
+  }
   buildWave(ui);
 
   return () => { if (ui.raf) cancelAnimationFrame(ui.raf); };
@@ -221,8 +223,14 @@ _WAVE_PLAYER = st.components.v2.component(
 )
 
 
-def wave_player(path: str, sections, regions, duration, key: str) -> None:
-    """Monta il player interattivo (waveform + audio sincronizzato)."""
+def wave_player(path: str, markers, regions, duration, key: str,
+                seek_to: float | None = None, seek_token: int = 0) -> None:
+    """Monta il player interattivo (waveform + audio sincronizzato).
+
+    `markers` è una lista di {"t", "label", "color"} pronta per il disegno
+    (sezioni + marcatori vocali inizio/fine, dalla tabella cue unificata).
+    `regions` sono le bande (span) delle parti cantate, per il colpo d'occhio.
+    """
     mtime = Path(path).stat().st_mtime
     audio = _audio_data_uri(path, mtime)
     if audio is None:
@@ -231,17 +239,16 @@ def wave_player(path: str, sections, regions, duration, key: str) -> None:
         st.audio(Path(path).read_bytes(), format=mime)
         return
     df = _waveform_df(path)
-    sec = [{"t": float(s["start"]),
-            "label": ("🎤 " if s.get("vocal") else "") + s["label"],
-            "color": SECTION_COLORS.get(s["label"], "#ffffff")} for s in sections]
     _WAVE_PLAYER(key=key, data={
         "amp": [round(float(a), 3) for a in df["amp"].tolist()],
         "colors": df["color"].tolist(),
         "duration": float(duration or 0.0),
-        "sections": sec,
+        "sections": markers,
         "regions": [[float(a), float(b)] for a, b in regions],
         "audio": audio,
         "audioId": f"{path}:{mtime}",
+        "seekTo": seek_to,
+        "seekToken": seek_token,
     })
 
 
@@ -341,78 +348,181 @@ st.markdown(f"**{track['genre']}** — {track['vibe']} — BPM {bpm_txt}")
 if track["error"]:
     st.warning(f"Analysis warning: {track['error']}")
 
-# Ordine visivo: player interattivo, tabella cue, tabella cluster vocali.
-# I controlli (slider sezioni) stanno sotto e riempiono questi contenitori,
-# così tutto si aggiorna live.
 player_slot = st.container()
-cues_container = st.container()
-vocals_container = st.container()
 
-# --- Sliders: move the start or change the label of each tag ---
-st.subheader("Section tags")
-st.caption(
-    "Heuristic classification, confirm by ear: move the start or change the label; "
-    "the 🎤 flag comes from the vocal threshold above. Everything updates live."
+beat_seconds = (60.0 / track["bpm"]) if track["bpm"] else None
+
+# --- Stato persistito: righe cancellate dalla tabella, per-traccia ---
+deleted_sections = st.session_state.setdefault(f"deleted_sections::{path}", set())
+# Le righe vocali si rigenerano da zero a ogni cambio soglia: le cancellazioni
+# restano valide solo per il set di marcatori corrente.
+deleted_vocal = st.session_state.setdefault(
+    f"deleted_vocal::{path}::{round(vocal_floor, 2)}", set()
 )
 
-edited: list[dict] = []
+# --- Costruisce le righe base (baseline) della tabella unificata ---
+base_rows: list[dict] = []
 if track["sections"] and duration:
     for i, s in enumerate(track["sections"]):
-        c1, c2, c3 = st.columns([2, 4, 1])
-        idx = SECTION_LABELS.index(s["label"]) if s["label"] in SECTION_LABELS else len(SECTION_LABELS) - 1
-        label = c1.selectbox(f"Tag {i + 1}", SECTION_LABELS, index=idx,
-                             key=f"lab::{path}::{i}")
-        start_s = c2.slider(f"Start {i + 1} (s)", 0.0, float(duration),
-                            value=float(s["start"]), step=0.5, key=f"st::{path}::{i}")
-        c3.markdown(f"`{format_elapsed(start_s)} ({format_remaining(start_s, duration)})`")
-        edited.append({"start": start_s, "label": label})
+        rid = f"sec{i}"
+        if rid in deleted_sections:
+            continue
+        start_key = f"secstart::{path}::{i}"
+        label_key = f"seclabel::{path}::{i}"
+        st.session_state.setdefault(start_key, float(s["start"]))
+        st.session_state.setdefault(label_key, s["label"])
+        base_rows.append({
+            "_id": rid, "_kind": "section",
+            "Tag": st.session_state[label_key],
+            "Start": st.session_state[start_key],
+        })
 
-    # Sort by position, recompute lengths, bars and vocal flag (from threshold)
-    edited.sort(key=lambda d: d["start"])
-    starts = [d["start"] for d in edited]
-    ends = starts[1:] + [duration]
-    for d, end in zip(edited, ends):
-        length = max(0.0, end - d["start"])
-        d["bars"] = (length / bar_seconds) if bar_seconds else None
-        d["vocal"] = _covered_fraction(d["start"], end, regions_live) >= VOCAL_SECTION_COVER
+for j, (vs, ve) in enumerate(regions_live):
+    for rid, label, t in ((f"vs{j}", VOCAL_START, vs), (f"ve{j}", VOCAL_END, ve)):
+        if rid in deleted_vocal:
+            continue
+        base_rows.append({"_id": rid, "_kind": "vocal", "Tag": label, "Start": float(t)})
+
+# --- Ordina per tempo corrente (solo per la visualizzazione: l'id resta
+# l'indice stabile, così Streamlit riaggancia gli edit alla riga giusta anche
+# se la posizione visiva cambia) ---
+if base_rows:
+    df = pd.DataFrame(base_rows).set_index("_id").sort_values("Start")
+
+    # End/Beats: calcolati solo fra sezioni consecutive nell'ordine cronologico
+    # corrente; i marcatori vocali sono punti, non hanno una durata propria.
+    sec_mask = df["_kind"] == "section"
+    sec_starts = df.loc[sec_mask, "Start"].tolist()
+    sec_ends = sec_starts[1:] + [duration]
+    end_by_id = dict(zip(df.index[sec_mask], sec_ends))
+    df["End"] = df.index.map(lambda i: end_by_id.get(i))
+    df["Beats"] = df.apply(
+        lambda r: round((r["End"] - r["Start"]) / beat_seconds, 1)
+        if pd.notna(r["End"]) and beat_seconds else None,
+        axis=1,
+    )
+    df["Play"] = "▶"
+    df["Del"] = "🗑"
+    df.insert(0, "#", range(1, len(df) + 1))
+
+    # Stash per i callback dei bottoni (che non vedono le variabili locali di
+    # questo run): id in ordine di visualizzazione + Start corrente di ognuno.
+    st.session_state[f"row_order::{path}"] = df.index.tolist()
+    for rid, val in zip(df.index, df["Start"]):
+        st.session_state[f"row_start::{path}::{rid}"] = float(val)
+
+    play_key = f"play_col::{path}"
+    del_key = f"del_col::{path}"
+
+    def _on_play_click(path=path, play_key=play_key):
+        click = st.session_state.get(play_key)
+        if not click:
+            return
+        ids = st.session_state.get(f"row_order::{path}", [])
+        pos = click["row"]
+        if 0 <= pos < len(ids):
+            rid = ids[pos]
+            start_val = st.session_state.get(f"row_start::{path}::{rid}")
+            if start_val is not None:
+                st.session_state[f"seek_to::{path}"] = float(start_val)
+                st.session_state[f"seek_token::{path}"] = (
+                    st.session_state.get(f"seek_token::{path}", 0) + 1
+                )
+
+    def _on_delete_click(path=path, del_key=del_key):
+        click = st.session_state.get(del_key)
+        if not click:
+            return
+        ids = st.session_state.get(f"row_order::{path}", [])
+        pos = click["row"]
+        if 0 <= pos < len(ids):
+            rid = ids[pos]
+            if rid.startswith("sec"):
+                st.session_state[f"deleted_sections::{path}"].add(rid)
+            else:
+                st.session_state[f"deleted_vocal::{path}::{round(vocal_floor, 2)}"].add(rid)
+
+    edited_df = st.data_editor(
+        df,
+        key=f"cue_table::{path}",
+        hide_index=True,
+        column_order=["#", "Play", "Tag", "Start", "End", "Beats", "Del"],
+        column_config={
+            "#": st.column_config.NumberColumn(disabled=True),
+            "Play": st.column_config.ButtonColumn(
+                "▶", on_click=_on_play_click, key=play_key, width="small",
+            ),
+            "Tag": st.column_config.SelectboxColumn(
+                options=SECTION_LABELS + [VOCAL_START, VOCAL_END], required=True,
+            ),
+            "Start": st.column_config.NumberColumn(
+                "Start (s)", min_value=0.0, max_value=float(duration), step=0.1, format="%.1f",
+            ),
+            "End": st.column_config.NumberColumn(
+                "End (s)", format="%.1f", disabled=True,
+            ),
+            "Beats": st.column_config.NumberColumn(disabled=True),
+            "Del": st.column_config.ButtonColumn(
+                "🗑", on_click=_on_delete_click, key=del_key, width="small",
+            ),
+        },
+    )
+
+    # Riporta gli edit di Start/Tag nello stato persistito (solo per le
+    # sezioni: i marcatori vocali derivano dalla soglia, non hanno un id
+    # editabile stabile oltre la sessione corrente della soglia).
+    for rid, row in edited_df.iterrows():
+        if rid.startswith("sec"):
+            i = int(rid[3:])
+            st.session_state[f"secstart::{path}::{i}"] = float(row["Start"])
+            st.session_state[f"seclabel::{path}::{i}"] = row["Tag"]
 else:
-    st.info("No sections detected for this track.")
+    edited_df = pd.DataFrame(columns=["_kind", "Tag", "Start", "End"])
+    st.info("No cues to show for this track.")
 
-# --- Interactive player (waveform + synced audio), below the header ---
+# --- Marcatori per il grafico (tag + colore), dalla tabella corrente ---
+def _marker_color(kind: str, tag: str) -> str:
+    if kind == "vocal":
+        return VOCAL_MARKER_COLORS.get(tag, "#ffffff")
+    return SECTION_COLORS.get(tag, "#ffffff")
+
+markers = [
+    {"t": float(row["Start"]), "label": row["Tag"], "color": _marker_color(row["_kind"], row["Tag"])}
+    for _, row in edited_df.iterrows()
+]
+
+# --- Interactive player (waveform + synced audio), sopra la tabella ---
 with player_slot:
     if duration:
-        wave_player(path, edited, regions_live, duration, key=f"player::{path}")
-        st.caption("Click the waveform to jump to a point · ▶ to listen · "
-                   "yellow line = playhead, pink bands = vocals, triangles = sections.")
+        wave_player(
+            path, markers, regions_live, duration, key=f"player::{path}",
+            seek_to=st.session_state.get(f"seek_to::{path}"),
+            seek_token=st.session_state.get(f"seek_token::{path}", 0),
+        )
+        st.caption("Click the waveform to jump to a point, or ▶ a row below · "
+                   "yellow line = playhead, pink bands = vocal regions.")
     else:
         st.info("Duration unavailable: player can't be shown.")
 
-# --- Cue table (sections) ---
-if edited:
-    rows = [{
-        "tag": f'{"🎤 " if s.get("vocal") else ""}{s["label"]}',
-        "from_start": format_elapsed(s["start"]),
-        "remaining": format_remaining(s["start"], duration),
-        "start_s": round(s["start"], 2),
-        "bars": round(s["bars"], 1) if s.get("bars") else "",
-        "vocal": "yes" if s.get("vocal") else "",
-    } for s in edited]
-    report_df = pd.DataFrame(rows)
-    cues_container.dataframe(report_df, width="stretch", hide_index=True)
-    dl_col, xml_col = cues_container.columns(2)
+# --- Export (CSV + rekordbox XML) dalla tabella così com'è ora ---
+if not edited_df.empty:
+    csv_df = edited_df.reset_index(drop=True)[["Tag", "Start", "End", "Beats"]].copy()
+    csv_df["from_start"] = csv_df["Start"].map(format_elapsed)
+    csv_df["remaining"] = csv_df["Start"].map(lambda s: format_remaining(s, duration))
+    dl_col, xml_col = st.columns(2)
     dl_col.download_button(
-        "Download sections (CSV)",
-        data=report_df.to_csv(index=False).encode(),
-        file_name=f"{Path(track['name']).stem}_sections.csv",
+        "Download cues (CSV)",
+        data=csv_df.to_csv(index=False).encode(),
+        file_name=f"{Path(track['name']).stem}_cues.csv",
         mime="text/csv",
     )
     title, artist = read_title_artist(Path(path))
     xml_str = build_rekordbox_xml([{
         "path": Path(path), "name": title, "artist": artist, "genre": track["genre"],
         "bpm": track["bpm"], "duration": duration,
-        "cues": [{"name": f'{"VOCAL " if s.get("vocal") else ""}{s["label"]}',
-                  "start": s["start"], "color": SECTION_COLORS.get(s["label"], "#ffffff")}
-                for s in edited],
+        "cues": [{"name": row["Tag"], "start": float(row["Start"]),
+                  "color": _marker_color(row["_kind"], row["Tag"])}
+                for _, row in edited_df.iterrows()],
     }])
     xml_col.download_button(
         "Export cues to rekordbox XML",
@@ -422,27 +532,3 @@ if edited:
         help="Import directly into rekordbox, or convert to Serato/Traktor/djay Pro "
              "with a third-party tool (DJ Conversion Utility, MIXO, Lexicon).",
     )
-
-# --- Vocal clusters table (below the cue table) ---
-with vocals_container:
-    st.markdown("**Vocal clusters** 🎤")
-    if regions_live:
-        vrows = [{
-            "n": i + 1,
-            "start": format_elapsed(st_),
-            "end": format_elapsed(en_),
-            "duration_s": round(en_ - st_, 1),
-            "remaining_start": format_remaining(st_, duration),
-        } for i, (st_, en_) in enumerate(regions_live)]
-        vocals_df = pd.DataFrame(vrows)
-        st.dataframe(vocals_df, width="stretch", hide_index=True)
-        st.download_button(
-            "Download vocal clusters (CSV)",
-            data=vocals_df.to_csv(index=False).encode(),
-            file_name=f"{Path(track['name']).stem}_vocals.csv",
-            mime="text/csv",
-        )
-    elif has_env:
-        st.caption("No vocal parts detected at this threshold.")
-    else:
-        st.caption("Vocal detection not run (Demucs disabled during analysis).")

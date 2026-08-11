@@ -15,6 +15,16 @@ OUTRO = "Outro"
 GROOVE = "Groove"
 SECTION_LABELS = [INTRO, BUILDUP, DROP, BREAKDOWN, OUTRO, GROOVE]
 
+VOCAL_START = "Vocal start"
+VOCAL_END = "Vocal end"
+
+# Marcatori puntuali per l'inizio/fine di una regione cantata (rosso/verde,
+# scelta esplicita dell'utente): riusati da waveform, tabella cue ed export.
+VOCAL_MARKER_COLORS = {
+    VOCAL_START: "#ff3b30",
+    VOCAL_END: "#34c759",
+}
+
 # Colori dei tag di sezione, condivisi fra la UI (waveform) e l'export dei cue
 # (es. i colori dei marker in Rekordbox).
 SECTION_COLORS = {
