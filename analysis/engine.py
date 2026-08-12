@@ -14,6 +14,7 @@ from .audio_features import ANALYSIS_DURATION_SECONDS, compute_bpm_rms, load_aud
 from .cache import AnalysisCache, default_cache_path
 from .models import TrackAnalysis
 from .sections import annotate_vocals, classify_sections
+from .djay_write import read_djay_bpm
 from .structure import detect_boundaries
 from .vocals import vocal_envelope, vocal_regions
 from .tags import get_genre
@@ -63,8 +64,14 @@ def analyze_track(filepath: Path, cache: AnalysisCache | None = None,
             bpm, rms = compute_bpm_rms(window, sr)
         except Exception as e:
             error = f"features: {e}"
+        # Se djay Pro ha già analizzato il brano, il suo BPM ha la
+        # precedenza: è la griglia che l'utente vede in console, ed è quella
+        # su cui devono cadere gli hot cue. Altrimenti resta la nostra stima.
+        djay_bpm = read_djay_bpm(filepath)
+        if djay_bpm:
+            bpm = djay_bpm
         try:
-            boundaries = detect_boundaries(y, sr)
+            boundaries = detect_boundaries(y, sr, bpm=bpm)
             sections = classify_sections(y, sr, boundaries, duration, bpm)
         except Exception as e:
             error = f"{error}; structure: {e}" if error else f"structure: {e}"

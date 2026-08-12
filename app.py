@@ -587,7 +587,7 @@ with player_slot:
 
 # --- Opzione condivisa fra export ed export/scrittura djay ---
 vocals_only = st.checkbox(
-    "Save only vocal tags", value=True,
+    "Save only vocal tags", value=False,
     help="If checked, CSV/XML export and the djay Pro write below only "
          "include the vocal start/end rows, skipping the phrase tags.",
 )

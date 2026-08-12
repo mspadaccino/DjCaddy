@@ -885,6 +885,42 @@ def _require_library(library_path: Path) -> Path:
     return db_file
 
 
+def read_djay_bpm(filepath: Path,
+                  library_path: Path = DEFAULT_LIBRARY_PATH) -> float | None:
+    """BPM che djay Pro ha già calcolato per questo file, se lo conosce.
+
+    È il tempo della griglia che djay disegna in console, quindi è quello
+    giusto su cui allineare i cue — e su due tracce reali è risultato
+    sensibilmente diverso dalla stima del beat tracker (126.00 e 125.70
+    contro 123.0 in entrambi i casi).
+
+    Best-effort per costruzione: se la libreria non c'è, la traccia non è
+    stata importata o non è ancora stata analizzata, ritorna None e chi
+    chiama si arrangia con la propria stima. Non solleva mai.
+    """
+    try:
+        db_file = _db_path(library_path)
+        if not db_file.exists():
+            return None
+        uuid = find_track_uuid(db_file, filepath)
+        conn = _open_readonly(db_file)
+        try:
+            row = conn.execute(
+                "SELECT data FROM database2 WHERE collection='mediaItemAnalyzedData' "
+                "AND key=?", (uuid,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        bpm = _get_field(_parse(row[0]), b"bpm")
+        if bpm is None or bpm[0] != "f32" or not (0 < bpm[1] < 500):
+            return None
+        return float(bpm[1])
+    except Exception:
+        return None
+
+
 def _load_user_data(db_file: Path, filepath: Path) -> tuple[str, bytes]:
     uuid = find_track_uuid(db_file, filepath)
     conn = _open_readonly(db_file)
