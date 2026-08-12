@@ -6,19 +6,19 @@ from analysis.cue_export import (
 )
 
 
-def test_build_cue_rows_phrase_pairs():
+def test_build_cue_rows_one_row_per_phrase():
+    """Una frase è UNA riga: la sua fine è un'informazione a corredo, non un
+    secondo marcatore (cadrebbe sull'inizio della frase successiva)."""
     sections = [{"start": 0.0, "end": 32.0, "label": "Intro"},
                 {"start": 32.0, "end": 96.0, "label": "Drop/Chorus"}]
     rows = build_cue_rows(sections, [], bpm=120.0)
 
-    assert len(rows) == 4
-    intro_start, intro_end, drop_start, drop_end = rows
-    assert intro_start == {"id": "sec0s", "kind": "phrase_start", "label": "Intro start",
-                           "start": 0.0, "beats": 64.0}
-    assert intro_end == {"id": "sec0e", "kind": "phrase_end", "label": "Intro end",
-                         "start": 32.0, "beats": None}
-    assert drop_start["start"] == 32.0 and drop_start["beats"] == 128.0
-    assert drop_end["start"] == 96.0
+    assert len(rows) == 2
+    intro, drop = rows
+    assert intro == {"id": "sec0", "kind": "phrase_start", "label": "Intro",
+                     "start": 0.0, "end": 32.0, "beats": 64.0}
+    assert drop == {"id": "sec1", "kind": "phrase_start", "label": "Drop/Chorus",
+                    "start": 32.0, "end": 96.0, "beats": 128.0}
 
 
 def test_build_cue_rows_vocal_pairs():
@@ -48,21 +48,21 @@ def test_plan_phrases_become_hot_cues_in_time_order():
 
     assert [(pad, start) for _, pad, start in plan.cues] == [(0, 0.0), (1, 30.0)]
     assert plan.loops == []
-    assert plan.slot_label["sec1s"] == "Cue 1"   # Intro start, il più presto
+    assert plan.slot_label["sec1"] == "Cue 1"    # Intro, il più presto
     assert not plan.dropped and not plan.unpaired
 
 
-def test_plan_skips_phrase_ends():
-    """Le sezioni sono contigue: la fine di una frase cade sullo stesso
-    istante dell'inizio della successiva, quindi scrivere entrambe
-    metterebbe due cue sovrapposti e brucerebbe metà dei pad."""
-    rows = build_cue_rows([{"start": 0.0, "end": 30.0, "label": "Intro"},
-                           {"start": 30.0, "end": 60.0, "label": "Drop/Chorus"}], [])
+def test_plan_ignores_a_phrase_end_row_if_it_gets_one():
+    """Le fini di frase non vengono più nemmeno costruite, ma se una arriva
+    (righe salvate da una versione precedente) non deve produrre un cue
+    sovrapposto - né essere contata fra quelle che "non ci stanno"."""
+    rows = build_cue_rows([{"start": 0.0, "end": 30.0, "label": "Intro"}], [])
+    rows.append({"id": "sec0e", "kind": "phrase_end", "label": "Intro end",
+                 "start": 30.0, "end": None, "beats": None})
     plan = plan_djay_markers(rows)
 
-    assert [start for _, _, start in plan.cues] == [0.0, 30.0]
-    assert plan.slot_label["sec0e"] == "" and plan.slot_label["sec1e"] == ""
-    # non sono "scartate": non volevano uno slot
+    assert [start for _, _, start in plan.cues] == [0.0]
+    assert plan.slot_label["sec0e"] == ""
     assert plan.dropped == []
 
 

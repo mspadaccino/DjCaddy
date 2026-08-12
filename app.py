@@ -46,11 +46,9 @@ from analysis.vocals import VOCAL_FLOOR, available as vocals_available
 from analysis.vocals import vocal_regions
 from analysis.waveform import compute_frequency_waveform
 
-TAG_OPTIONS = (
-    [f"{label} start" for label in SECTION_LABELS]
-    + [f"{label} end" for label in SECTION_LABELS]
-    + [VOCAL_START, VOCAL_END]
-)
+# Una frase è una riga sola (il suo inizio); la fine è informazione nella
+# colonna "End", non un tag a sé — vedi analysis.cue_export.build_cue_rows.
+TAG_OPTIONS = list(SECTION_LABELS) + [VOCAL_START, VOCAL_END]
 
 
 def _marker_color(kind: str, tag: str) -> str:
@@ -383,10 +381,11 @@ deleted_vocal = st.session_state.setdefault(
     f"deleted_vocal::{path}::{round(vocal_floor, 2)}", set()
 )
 
-# --- Costruisce le righe base (default) della tabella unificata: ogni frase
-# e ogni regione vocale diventano una coppia di punti start/end, come i
-# marcatori vocali già facevano. ---
+# --- Costruisce le righe base (default) della tabella unificata: una riga
+# per frase (il suo inizio, con la fine come informazione) e due per ogni
+# regione vocale, che del suo inizio E della sua fine ha bisogno davvero. ---
 base_rows: list[dict] = []
+analysis_end: dict[str, float] = {}   # fine rilevata, usata solo per l'ultima frase
 if duration:
     default_rows = build_cue_rows(track["sections"], regions_live, track["bpm"])
     for r in default_rows:
@@ -400,11 +399,27 @@ if duration:
         label_key = f"label::{path}::{rid}"
         st.session_state.setdefault(start_key, r["start"])
         st.session_state.setdefault(label_key, r["label"])
+        if r["end"] is not None:
+            analysis_end[rid] = r["end"]
         base_rows.append({
             "_id": rid, "_kind": r["kind"],
             "Tag": st.session_state[label_key],
             "Start": st.session_state[start_key],
         })
+
+
+def _phrase_ends(kinds: dict, starts: dict) -> dict:
+    """Fine di ogni frase: l'inizio della frase successiva, perché le sezioni
+    sono contigue — così la colonna resta coerente anche dopo che l'utente ha
+    spostato un inizio. Per l'ultima frase resta la fine rilevata
+    dall'analisi. Le righe vocali non hanno una fine propria: la loro sta
+    nella riga "Vocal end" gemella."""
+    order = sorted((rid for rid, k in kinds.items() if k == PHRASE_START),
+                   key=lambda rid: starts[rid])
+    return {
+        rid: (starts[order[i + 1]] if i + 1 < len(order) else analysis_end.get(rid))
+        for i, rid in enumerate(order)
+    }
 
 # --- Ordina per tempo corrente (solo per la visualizzazione: l'id resta
 # l'indice stabile, così Streamlit riaggancia gli edit alla riga giusta anche
@@ -430,6 +445,13 @@ if base_rows:
     st.session_state[f"row_order::{path}"] = df.index.tolist()
     for rid, val in zip(df.index, df["Start"]):
         st.session_state[f"row_start::{path}::{rid}"] = float(val)
+
+    # Fine della frase: solo informativa, non diventa un cue in djay Pro.
+    ends = _phrase_ends(df["_kind"].to_dict(), df["Start"].to_dict())
+    df["End"] = [
+        format_elapsed(ends[rid]) if ends.get(rid) is not None else ""
+        for rid in df.index
+    ]
 
     # Solo per la visualizzazione/edit in tabella: mm:ss invece di secondi.
     df["Start"] = df["Start"].map(format_elapsed)
@@ -469,7 +491,7 @@ if base_rows:
         df,
         key=f"cue_table::{path}",
         hide_index=True,
-        column_order=["#", "Play", "Tag", "Start", "Beats", "Slot", "Del"],
+        column_order=["#", "Play", "Tag", "Start", "End", "Beats", "Slot", "Del"],
         column_config={
             "#": st.column_config.NumberColumn(disabled=True),
             "Play": st.column_config.ButtonColumn(
@@ -478,6 +500,13 @@ if base_rows:
             "Tag": st.column_config.SelectboxColumn(options=TAG_OPTIONS, required=True),
             "Start": st.column_config.TextColumn(
                 "Start (mm:ss)", help="Formato mm:ss o mm:ss.d, es. 1:07.3",
+            ),
+            "End": st.column_config.TextColumn(
+                "End (mm:ss)", disabled=True,
+                help="Dove finisce la frase, solo come riferimento: NON "
+                     "diventa un cue in djay Pro. Le sezioni sono contigue, "
+                     "quindi coincide con l'inizio della frase successiva. "
+                     "Le righe vocali hanno la loro fine nella riga gemella.",
             ),
             "Beats": st.column_config.NumberColumn(
                 disabled=True, help="Lunghezza della frase (solo sul tag start), "
@@ -514,17 +543,16 @@ if base_rows:
                    "valore precedente mantenuto.")
     edited_df["Start"] = edited_df.index.map(parsed_starts).astype(float)
 
-    # Beats: solo per le righe "phrase_start", ricalcolato dalla riga "end"
-    # gemella corrente (se esiste ancora — potrebbe essere stata cancellata).
+    # Beats: solo per le frasi, ricalcolato dalla fine corrente (cioè
+    # dall'inizio della frase successiva, dopo gli edit di questo run).
     starts_by_id = edited_df["Start"].to_dict()
+    ends_by_id = _phrase_ends(edited_df["_kind"].to_dict(), starts_by_id)
 
     def _beats_for(rid: str, kind: str) -> float | None:
-        if kind != PHRASE_START or not beat_seconds:
+        end = ends_by_id.get(rid)
+        if kind != PHRASE_START or not beat_seconds or end is None:
             return None
-        sibling = rid[:-1] + "e"
-        if sibling not in starts_by_id:
-            return None
-        return round((starts_by_id[sibling] - starts_by_id[rid]) / beat_seconds, 1)
+        return round((end - starts_by_id[rid]) / beat_seconds, 1)
 
     edited_df["Beats"] = [
         _beats_for(rid, row["_kind"]) for rid, row in edited_df.iterrows()
@@ -536,7 +564,7 @@ if base_rows:
         st.session_state[f"start::{path}::{rid}"] = float(row["Start"])
         st.session_state[f"label::{path}::{rid}"] = row["Tag"]
 else:
-    edited_df = pd.DataFrame(columns=["_kind", "Tag", "Start", "Beats", "Slot"])
+    edited_df = pd.DataFrame(columns=["_kind", "Tag", "Start", "End", "Beats", "Slot"])
     st.info("No cues to show for this track.")
 
 markers = [

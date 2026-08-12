@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from .models import VOCAL_END, VOCAL_START
 
 PHRASE_START = "phrase_start"
-PHRASE_END = "phrase_end"
 VOCAL_START_KIND = "vocal_start"
 VOCAL_END_KIND = "vocal_end"
 VOCAL_KINDS = (VOCAL_START_KIND, VOCAL_END_KIND)
@@ -30,8 +29,14 @@ def build_cue_rows(sections, vocal_regions, bpm: float | None = None) -> list[di
     `sections`: iterabile di dict (o oggetti Section) con start/end/label.
     `vocal_regions`: iterabile di coppie (start, end).
 
-    Ogni riga: id, kind, label, start (secondi), beats (solo phrase_start:
-    lunghezza della frase, per riferimento).
+    Una frase è UNA riga sola, con la sua fine come informazione a corredo:
+    le sezioni sono contigue, quindi una riga di fine cadrebbe sullo stesso
+    istante dell'inizio della successiva e in djay Pro sarebbe un doppione
+    (vedi `plan_djay_markers`). Le regioni vocali restano invece due righe,
+    perché entrambi gli estremi servono davvero a costruire il loop.
+
+    Ogni riga: id, kind, label, start (secondi), end (solo le frasi), beats
+    (solo le frasi: lunghezza in battiti, per riferimento).
     """
     beat_seconds = (60.0 / bpm) if bpm else None
     rows: list[dict] = []
@@ -40,16 +45,14 @@ def build_cue_rows(sections, vocal_regions, bpm: float | None = None) -> list[di
         start = float(s["start"] if isinstance(s, dict) else s.start)
         end = float(s["end"] if isinstance(s, dict) else s.end)
         beats = round((end - start) / beat_seconds, 1) if beat_seconds else None
-        rows.append({"id": f"sec{i}s", "kind": PHRASE_START, "label": f"{label} start",
-                    "start": start, "beats": beats})
-        rows.append({"id": f"sec{i}e", "kind": PHRASE_END, "label": f"{label} end",
-                    "start": end, "beats": None})
+        rows.append({"id": f"sec{i}", "kind": PHRASE_START, "label": label,
+                    "start": start, "end": end, "beats": beats})
 
     for j, (vs, ve) in enumerate(vocal_regions):
         rows.append({"id": f"vs{j}", "kind": VOCAL_START_KIND, "label": VOCAL_START,
-                    "start": float(vs), "beats": None})
+                    "start": float(vs), "end": None, "beats": None})
         rows.append({"id": f"ve{j}", "kind": VOCAL_END_KIND, "label": VOCAL_END,
-                    "start": float(ve), "beats": None})
+                    "start": float(ve), "end": None, "beats": None})
     return rows
 
 
