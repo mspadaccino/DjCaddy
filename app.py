@@ -485,10 +485,13 @@ if base_rows:
             ),
             "Slot": st.column_config.TextColumn(
                 "djay slot", disabled=True,
-                help="Dove finisce questa riga in djay Pro: le frasi sui pad "
-                     "hot-cue 1-8 (la posizione decide il colore), le regioni "
-                     "vocali sugli slot loop 1-8 (inizio e fine nello stesso "
-                     "slot). Assegnati in ordine di tempo; vuoto = non ci sta.",
+                help="Dove finisce questa riga in djay Pro: gli INIZI di frase "
+                     "sui pad hot-cue 1-8 (la posizione decide il colore), le "
+                     "regioni vocali sugli slot loop 1-8 (inizio e fine nello "
+                     "stesso slot). Assegnati in ordine di tempo. Vuoto = non "
+                     "viene scritta: le FINI di frase cadono sull'inizio della "
+                     "frase successiva, quindi sarebbero doppioni, e oltre "
+                     "l'ottavo slot non c'è più posto.",
             ),
             "Del": st.column_config.ButtonColumn(
                 "🗑", on_click=_on_delete_click, key=del_key, width="small",
@@ -600,12 +603,14 @@ st.subheader("Update your djay Pro library")
 st.caption(
     f"Writes the rows above (or only the vocal ones, per the checkbox above) "
     f"straight into your djay Pro library — no XML export/import needed. "
-    f"djay Pro has two independent banks of {DJAY_SLOTS}: **phrase tags become "
-    f"hot cues** (pad position sets the colour), and **each vocal region "
-    f"becomes one saved loop**, holding its start and end in a single slot "
-    f"instead of burning two pads. Slots are handed out in time order — the "
-    f"**djay slot** column shows where each row lands, and rows past the "
-    f"{DJAY_SLOTS}th are left out."
+    f"djay Pro has two independent banks of {DJAY_SLOTS}: **phrase starts "
+    f"become hot cues** (pad position sets the colour), and **each vocal "
+    f"region becomes one saved loop**, holding its start and end in a single "
+    f"slot instead of burning two pads. Phrase *ends* aren't written — a "
+    f"section ends exactly where the next one starts, so they'd just be "
+    f"duplicate cues. Slots are handed out in time order; the **djay slot** "
+    f"column shows where each row lands, and rows past the {DJAY_SLOTS}th are "
+    f"left out."
 )
 overwrite_tags = st.checkbox(
     "Overwrite tags for analyzed songs", value=False,

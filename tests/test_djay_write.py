@@ -423,8 +423,8 @@ def test_plan_djay_markers_output_is_writable():
 
     rows = build_cue_rows(
         [{"start": float(i * 20), "end": float(i * 20 + 10), "label": "Intro"}
-         for i in range(6)],
-        [(float(i * 15 + 5), float(i * 15 + 12)) for i in range(10)],
+         for i in range(12)],
+        [(float(i * 15 + 500), float(i * 15 + 507)) for i in range(10)],
         bpm=120.0,
     )
     plan = plan_djay_markers(rows)

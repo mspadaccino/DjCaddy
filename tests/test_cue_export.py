@@ -46,12 +46,32 @@ def test_plan_phrases_become_hot_cues_in_time_order():
                            {"start": 0.0, "end": 30.0, "label": "Intro"}], [])
     plan = plan_djay_markers(rows)
 
-    assert [(pad, start) for _, pad, start in plan.cues] == [
-        (0, 0.0), (1, 30.0), (2, 30.0), (3, 60.0),
-    ]
+    assert [(pad, start) for _, pad, start in plan.cues] == [(0, 0.0), (1, 30.0)]
     assert plan.loops == []
     assert plan.slot_label["sec1s"] == "Cue 1"   # Intro start, il più presto
     assert not plan.dropped and not plan.unpaired
+
+
+def test_plan_skips_phrase_ends():
+    """Le sezioni sono contigue: la fine di una frase cade sullo stesso
+    istante dell'inizio della successiva, quindi scrivere entrambe
+    metterebbe due cue sovrapposti e brucerebbe metà dei pad."""
+    rows = build_cue_rows([{"start": 0.0, "end": 30.0, "label": "Intro"},
+                           {"start": 30.0, "end": 60.0, "label": "Drop/Chorus"}], [])
+    plan = plan_djay_markers(rows)
+
+    assert [start for _, _, start in plan.cues] == [0.0, 30.0]
+    assert plan.slot_label["sec0e"] == "" and plan.slot_label["sec1e"] == ""
+    # non sono "scartate": non volevano uno slot
+    assert plan.dropped == []
+
+
+def test_plan_keeps_both_ends_of_a_vocal_region():
+    """Le vocali restano l'eccezione: un loop ha bisogno di inizio E fine,
+    ma li tiene in un solo slot."""
+    plan = plan_djay_markers(build_cue_rows([], [(10.0, 15.0)]))
+    assert [(s, e) for _, _, s, e in plan.loops] == [(10.0, 15.0)]
+    assert plan.slot_label["vs0"] == plan.slot_label["ve0"] == "Loop 1"
 
 
 def test_plan_each_vocal_region_is_one_loop():
@@ -64,21 +84,22 @@ def test_plan_each_vocal_region_is_one_loop():
     assert [(slot, s, e) for _, slot, s, e in plan.loops] == [
         (0, 10.0, 15.0), (1, 40.0, 50.0),
     ]
-    assert len(plan.cues) == 2                      # la frase resta sui suoi pad
+    assert len(plan.cues) == 1                      # solo l'inizio della frase
     assert plan.slot_label["vs0"] == plan.slot_label["ve0"] == "Loop 1"
     assert plan.slot_label["vs1"] == plan.slot_label["ve1"] == "Loop 2"
 
 
 def test_plan_truncates_each_bank_at_eight_keeping_earliest():
     sections = [{"start": float(i * 10), "end": float(i * 10 + 5), "label": "Intro"}
-                for i in range(6)]           # 12 righe di frase
-    vocals = [(float(i * 10 + 100), float(i * 10 + 105)) for i in range(10)]
+                for i in range(12)]          # 12 inizi di frase
+    vocals = [(float(i * 10 + 200), float(i * 10 + 205)) for i in range(10)]
     plan = plan_djay_markers(build_cue_rows(sections, vocals))
 
     assert len(plan.cues) == DJAY_SLOTS
     assert len(plan.loops) == DJAY_SLOTS
     assert [start for _, _, start in plan.cues] == sorted(start for _, _, start in plan.cues)
     assert plan.cues[0][2] == 0.0                   # tiene le più presto
+    # 4 inizi di frase in eccesso + 2 regioni vocali (2 righe ciascuna)
     assert len(plan.dropped) == (12 - DJAY_SLOTS) + (10 - DJAY_SLOTS) * 2
 
 

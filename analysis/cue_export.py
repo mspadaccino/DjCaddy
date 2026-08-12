@@ -80,10 +80,16 @@ class DjayPlan:
 def plan_djay_markers(rows) -> DjayPlan:
     """Assegna gli slot di djay Pro alle righe, in ordine cronologico.
 
-    Le frasi diventano hot cue (pad 1-8, la posizione decide il colore); le
-    regioni vocali diventano loop salvati (slot 1-8), perché un loop tiene
-    inizio e fine in un solo slot invece di bruciare due pad. I due banchi
-    sono indipendenti, quindi 8 frasi e 8 regioni vocali convivono.
+    Diventano hot cue (pad 1-8, la posizione decide il colore) solo gli
+    INIZI di frase: le sezioni sono contigue, quindi la fine di una frase
+    cade sullo stesso istante dell'inizio della successiva e scriverle
+    entrambe metterebbe due cue sovrapposti, sprecando metà dei pad.
+    (L'unica fine che non coincide con nulla è quella dell'ultima frase,
+    cioè la fine del brano: come cue non serve.)
+
+    Le regioni vocali diventano invece loop salvati (slot 1-8) e lì servono
+    ENTRAMBI gli estremi — ma stanno in un solo slot, non in due pad. I due
+    banchi sono indipendenti, quindi 8 frasi e 8 regioni vocali convivono.
 
     Oltre l'ottavo slot di ciascun banco le righe vengono scartate (le più
     tarde nel brano): djay Pro non ha altri posti dove metterle.
@@ -95,7 +101,7 @@ def plan_djay_markers(rows) -> DjayPlan:
 
     cues, loops, slot_label, unpaired = [], [], {}, []
 
-    phrases = sorted((r for r in rows if r["kind"] not in VOCAL_KINDS),
+    phrases = sorted((r for r in rows if r["kind"] == PHRASE_START),
                      key=lambda r: r["start"])
     for pad, r in enumerate(phrases[:DJAY_SLOTS]):
         cues.append((r["id"], pad, r["start"]))
@@ -123,6 +129,10 @@ def plan_djay_markers(rows) -> DjayPlan:
 
     for r in rows:
         slot_label.setdefault(r["id"], "")
+    # "Scartata" vale solo per una riga che uno slot lo voleva: le fini di
+    # frase restano senza slot per scelta, non perché non ci stanno.
+    wanted = {r["id"] for r in phrases} | {r["id"] for r in rows if is_vocal_row(r)}
     dropped = [r["id"] for r in rows
-               if not slot_label[r["id"]] and r["id"] not in unpaired]
+               if r["id"] in wanted and not slot_label[r["id"]]
+               and r["id"] not in unpaired]
     return DjayPlan(cues, loops, slot_label, dropped, unpaired)
