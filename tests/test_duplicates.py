@@ -346,3 +346,65 @@ def test_appledouble_excluded_from_audio_only_scan(tmp_path):
     _write(tmp_path / "Track.mp3", b"vero")
     _write(tmp_path / "._Track.mp3", b"sidecar")
     assert len(scan_folder(tmp_path, audio_only=True).files) == 1
+
+
+# --- rimozione dei sidecar AppleDouble --------------------------------------
+
+APPLEDOUBLE = b"\x00\x05\x16\x07" + b"Mac OS X" + b"\x00" * 100
+
+
+def test_find_sidecars_confirms_by_content_not_by_name(tmp_path):
+    """Il nome da solo non basta a cancellare: si guarda dentro."""
+    from analysis.folder_scan import find_sidecars
+
+    _write(tmp_path / "._Track.mp3", APPLEDOUBLE)
+    _write(tmp_path / "._Impostore.mp3", b"ID3\x04 sono un mp3 vero")
+    _write(tmp_path / "Track.mp3", b"brano")
+
+    report = find_sidecars(tmp_path)
+    assert [p.name for p in report.confirmed] == ["._Track.mp3"]
+    assert [p.name for p in report.unverified] == ["._Impostore.mp3"]
+    assert report.freed_bytes == len(APPLEDOUBLE)
+
+
+def test_find_sidecars_includes_folder_sidecars(tmp_path):
+    """macOS ne crea anche per le cartelle: stessa spazzatura, niente
+    estensione."""
+    from analysis.folder_scan import find_sidecars
+
+    _write(tmp_path / "._FLASHBACK", APPLEDOUBLE)
+    _write(tmp_path / "sub" / "._Track.flac", APPLEDOUBLE)
+    assert len(find_sidecars(tmp_path).confirmed) == 2
+
+
+def test_delete_sidecars_removes_only_confirmed_ones(tmp_path):
+    from analysis.folder_scan import delete_sidecars
+
+    good = _write(tmp_path / "._Track.mp3", APPLEDOUBLE)
+    impostor = _write(tmp_path / "._Impostore.mp3", b"ID3\x04 vero mp3")
+
+    removed, freed, errors = delete_sidecars([good, impostor], dry_run=False)
+    assert removed == 1 and freed == len(APPLEDOUBLE)
+    assert not good.exists()
+    assert impostor.exists()                  # il contenuto lo salva
+    assert len(errors) == 1 and "AppleDouble" in errors[0][1]
+
+
+def test_delete_sidecars_dry_run_touches_nothing(tmp_path):
+    from analysis.folder_scan import delete_sidecars
+
+    target = _write(tmp_path / "._Track.mp3", APPLEDOUBLE)
+    removed, freed, errors = delete_sidecars([target])       # dry_run di default
+    assert removed == 1 and freed == len(APPLEDOUBLE) and errors == []
+    assert target.exists()
+
+
+def test_delete_sidecars_never_touches_the_real_track(tmp_path):
+    from analysis.folder_scan import delete_sidecars, find_sidecars
+
+    real = _write(tmp_path / "Track.mp3", b"ID3\x04 brano vero")
+    _write(tmp_path / "._Track.mp3", APPLEDOUBLE)
+
+    report = find_sidecars(tmp_path)
+    delete_sidecars(report.confirmed, dry_run=False)
+    assert real.exists() and real.read_bytes() == b"ID3\x04 brano vero"

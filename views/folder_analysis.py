@@ -21,7 +21,12 @@ from analysis.duplicates import (
     find_duplicates,
     write_csv,
 )
-from analysis.folder_scan import human_size, scan_folder
+from analysis.folder_scan import (
+    delete_sidecars,
+    find_sidecars,
+    human_size,
+    scan_folder,
+)
 
 st.title("📁 Folder analysis")
 st.caption(
@@ -299,3 +304,70 @@ else:
                          width="stretch", hide_index=True)
         st.session_state.pop(dup_key, None)
         st.session_state.pop(scan_key, None)
+
+
+# --- Sidecar AppleDouble ---------------------------------------------------
+
+st.divider()
+st.subheader("macOS sidecar files")
+st.caption(
+    "On a non-macOS volume (this drive is exFAT) the Finder cannot store a "
+    "file's extended attributes inside it, so it writes them to a companion "
+    "`._<name>` — one per track, plus one per folder. They carry the track's "
+    "own extension but hold no audio: typically 4 KB whose only real content "
+    "is the browser's download-quarantine flag. The Finder hides them, "
+    "rekordbox refuses them, djay Pro ignores them."
+)
+
+sidecar_key = f"sidecars::{root}"
+if st.button("Find sidecar files"):
+    seen = st.empty()
+    with st.spinner("Looking for sidecars…"):
+        st.session_state[sidecar_key] = find_sidecars(
+            root, progress=lambda n: seen.caption(f"{n:,} checked…"))
+    seen.empty()
+
+sidecars = st.session_state.get(sidecar_key)
+if sidecars is not None:
+    s1, s2 = st.columns(2)
+    s1.metric("Sidecars found", f"{len(sidecars.confirmed):,}",
+              help="Name starts with ._ AND the content is a real AppleDouble.")
+    s2.metric("Space they take", human_size(sidecars.freed_bytes))
+
+    if sidecars.unverified:
+        st.warning(
+            f"{len(sidecars.unverified)} file(s) are named like a sidecar but "
+            "are not one. They will NOT be touched — deleting on the strength "
+            "of a name is how a real file gets lost.")
+        st.dataframe(pd.DataFrame([{"path": str(p)} for p in sidecars.unverified]),
+                     width="stretch", hide_index=True)
+
+    if not sidecars.confirmed:
+        st.info("No sidecar files here.")
+    else:
+        with st.expander(f"Show the {len(sidecars.confirmed):,} files"):
+            st.dataframe(
+                pd.DataFrame([{"path": str(p)} for p in sidecars.confirmed[:500]]),
+                width="stretch", hide_index=True)
+            if len(sidecars.confirmed) > 500:
+                st.caption(f"Showing the first 500 of {len(sidecars.confirmed):,}.")
+
+        st.caption(
+            "These are **deleted**, not quarantined: there is nothing inside "
+            "worth keeping, and on this filesystem macOS recreates them the "
+            "next time the Finder touches a folder — so it is a recurring "
+            "tidy-up, not a one-off. Each file's content is re-checked "
+            "immediately before removal.")
+        sure = st.checkbox(
+            f"Delete these {len(sidecars.confirmed):,} files "
+            f"({human_size(sidecars.freed_bytes)})", key="sidecar_confirm")
+        if st.button("Delete sidecar files", type="primary", disabled=not sure):
+            removed, freed, errors = delete_sidecars(sidecars.confirmed, dry_run=False)
+            st.success(f"{removed:,} sidecar files deleted, {human_size(freed)} freed.")
+            if errors:
+                st.warning(f"{len(errors)} skipped.")
+                st.dataframe(pd.DataFrame([{"path": str(p), "reason": e}
+                                           for p, e in errors]),
+                             width="stretch", hide_index=True)
+            st.session_state.pop(sidecar_key, None)
+            st.session_state.pop(scan_key, None)

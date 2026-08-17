@@ -43,6 +43,11 @@ OTHER = "OTHER"
 # 116.381, cioè i tre quarti di quello che una scansione ingenua conta.
 APPLEDOUBLE = "AppleDouble (._ macOS)"
 
+# I primi quattro byte di un file AppleDouble. Serve a NON cancellare per
+# sbaglio un file che si chiama "._qualcosa" senza esserlo davvero: il nome
+# da solo non basta a giustificare una cancellazione.
+APPLEDOUBLE_MAGIC = b"\x00\x05\x16\x07"
+
 
 @dataclass
 class ScannedFile:
@@ -137,3 +142,86 @@ def human_size(num_bytes: float) -> str:
             return f"{num_bytes:.0f} {unit}" if unit == "B" else f"{num_bytes:.1f} {unit}"
         num_bytes /= 1024
     return f"{num_bytes:.1f} TB"
+
+
+# --------------------------------------------------------------------------
+# Sidecar AppleDouble: individuazione e rimozione
+# --------------------------------------------------------------------------
+
+@dataclass
+class SidecarReport:
+    """Cosa è stato trovato cercando i "._<nome>".
+
+    `confirmed` sono quelli che hanno ANCHE il contenuto giusto e si possono
+    togliere senza pensarci. `unverified` si chiamano così ma dentro c'è
+    altro: restano dove sono e vengono solo segnalati, perché cancellare in
+    base al nome è esattamente il modo in cui si perde un file per sbaglio.
+    """
+    confirmed: list[Path] = field(default_factory=list)
+    unverified: list[Path] = field(default_factory=list)
+    freed_bytes: int = 0
+    unreadable: list[tuple[Path, str]] = field(default_factory=list)
+
+
+def is_appledouble_content(path: Path) -> bool:
+    """Legge i primi byte per confermare che è davvero un AppleDouble."""
+    try:
+        with path.open("rb") as fh:
+            return fh.read(4) == APPLEDOUBLE_MAGIC
+    except OSError:
+        return False
+
+
+def find_sidecars(root: Path, progress=None) -> SidecarReport:
+    """Cerca i sidecar "._<nome>" sotto `root`, verificandone il contenuto.
+
+    Comprende anche quelli delle CARTELLE (senza estensione): sono la stessa
+    cosa e la stessa spazzatura.
+    """
+    report = SidecarReport()
+    seen = 0
+    for path in root.rglob("._*"):
+        try:
+            if not path.is_file():
+                continue
+            if is_appledouble_content(path):
+                report.confirmed.append(path)
+                report.freed_bytes += path.stat().st_size
+            else:
+                report.unverified.append(path)
+        except OSError as e:
+            report.unreadable.append((path, str(e)))
+        seen += 1
+        if progress is not None and seen % 500 == 0:
+            progress(seen)
+    if progress is not None:
+        progress(seen)
+    return report
+
+
+def delete_sidecars(paths, dry_run: bool = True) -> tuple[int, int, list[tuple[Path, str]]]:
+    """Cancella i sidecar. Ritorna (quanti, byte liberati, errori).
+
+    A differenza dei duplicati qui si cancella davvero invece di mettere in
+    quarantena, e la ragione è che questi file non contengono niente da
+    salvare: solo l'etichetta di quarantena del browser che ha scaricato il
+    brano. Metterli da parte vorrebbe dire spostare spazzatura, e su un
+    volume non-macOS il sistema li ricrea comunque alla prossima occasione.
+
+    Per sicurezza il contenuto viene ricontrollato subito prima: se nel
+    frattempo il file non è più un AppleDouble, viene saltato.
+    """
+    removed, freed, errors = 0, 0, []
+    for path in paths:
+        try:
+            if not is_appledouble_content(path):
+                errors.append((path, "non è (più) un AppleDouble: saltato"))
+                continue
+            size = path.stat().st_size
+            if not dry_run:
+                path.unlink()
+            removed += 1
+            freed += size
+        except OSError as e:
+            errors.append((path, str(e)))
+    return removed, freed, errors
