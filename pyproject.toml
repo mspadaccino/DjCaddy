@@ -15,6 +15,16 @@ streamlit = "^1.37"
 plotly = "^5.22"
 demucs = "^4.0"
 
+# Essentia sta a parte: pesa 424 MB (TensorFlow e' dentro il pacchetto) e su
+# PyPI esiste solo come pre-release, quindi un vincolo tipo ">=2.1b6" NON la
+# troverebbe. Serve solo alla sezione "Tag analysis", che senza degrada da
+# sola:  poetry install --with essentia
+[tool.poetry.group.essentia]
+optional = true
+
+[tool.poetry.group.essentia.dependencies]
+essentia-tensorflow = { version = "*", allow-prereleases = true }
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
 
