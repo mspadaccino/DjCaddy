@@ -221,3 +221,71 @@ def test_find_taggable_covers_the_supported_formats(tmp_path):
         (tmp_path / name).write_bytes(b"x")
     assert sorted(p.suffix for p in find_taggable(tmp_path)) == [
         ".flac", ".m4a", ".mp3", ".wma", ".wv"]
+
+
+# --- copertura dei tag già scritti -----------------------------------------
+
+def test_read_coverage_flattens_what_mutagen_returns(tmp_path, monkeypatch):
+    """mutagen restituisce ora una stringa, ora una lista, ora un frame che
+    contiene una lista: senza appiattire, il genere usciva come "['House']"."""
+    from analysis.essentia_tags import read_coverage
+
+    class Frame:
+        def __init__(self, text, desc=""):
+            self.text, self.desc = text, desc
+
+    class ID3Like(dict):
+        def getall(self, key):
+            return {"TCON": [Frame(["House"])],
+                    "COMM": [Frame(["Happy; Deep"], desc="")]}.get(key, [])
+
+    audio = type("A", (), {"tags": ID3Like()})()
+    monkeypatch.setattr("mutagen.File", lambda *a, **k: audio)
+
+    cov = read_coverage(tmp_path / "t.mp3")
+    assert cov.genre == "House" and cov.comment == "Happy; Deep"
+    assert cov.has_genre and cov.has_comment and cov.complete
+
+
+def test_read_coverage_ignores_comments_with_a_description(tmp_path, monkeypatch):
+    """Conta solo il commento a descrizione VUOTA: è l'unico che djay Pro
+    mostra, ed è lì che vanno i mood."""
+    from analysis.essentia_tags import read_coverage
+
+    class Frame:
+        def __init__(self, text, desc):
+            self.text, self.desc = text, desc
+
+    class ID3Like(dict):
+        def getall(self, key):
+            return {"TCON": [], "COMM": [Frame(["x"], desc="Essentia Mood")]}.get(key, [])
+
+    monkeypatch.setattr("mutagen.File",
+                        lambda *a, **k: type("A", (), {"tags": ID3Like()})())
+    cov = read_coverage(tmp_path / "t.mp3")
+    assert not cov.has_comment and not cov.complete
+
+
+def test_read_coverage_reports_unreadable_instead_of_raising(tmp_path, monkeypatch):
+    from analysis.essentia_tags import read_coverage
+
+    monkeypatch.setattr("mutagen.File", lambda *a, **k: None)
+    cov = read_coverage(tmp_path / "t.mp3")
+    assert cov.error and not cov.complete
+
+
+@pytestmark_audio
+def test_read_coverage_round_trips_what_we_write(tmp_path):
+    """La prova che conta: quello che scriviamo, lo rileggiamo."""
+    from analysis.essentia_tags import read_coverage
+
+    src = next(TEST_AUDIO.glob("*.mp3"))
+    target = tmp_path / "track.mp3"
+    shutil.copy(src, target)
+
+    assert not read_coverage(target).complete or True   # stato iniziale qualunque
+    write_tags(target, _tags(), TagSettings(overwrite=True))
+    cov = read_coverage(target)
+    assert cov.genre == "Rock - Alternative Rock; Pop"
+    assert cov.comment == "Happy; Energetic; Dark"
+    assert cov.complete

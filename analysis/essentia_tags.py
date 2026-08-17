@@ -448,3 +448,84 @@ class EssentiaAnalyzer:
 def _labels(metadata_file: Path) -> list[str]:
     with metadata_file.open(encoding="utf-8") as fh:
         return json.load(fh)["classes"]
+
+
+# --------------------------------------------------------------------------
+# Cosa è già stato scritto: copertura dei tag
+# --------------------------------------------------------------------------
+
+@dataclass
+class TagCoverage:
+    """Quali tag ha già un file. Letto dal FILE, non dal registro di ciò che
+    è stato tentato: sono due cose diverse, e l'unica che conta davvero è
+    cosa c'è dentro al brano adesso."""
+    path: Path
+    genre: str | None = None
+    comment: str | None = None
+    error: str | None = None
+
+    @property
+    def has_genre(self) -> bool:
+        return bool(self.genre)
+
+    @property
+    def has_comment(self) -> bool:
+        return bool(self.comment)
+
+    @property
+    def complete(self) -> bool:
+        return self.has_genre and self.has_comment
+
+
+def _first(values) -> str | None:
+    """Primo valore non vuoto, appiattendo le liste: mutagen restituisce ora
+    una stringa, ora una lista, ora un frame che contiene una lista."""
+    if values is None:
+        return None
+    if isinstance(values, (str, bytes)):
+        values = [values]
+    for v in values:
+        if isinstance(v, (list, tuple)):
+            found = _first(v)
+            if found:
+                return found
+            continue
+        text = str(v).strip()
+        if text:
+            return text
+    return None
+
+
+def read_coverage(path: Path) -> TagCoverage:
+    """Legge genere e commento predefinito da un file, qualunque sia il
+    formato. Il commento è quello a descrizione VUOTA: è l'unico che djay
+    Pro mostra, ed è dove finiscono i mood."""
+    import mutagen
+
+    try:
+        audio = mutagen.File(path)
+    except Exception as e:
+        return TagCoverage(path=path, error=f"{type(e).__name__}")
+    if audio is None:
+        return TagCoverage(path=path, error="nessuna intestazione audio")
+
+    tags = audio.tags
+    if tags is None:
+        return TagCoverage(path=path)
+
+    # Si sceglie in base al TIPO dei tag, non provando le chiavi a tentoni:
+    # i tag Vorbis sollevano ValueError se interrogati con una chiave non
+    # ASCII come quelle di MP4.
+    genre = comment = None
+    if hasattr(tags, "getall"):                     # ID3: mp3, aiff, wav, dsf
+        genre = _first([f.text for f in tags.getall("TCON")])
+        comment = _first([f.text for f in tags.getall("COMM") if f.desc == ""])
+    elif type(tags).__name__ == "MP4Tags":
+        genre = _first(tags.get("\xa9gen"))
+        comment = _first(tags.get("\xa9cmt"))
+    else:                                           # Vorbis, APEv2, ASF
+        for key in ("GENRE", "genre", "WM/Genre", "Genre"):
+            genre = genre or _first(tags.get(key))
+        for key in ("COMMENT", "comment", "Description", "Comment"):
+            comment = comment or _first(tags.get(key))
+    return TagCoverage(path=path, genre=genre, comment=comment)
