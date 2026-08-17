@@ -12,6 +12,9 @@ dist/
 .dj_cache/
 *.dj_cache.json
 
+# Elenco dei brani gia' taggati (dati: si copia a mano, non si committa)
+.wavecut_tag_progress.txt
+
 # Report generati dall'analisi
 report.csv
 report.json

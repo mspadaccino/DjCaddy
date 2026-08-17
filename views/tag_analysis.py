@@ -1,7 +1,7 @@
 """Sezione "Tag analysis": genere e mood nei tag, con i modelli Essentia.
 
 In costruzione. Per ora la pagina riporta soltanto se l'ambiente è pronto,
-che è l'informazione utile prima di scaricare 424 MB di dipendenza.
+che è l'informazione utile prima di lanciare una analisi lunga.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import streamlit as st
 
 from analysis.essentia_tags import MODEL_DIR, MODELS, available, missing_models
+from analysis.tag_tracking import DEFAULT_TRACKING_FILE, ProcessedTracker
 
 st.title("🏷️ Tag analysis")
 st.caption(
@@ -30,10 +31,11 @@ if available():
     st.success("`essentia` is importable in this environment.")
 else:
     st.warning(
-        "`essentia` is not installed here. It is not a base dependency: it "
-        "weighs 424 MB (TensorFlow ships inside it) and PyPI only publishes "
-        "it as a pre-release, so it has to be asked for explicitly:\n\n"
-        "```bash\npoetry install --with essentia\n```"
+        "`essentia` is not importable here. It comes with a plain "
+        "`poetry install` — it just lives in its own group so that "
+        "`poetry install --without essentia` stays available if the wheel "
+        "is ever missing for the Python in use.\n\n"
+        "```bash\npoetry install\n```"
     )
 
 missing = missing_models()
@@ -47,3 +49,18 @@ st.dataframe(
      for name, purpose in MODELS.items()],
     width="stretch", hide_index=True,
 )
+
+st.subheader("Already tagged")
+tracker = ProcessedTracker()
+if tracker.existed:
+    st.success(
+        f"{len(tracker):,} tracks already done "
+        f"({tracker.duplicate_lines:,} repeated lines absorbed)."
+    )
+else:
+    st.info(
+        "No progress file yet. Copy the one from the standalone script over "
+        "it once its run has finished — same format, one absolute path per "
+        "line, repeats are harmless."
+    )
+st.caption(f"`{DEFAULT_TRACKING_FILE}`")

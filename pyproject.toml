@@ -15,13 +15,12 @@ streamlit = "^1.37"
 plotly = "^5.22"
 demucs = "^4.0"
 
-# Essentia sta a parte: pesa 424 MB (TensorFlow e' dentro il pacchetto) e su
-# PyPI esiste solo come pre-release, quindi un vincolo tipo ">=2.1b6" NON la
-# troverebbe. Serve solo alla sezione "Tag analysis", che senza degrada da
-# sola:  poetry install --with essentia
-[tool.poetry.group.essentia]
-optional = true
-
+# Essentia sta in un gruppo suo ma NON opzionale: `poetry install` la prende,
+# come tutto il resto. Il gruppo serve solo da via d'uscita, perche' su PyPI
+# esiste unicamente come pre-release e solo per certe versioni di Python
+# (da qui allow-prereleases: un vincolo tipo ">=2.1b6" non la troverebbe).
+# Se un domani manca la wheel per il Python in uso, `poetry install --without
+# essentia` tiene in piedi Wave analysis e Folder analysis, che non la usano.
 [tool.poetry.group.essentia.dependencies]
 essentia-tensorflow = { version = "*", allow-prereleases = true }
 
