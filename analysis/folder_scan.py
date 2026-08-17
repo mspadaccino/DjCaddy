@@ -34,6 +34,14 @@ AUDIO_FORMATS = {
 }
 
 OTHER = "OTHER"
+# Su volumi non-macOS (exFAT, FAT32, NTFS) il Finder non può scrivere gli
+# attributi estesi dentro al file e li mette in un file affiancato "._<nome>".
+# Portano l'estensione del brano ma sono AppleDouble da 4 KB: non sono audio,
+# e vanno tenuti fuori sia dai conteggi audio sia dalla ricerca duplicati —
+# altrimenti, avendo tutti la stessa dimensione, si presenterebbero a
+# migliaia come "duplicati". Su una libreria reale sono 88.115 file su
+# 116.381, cioè i tre quarti di quello che una scansione ingenua conta.
+APPLEDOUBLE = "AppleDouble (._ macOS)"
 
 
 @dataclass
@@ -44,7 +52,7 @@ class ScannedFile:
 
     @property
     def is_audio(self) -> bool:
-        return self.fmt != OTHER
+        return self.fmt not in (OTHER, APPLEDOUBLE)
 
 
 @dataclass
@@ -77,6 +85,8 @@ class FolderScan:
 
 
 def format_of(path: Path) -> str:
+    if path.name.startswith("._"):
+        return APPLEDOUBLE
     return AUDIO_FORMATS.get(path.suffix.lower(), OTHER)
 
 
@@ -95,7 +105,7 @@ def scan_folder(root: Path, audio_only: bool = False, progress=None) -> FolderSc
             if not path.is_file():
                 continue
             fmt = format_of(path)
-            if audio_only and fmt == OTHER:
+            if audio_only and fmt in (OTHER, APPLEDOUBLE):
                 continue
             scan.files.append(ScannedFile(path=path, size=path.stat().st_size, fmt=fmt))
         except OSError as e:

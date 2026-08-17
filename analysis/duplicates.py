@@ -248,9 +248,19 @@ def write_csv(groups: list[DuplicateGroup], destination: Path) -> Path:
 # Quarantena (mai cancellazione)
 # --------------------------------------------------------------------------
 
-def build_quarantine_plan(groups: list[DuplicateGroup], root: Path,
+def duplicates_of(groups: list[DuplicateGroup]) -> list[Path]:
+    """Tutti i file duplicati dei gruppi dati (esclusi i `keep`)."""
+    return [dup for g in groups for dup in g.duplicates]
+
+
+def build_quarantine_plan(paths, root: Path,
                           dirname: str = QUARANTINE_DIRNAME) -> list[tuple[Path, Path]]:
-    """(origine, destinazione) per ogni duplicato, sotto `root/dirname/`.
+    """(origine, destinazione) per ogni file da mettere in quarantena.
+
+    Prende i PERCORSI e non i gruppi, perché la scelta di cosa spostare la
+    fa l'utente riga per riga: un gruppo con tre copie ne mette in
+    quarantena due, ed è per questo che il numero di gruppi e quello dei
+    file da spostare non coincidono.
 
     La struttura di cartelle originale viene ricalcata dentro la quarantena,
     così si vede da dove veniva ogni file e lo si può rimettere a posto. I
@@ -260,22 +270,21 @@ def build_quarantine_plan(groups: list[DuplicateGroup], root: Path,
     quarantine = root / dirname
     plan: list[tuple[Path, Path]] = []
     taken: set[Path] = set()
-    for g in groups:
-        for src in g.duplicates:
-            if quarantine in src.parents:
-                continue
-            try:
-                relative = src.parent.relative_to(root)
-            except ValueError:
-                relative = Path(src.parent.name)
-            dest = quarantine / relative / src.name
-            # Due cartelle diverse possono contenere lo stesso nome file.
-            stem, suffix, n = dest.stem, dest.suffix, 1
-            while dest in taken or dest.exists():
-                dest = dest.with_name(f"{stem}__{n}{suffix}")
-                n += 1
-            taken.add(dest)
-            plan.append((src, dest))
+    for src in paths:
+        if quarantine in src.parents:
+            continue
+        try:
+            relative = src.parent.relative_to(root)
+        except ValueError:
+            relative = Path(src.parent.name)
+        dest = quarantine / relative / src.name
+        # Due cartelle diverse possono contenere lo stesso nome file.
+        stem, suffix, n = dest.stem, dest.suffix, 1
+        while dest in taken or dest.exists():
+            dest = dest.with_name(f"{stem}__{n}{suffix}")
+            n += 1
+        taken.add(dest)
+        plan.append((src, dest))
     return plan
 
 
