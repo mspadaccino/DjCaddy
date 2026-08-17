@@ -414,8 +414,17 @@ def read_durations(files, progress=None) -> DurationReport:
 
 
 def human_duration(seconds: float) -> str:
-    """h:mm:ss, oppure mm:ss sotto l'ora."""
-    seconds = int(round(seconds))
+    """Durata come HH:MM:SS, ore comprese anche quando sono zero.
+
+    Le ore ci sono SEMPRE, e con due cifre, perché la tabella tratta questa
+    colonna come testo e la ordina alfabeticamente: scrivendo "15:00" per
+    quindici minuti e "1:10:57" per un'ora e dieci, il primo finirebbe dopo
+    il secondo. Con "00:15:00" e "01:10:57" l'ordine alfabetico coincide con
+    quello cronologico. Le due cifre servono al caso limite di un file
+    rovinato che dichiara una durata assurda: senza, "10:00:00" verrebbe
+    prima di "09:00:00".
+    """
+    seconds = int(round(max(0.0, seconds)))
     hours, rest = divmod(seconds, 3600)
     minutes, secs = divmod(rest, 60)
-    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"

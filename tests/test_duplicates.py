@@ -562,11 +562,23 @@ def test_quarantined_duplicates_are_not_found_again(tmp_path):
 
 # --- durate: filtro per stanare i medley ------------------------------------
 
-def test_human_duration():
+def test_human_duration_always_shows_hours():
+    """Le ore ci sono sempre: la colonna è testo e viene ordinata
+    alfabeticamente, quindi "15:00" finirebbe dopo "1:10:57"."""
     from analysis.folder_scan import human_duration
-    assert human_duration(95) == "1:35"
-    assert human_duration(20 * 60) == "20:00"
-    assert human_duration(3661) == "1:01:01"
+
+    assert human_duration(95) == "00:01:35"
+    assert human_duration(20 * 60) == "00:20:00"
+    assert human_duration(3661) == "01:01:01"
+
+
+def test_human_duration_sorts_alphabetically_as_it_does_in_time():
+    """La proprietà che serve davvero alla tabella."""
+    from analysis.folder_scan import human_duration
+
+    seconds = [180, 900, 4257, 1500, 6300, 36000, 32400]
+    formatted = [human_duration(s) for s in seconds]
+    assert sorted(formatted) == [human_duration(s) for s in sorted(seconds)]
 
 
 def test_longer_than_filters_and_sorts(tmp_path):
