@@ -177,13 +177,13 @@ def _rows(groups, preselect: bool) -> pd.DataFrame:
     return pd.DataFrame([
         {"Move": preselect, "folder": str(g.folder), "keep": g.keep.name,
          "duplicate": dup.name, "size": human_size(g.size), "copies": g.copies,
-         "md5": (g.md5 or "")[:12], "_path": str(dup)}
+         "md5": (g.md5 or "")[:12], "_path": str(dup), "_bytes": g.size}
         for g in groups for dup in g.duplicates
     ])
 
 
 def _selection_table(level: str, title: str, note: str, groups,
-                     preselect: bool) -> list[Path]:
+                     preselect: bool) -> tuple[list[Path], int]:
     """Tabella con una spunta per riga, più i comandi per spuntarle tutte.
 
     Il pulsante globale cambia i valori di partenza, e perché l'editor li
@@ -194,7 +194,7 @@ def _selection_table(level: str, title: str, note: str, groups,
         table = _rows(groups, preselect)
         if table.empty:
             st.write("Nothing found.")
-            return []
+            return [], 0
 
         epoch_key, force_key = f"epoch::{level}::{root}", f"force::{level}::{root}"
         epoch = st.session_state.setdefault(epoch_key, 0)
@@ -226,19 +226,24 @@ def _selection_table(level: str, title: str, note: str, groups,
                 "md5": st.column_config.TextColumn(disabled=True),
             },
         )
-        chosen = [Path(p) for p in edited.loc[edited["Move"], "_path"]]
+        picked = edited.loc[edited["Move"]]
+        chosen = [Path(p) for p in picked["_path"]]
+        chosen_bytes = int(picked["_bytes"].sum()) if not picked.empty else 0
         col_count.write("")
-        col_count.caption(f"**{len(chosen):,}** of {len(table):,} selected")
-        return chosen
+        col_count.caption(
+            f"**{len(chosen):,}** of {len(table):,} selected · "
+            f"**{human_size(chosen_bytes)}** would be freed "
+            f"(of {human_size(int(table['_bytes'].sum()))} in this section)")
+        return chosen, chosen_bytes
 
 
-selected_a = _selection_table(
+selected_a, bytes_a = _selection_table(
     "A", f"A · Certain duplicates, same folder "
          f"({len(report.same_folder)} groups, {len(a_files)} files)",
     "Byte-identical files sitting side by side. Ticked by default.",
     report.same_folder, preselect=True)
 
-selected_b = _selection_table(
+selected_b, bytes_b = _selection_table(
     "B", f"B · Same file in other folders "
          f"({len(report.other_folder)} groups, {len(b_files)} files)",
     "**Candidates only, so nothing is ticked by default.** The same track "
@@ -281,10 +286,10 @@ plan = build_quarantine_plan(selected, root)
 if not plan:
     st.info("Nothing ticked yet — select the files to move in the tables above.")
 else:
-    freed = sum(p.stat().st_size for p, _ in plan if p.exists())
-    st.write(f"**{len(plan):,} files** ticked "
-             f"({len(selected_a):,} from A, {len(selected_b):,} from B), "
-             f"freeing {human_size(freed)}.")
+    st.write(
+        f"**{len(plan):,} files** ticked, freeing **{human_size(bytes_a + bytes_b)}** — "
+        f"{len(selected_a):,} from A ({human_size(bytes_a)}), "
+        f"{len(selected_b):,} from B ({human_size(bytes_b)}).")
     st.dataframe(
         pd.DataFrame([{"from": str(s), "to": str(d)} for s, d in plan[:200]]),
         width="stretch", hide_index=True,
@@ -414,7 +419,8 @@ integrity = st.session_state.get(integrity_key)
 if integrity is not None:
     i1, i2, i3 = st.columns(3)
     i1.metric("Checked", f"{integrity.checked:,}")
-    i2.metric("Unreadable", f"{len(integrity.bad):,}")
+    i2.metric("Unreadable", f"{len(integrity.bad):,}",
+              delta=human_size(sum(b.size for b in integrity.bad)), delta_color="off")
     i3.metric("Vanished", f"{len(integrity.missing):,}",
               help="Listed by the scan but gone by the time we looked — "
                    "moved or renamed in the meantime. Nothing to do.")
@@ -434,12 +440,14 @@ if integrity is not None:
             width="stretch", hide_index=True,
         )
         bad_plan = build_quarantine_plan([b.path for b in integrity.bad], root)
+        bad_bytes = sum(b.size for b in integrity.bad)
         st.caption(
             f"Moving them to `{root / QUARANTINE_DIRNAME}` keeps the folder "
             "structure, so you can see which album each came from and "
             "re-download just those.")
-        ok = st.checkbox(f"Move these {len(bad_plan):,} unreadable files to quarantine",
-                         key="bad_confirm")
+        ok = st.checkbox(
+            f"Move these {len(bad_plan):,} unreadable files to quarantine "
+            f"({human_size(bad_bytes)})", key="bad_confirm")
         if st.button("Quarantine unreadable files", disabled=not ok):
             moved, errors = apply_quarantine_plan(bad_plan, dry_run=False)
             st.success(f"{moved:,} files moved.")
