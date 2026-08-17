@@ -289,6 +289,17 @@ def _decoder_error(path: Path, timeout: float = 60.0) -> str | None:
     return None
 
 
+def _as_path(item) -> Path:
+    """Percorso di un elemento, che sia un ScannedFile, un Path o una stringa.
+
+    Deliberatamente per attributo e non con `isinstance`: gli oggetti tenuti
+    nella sessione di Streamlit sono stati creati da un'istanza PRECEDENTE di
+    questo modulo, e dopo un ricaricamento `isinstance` contro la classe
+    appena importata risponde False anche se l'oggetto è quello giusto.
+    """
+    return Path(getattr(item, "path", item))
+
+
 def check_readable(path: Path, deep: bool = False) -> str | None:
     """None se il file sembra un audio valido, altrimenti il motivo.
 
@@ -330,7 +341,7 @@ def check_integrity(files, deep: bool = False, progress=None) -> IntegrityReport
     report = IntegrityReport()
     total = len(files)
     for i, item in enumerate(files, 1):
-        path = item.path if isinstance(item, ScannedFile) else Path(item)
+        path = _as_path(item)
         if not path.exists():
             report.missing.append(path)
         else:
@@ -393,7 +404,7 @@ def read_durations(files, progress=None) -> DurationReport:
     report = DurationReport()
     total = len(files)
     for i, item in enumerate(files, 1):
-        path = item.path if isinstance(item, ScannedFile) else Path(item)
+        path = _as_path(item)
         try:
             audio = mutagen.File(path)
             seconds = getattr(getattr(audio, "info", None), "length", None)

@@ -621,3 +621,34 @@ def test_quarantine_plan_moves_a_file_only_once(tmp_path):
     target = _write(tmp_path / "f" / "Track.mp3", b"x")
     plan = build_quarantine_plan([target, target], tmp_path)
     assert len(plan) == 1
+
+
+def test_scanned_items_are_resolved_by_attribute_not_by_class(tmp_path):
+    """Il bug visto in esecuzione: Streamlit ricarica i moduli, ma gli oggetti
+    rimasti in sessione portano la classe VECCHIA, e `isinstance` contro
+    quella nuova risponde False. Si guarda l'attributo, non il tipo."""
+    from dataclasses import dataclass
+    from analysis.folder_scan import check_integrity, read_durations
+
+    @dataclass
+    class ScannedFileFromAnOlderImport:      # stesso ruolo, classe diversa
+        path: Path
+        size: int
+        fmt: str
+
+    stale = ScannedFileFromAnOlderImport(path=_write(tmp_path / "vuoto.mp3", b""),
+                                         size=0, fmt="MP3")
+
+    report = check_integrity([stale])
+    assert report.checked == 1 and report.bad[0].reason == "file vuoto"
+
+    durations = read_durations([stale])
+    assert durations.unknown == [stale.path]
+
+
+def test_scanned_items_also_accept_plain_paths_and_strings(tmp_path):
+    from analysis.folder_scan import check_integrity
+
+    target = _write(tmp_path / "vuoto.mp3", b"")
+    assert check_integrity([target]).checked == 1
+    assert check_integrity([str(target)]).checked == 1
