@@ -190,3 +190,34 @@ def test_write_tags_nothing_to_write_is_a_no_op(tmp_path):
 def test_write_tags_refuses_an_unknown_format(tmp_path):
     with pytest.raises(ValueError):
         write_tags(tmp_path / "track.xyz", _tags(), TagSettings())
+
+
+# --- enumerazione dei file da taggare --------------------------------------
+
+def test_find_taggable_skips_macos_sidecars(tmp_path):
+    """I "._<nome>" hanno l'estensione del brano ma sono 4 KB di metadati:
+    non vanno nemmeno messi in coda. Sulla libreria reale sono 88.115 su
+    116.381, e lo script originale li ritentava a ogni esecuzione perche',
+    fallendo, non poteva segnarli come fatti."""
+    from analysis.essentia_tags import find_taggable
+
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "Track.mp3").write_bytes(b"vero")
+    (tmp_path / "._Track.mp3").write_bytes(b"\x00\x05\x16\x07")
+    (tmp_path / "sub" / "Other.flac").write_bytes(b"vero")
+    (tmp_path / "sub" / "._Other.flac").write_bytes(b"\x00\x05\x16\x07")
+    (tmp_path / "cover.jpg").write_bytes(b"x")
+
+    found = find_taggable(tmp_path)
+    assert {p.name for p in found} == {"Track.mp3", "Other.flac"}
+    assert not any(p.name.startswith("._") for p in found)
+    assert found == sorted(found)          # ordine stabile, per percorso
+
+
+def test_find_taggable_covers_the_supported_formats(tmp_path):
+    from analysis.essentia_tags import find_taggable
+
+    for name in ("a.mp3", "b.flac", "c.m4a", "d.wv", "e.wma", "f.txt"):
+        (tmp_path / name).write_bytes(b"x")
+    assert sorted(p.suffix for p in find_taggable(tmp_path)) == [
+        ".flac", ".m4a", ".mp3", ".wma", ".wv"]

@@ -84,8 +84,19 @@ class FolderScan:
         return sum(f.size for f in self.files)
 
 
+def is_metadata_sidecar(path: Path) -> bool:
+    """File "._<nome>" scritto da macOS accanto al brano su volumi non-macOS.
+
+    Non contiene audio: solo Finder Info e resource fork. Verificato su un
+    file reale — 4096 byte in tutto, di cui 259 non nulli, e nessuno di essi
+    è audio. Non c'è modo di analizzarlo perché non c'è niente da analizzare;
+    l'unica cosa sensata è non guardarlo proprio.
+    """
+    return path.name.startswith("._")
+
+
 def format_of(path: Path) -> str:
-    if path.name.startswith("._"):
+    if is_metadata_sidecar(path):
         return APPLEDOUBLE
     return AUDIO_FORMATS.get(path.suffix.lower(), OTHER)
 

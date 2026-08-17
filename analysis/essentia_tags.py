@@ -26,6 +26,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .folder_scan import is_metadata_sidecar
+
 MODEL_DIR = Path(os.path.expanduser("~/essentia_models"))
 
 EMBEDDING_MODEL = "discogs-effnet-bs64-1.pb"
@@ -54,6 +56,23 @@ GENRE_FORMATS = ("parent_child", "child_parent", "child_only", "raw")
 
 # Il modello di embedding vuole 16 kHz.
 SAMPLE_RATE = 16000
+
+
+def find_taggable(root: Path) -> list[Path]:
+    """I file su cui ha senso lavorare sotto `root`.
+
+    Scarta i sidecar "._<nome>" di macOS: portano l'estensione del brano ma
+    sono metadati da 4 KB. Su una libreria reale su exFAT sono 88.115 file
+    su 116.381 — i tre quarti della coda — e lo script originale li
+    incontrava uno per uno, falliva, e non potendoli segnare come fatti li
+    ritentava a ogni esecuzione. Meglio non metterli mai in coda.
+    """
+    return sorted(
+        p for p in root.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in AUDIO_EXTENSIONS
+        and not is_metadata_sidecar(p)
+    )
 
 
 def available() -> bool:
