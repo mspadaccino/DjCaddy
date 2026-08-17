@@ -22,6 +22,7 @@ from analysis.duplicates import (
     write_csv,
 )
 from analysis.folder_scan import (
+    check_integrity,
     delete_sidecars,
     find_sidecars,
     human_size,
@@ -371,3 +372,77 @@ if sidecars is not None:
                              width="stretch", hide_index=True)
             st.session_state.pop(sidecar_key, None)
             st.session_state.pop(scan_key, None)
+
+
+# --- File audio illeggibili ------------------------------------------------
+
+st.divider()
+st.subheader("Unreadable files")
+st.caption(
+    "Tracks that no player will open — usually a download that arrived "
+    "truncated, or an error page saved with an .mp3 name. Unlike the "
+    "sidecars these were meant to be music, so they are **moved to "
+    "quarantine, not deleted**: the list is what you need in order to "
+    "fetch them again."
+)
+
+deep = st.radio(
+    "How thoroughly?", ["Headers only (instant)", "Ask the decoder (slower, definitive)"],
+    horizontal=True,
+    help="Headers only reads the first bytes: it catches empty files, "
+         "truncated downloads and HTML saved as .mp3, but NOT a file with a "
+         "valid header and a broken stream — measured on a real track where "
+         "the header reports 219 seconds and the decoder still refuses it. "
+         "Asking the decoder uses ffprobe, the same one the tagging will "
+         "use, at roughly 0.05s per file.",
+) == "Ask the decoder (slower, definitive)"
+
+if deep and audio:
+    st.caption(f"≈ {len(audio) * 0.05 / 60:.0f} min for {len(audio):,} files "
+               "on a local disk, longer over USB.")
+
+integrity_key = f"integrity::{root}::{deep}"
+if st.button(f"Check {len(audio):,} audio files"):
+    bar = st.progress(0.0, text="Checking…")
+    st.session_state[integrity_key] = check_integrity(
+        audio, deep=deep,
+        progress=lambda done, total: bar.progress(
+            done / total if total else 1.0, text=f"Checked {done:,}/{total:,}…"))
+    bar.empty()
+
+integrity = st.session_state.get(integrity_key)
+if integrity is not None:
+    i1, i2, i3 = st.columns(3)
+    i1.metric("Checked", f"{integrity.checked:,}")
+    i2.metric("Unreadable", f"{len(integrity.bad):,}")
+    i3.metric("Vanished", f"{len(integrity.missing):,}",
+              help="Listed by the scan but gone by the time we looked — "
+                   "moved or renamed in the meantime. Nothing to do.")
+
+    if integrity.missing:
+        with st.expander(f"{len(integrity.missing)} vanished since the scan"):
+            st.dataframe(pd.DataFrame([{"path": str(p)} for p in integrity.missing]),
+                         width="stretch", hide_index=True)
+
+    if not integrity.bad:
+        st.success("Every file opened correctly.")
+    else:
+        st.dataframe(
+            pd.DataFrame([{"file": b.path.name, "folder": str(b.path.parent),
+                           "size": human_size(b.size), "why": b.reason}
+                          for b in integrity.bad]),
+            width="stretch", hide_index=True,
+        )
+        bad_plan = build_quarantine_plan([b.path for b in integrity.bad], root)
+        st.caption(
+            f"Moving them to `{root / QUARANTINE_DIRNAME}` keeps the folder "
+            "structure, so you can see which album each came from and "
+            "re-download just those.")
+        ok = st.checkbox(f"Move these {len(bad_plan):,} unreadable files to quarantine",
+                         key="bad_confirm")
+        if st.button("Quarantine unreadable files", disabled=not ok):
+            moved, errors = apply_quarantine_plan(bad_plan, dry_run=False)
+            st.success(f"{moved:,} files moved.")
+            if errors:
+                st.warning(f"{len(errors)} could not be moved.")
+            st.session_state.pop(integrity_key, None)

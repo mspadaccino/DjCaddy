@@ -7,6 +7,7 @@ un'operazione molto più costosa e va lanciata a parte.
 
 from __future__ import annotations
 
+import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -225,3 +226,110 @@ def delete_sidecars(paths, dry_run: bool = True) -> tuple[int, int, list[tuple[P
         except OSError as e:
             errors.append((path, str(e)))
     return removed, freed, errors
+
+
+# --------------------------------------------------------------------------
+# File audio illeggibili
+# --------------------------------------------------------------------------
+
+@dataclass
+class BadFile:
+    path: Path
+    size: int
+    reason: str
+
+
+@dataclass
+class IntegrityReport:
+    """Esito del controllo di leggibilità sui file audio.
+
+    `bad` sono quelli che nessun lettore riuscirà ad aprire; `missing` quelli
+    spariti dal percorso mentre li si controllava. Restano separati perché
+    richiedono due rimedi diversi: riscaricare, oppure niente.
+    """
+    checked: int = 0
+    bad: list[BadFile] = field(default_factory=list)
+    missing: list[Path] = field(default_factory=list)
+
+
+def _decoder_error(path: Path, timeout: float = 60.0) -> str | None:
+    """Chiede a ffprobe se il file si apre. None se sì, altrimenti il motivo.
+
+    È il controllo che conta davvero, perché ffprobe usa lo stesso decoder
+    che userà il tagging: se lo rifiuta qui, lo rifiuterà anche là. Costa
+    circa 0,05 s a file su disco locale.
+    """
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except FileNotFoundError:
+        return None            # ffprobe non c'è: meglio tacere che accusare
+    except subprocess.TimeoutExpired:
+        return "il decoder non risponde"
+    except OSError as e:
+        return f"decoder non eseguibile: {e}"
+    if out.returncode != 0 or not out.stdout.strip():
+        last = (out.stderr or "").strip().splitlines()
+        return last[-1].split(": ")[-1] if last else "il decoder rifiuta il file"
+    return None
+
+
+def check_readable(path: Path, deep: bool = False) -> str | None:
+    """None se il file sembra un audio valido, altrimenti il motivo.
+
+    Senza `deep` si ferma all'intestazione: costa nulla e prende i casi
+    grossolani (file vuoto, pagina di errore HTML salvata come .mp3,
+    download troncato). NON prende però il caso peggiore, quello di un file
+    con intestazione perfetta e stream rovinato: misurato su un brano reale
+    della libreria, mutagen ne legge tranquillamente 219 secondi di durata
+    mentre il decoder si rifiuta di aprirlo.
+
+    Con `deep` la domanda la si gira a ffprobe, che è lo stesso decoder che
+    userà il tagging. Definitivo, ma va pagato a file.
+    """
+    import mutagen
+
+    try:
+        size = path.stat().st_size
+    except OSError as e:
+        return f"non leggibile: {e}"
+    if size == 0:
+        return "file vuoto"
+    try:
+        audio = mutagen.File(path)
+    except Exception as e:
+        return f"intestazione illeggibile: {type(e).__name__}"
+    if audio is None:
+        return "nessuna intestazione audio riconosciuta"
+    info = getattr(audio, "info", None)
+    if info is None:
+        return "nessuna informazione di stream"
+    length = getattr(info, "length", None)
+    if length is not None and length <= 0:
+        return "durata nulla"
+    return _decoder_error(path) if deep else None
+
+
+def check_integrity(files, deep: bool = False, progress=None) -> IntegrityReport:
+    """Controlla la leggibilità di una lista di file audio già scansionati."""
+    report = IntegrityReport()
+    total = len(files)
+    for i, item in enumerate(files, 1):
+        path = item.path if isinstance(item, ScannedFile) else Path(item)
+        if not path.exists():
+            report.missing.append(path)
+        else:
+            reason = check_readable(path, deep=deep)
+            if reason is not None:
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    size = 0
+                report.bad.append(BadFile(path=path, size=size, reason=reason))
+        report.checked += 1
+        if progress is not None and (i % 200 == 0 or i == total):
+            progress(i, total)
+    return report

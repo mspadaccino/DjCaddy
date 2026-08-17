@@ -1,4 +1,5 @@
 import csv
+from pathlib import Path
 
 import pytest
 
@@ -408,3 +409,71 @@ def test_delete_sidecars_never_touches_the_real_track(tmp_path):
     report = find_sidecars(tmp_path)
     delete_sidecars(report.confirmed, dry_run=False)
     assert real.exists() and real.read_bytes() == b"ID3\x04 brano vero"
+
+
+# --- file audio illeggibili -------------------------------------------------
+
+def test_check_readable_catches_the_obvious_junk(tmp_path):
+    from analysis.folder_scan import check_readable
+
+    assert check_readable(_write(tmp_path / "vuoto.mp3", b"")) == "file vuoto"
+    assert "intestazione" in check_readable(
+        _write(tmp_path / "pagina.mp3", b"<!DOCTYPE html>404 Not Found"))
+    assert "intestazione" in check_readable(
+        _write(tmp_path / "troncato.mp3", b"\x00\x05\x16\x07"))
+
+
+def test_check_readable_shallow_can_miss_a_broken_stream(tmp_path, monkeypatch):
+    """Il limite da conoscere: intestazione valida e stream rotto passa il
+    controllo superficiale. Misurato su un brano reale, dove mutagen legge
+    219 secondi di durata e il decoder si rifiuta di aprirlo."""
+    import analysis.folder_scan as fs
+
+    target = _write(tmp_path / "sano_in_apparenza.mp3", b"x")
+    monkeypatch.setattr(fs, "_decoder_error", lambda p, **k: "Invalid data found")
+    fake = type("A", (), {"info": type("I", (), {"length": 219.0})()})()
+    monkeypatch.setattr("mutagen.File", lambda *a, **k: fake)
+
+    assert fs.check_readable(target) is None                      # superficiale
+    assert fs.check_readable(target, deep=True) == "Invalid data found"   # profondo
+
+
+def test_check_integrity_separates_bad_from_missing(tmp_path):
+    """Rotto e sparito richiedono rimedi diversi — riscaricare, oppure
+    niente — quindi non vanno mescolati."""
+    from analysis.folder_scan import check_integrity
+
+    bad = _write(tmp_path / "vuoto.mp3", b"")
+    gone = tmp_path / "sparito.mp3"
+
+    report = check_integrity([bad, gone])
+    assert report.checked == 2
+    assert [b.path for b in report.bad] == [bad]
+    assert report.bad[0].reason == "file vuoto"
+    assert report.missing == [gone]
+
+
+@pytest.mark.skipif(
+    not (Path(__file__).resolve().parent.parent / "test_mp3").is_dir()
+    or not any((Path(__file__).resolve().parent.parent / "test_mp3").glob("*.mp3")),
+    reason="serve un file audio vero in test_mp3/",
+)
+def test_check_integrity_passes_a_real_track(tmp_path):
+    """Nessun falso positivo su un brano vero, controllo profondo incluso."""
+    from analysis.folder_scan import check_integrity
+
+    src = next((Path(__file__).resolve().parent.parent / "test_mp3").glob("*.mp3"))
+    report = check_integrity([src], deep=True)
+    assert report.bad == [] and report.missing == []
+
+
+def test_decoder_error_stays_silent_without_ffprobe(tmp_path, monkeypatch):
+    """Senza ffprobe non si può dire nulla: meglio tacere che accusare un
+    file di essere rotto."""
+    import analysis.folder_scan as fs
+
+    def _boom(*a, **k):
+        raise FileNotFoundError("ffprobe")
+
+    monkeypatch.setattr(fs.subprocess, "run", _boom)
+    assert fs._decoder_error(tmp_path / "x.mp3") is None
