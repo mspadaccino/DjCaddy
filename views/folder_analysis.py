@@ -277,17 +277,25 @@ st.caption(f"{report.hashed_files:,} files hashed · "
            f"{human_size(recoverable)} recoverable from level A alone")
 
 
-def _rows(groups, preselect: bool) -> pd.DataFrame:
+def _rows(groups, preselect: bool, full_paths: bool = False) -> pd.DataFrame:
+    """Righe della tabella. Con `full_paths` le due copie sono mostrate per
+    intero invece che come nome più una cartella sola: nei livelli B e C
+    stanno in cartelle DIVERSE, e vedere solo quella di una delle due non
+    dice dove sia l'altra — che è proprio l'informazione che serve per
+    decidere."""
     return pd.DataFrame([
-        {"Move": preselect, "folder": str(g.folder), "keep": g.keep.name,
-         "duplicate": dup.name, "size": human_size(g.size), "copies": g.copies,
+        {"Move": preselect,
+         **({"stays": str(g.keep), "moves if ticked": str(dup)} if full_paths
+            else {"folder": str(g.folder), "keep": g.keep.name,
+                  "duplicate": dup.name}),
+         "size": human_size(g.size), "copies": g.copies,
          "md5": (g.md5 or "")[:12], "_path": str(dup), "_bytes": g.size}
         for g in groups for dup in g.duplicates
     ])
 
 
 def _selection_table(level: str, title: str, note: str, groups,
-                     preselect: bool) -> tuple[list[Path], int]:
+                     preselect: bool, full_paths: bool = False) -> tuple[list[Path], int]:
     """Tabella con una spunta per riga, più i comandi per spuntarle tutte.
 
     Il pulsante globale cambia i valori di partenza, e perché l'editor li
@@ -295,7 +303,7 @@ def _selection_table(level: str, title: str, note: str, groups,
     """
     with st.expander(title, expanded=bool(groups) and level == "A"):
         st.caption(note)
-        table = _rows(groups, preselect)
+        table = _rows(groups, preselect, full_paths=full_paths)
         if table.empty:
             st.write("Nothing found.")
             return [], 0
@@ -315,18 +323,22 @@ def _selection_table(level: str, title: str, note: str, groups,
         if force_key in st.session_state:
             table["Move"] = st.session_state[force_key]
 
+        pair = (["stays", "moves if ticked"] if full_paths
+                else ["folder", "keep", "duplicate"])
         edited = _play_table(
             f"dup{level}::{root}", table,
-            ["Move", "folder", "keep", "duplicate", "size", "copies", "md5"],
+            ["Move", *pair, "size", "copies", "md5"],
             {
                 "Move": st.column_config.CheckboxColumn(
                     "Move", help="Tick the files to move into quarantine."),
-                "folder": st.column_config.TextColumn(disabled=True),
                 "keep": st.column_config.TextColumn("keep (stays)", disabled=True),
-                "duplicate": st.column_config.TextColumn(disabled=True),
-                "size": st.column_config.TextColumn(disabled=True),
+                "stays": st.column_config.TextColumn(
+                    "stays", disabled=True, width="large"),
+                "moves if ticked": st.column_config.TextColumn(
+                    "moves if ticked", disabled=True, width="large"),
+                **{c: st.column_config.TextColumn(disabled=True)
+                   for c in ("folder", "duplicate", "size", "md5")},
                 "copies": st.column_config.NumberColumn(disabled=True),
-                "md5": st.column_config.TextColumn(disabled=True),
             },
             editor_key=f"editor::{level}::{root}::{epoch}")
         picked = edited.loc[edited["Move"]]
@@ -352,21 +364,22 @@ selected_b, bytes_b = _selection_table(
     "**Candidates only, so nothing is ticked by default.** The same track "
     "under 80s/, DANCE RETRO/ and Workout/ is probably how you organised the "
     "library on purpose.",
-    report.other_folder, preselect=False)
+    report.other_folder, preselect=False, full_paths=True)
 
 with st.expander(f"C · Similar names, different content "
                  f"({len(report.similar_name)} groups)"):
     st.caption(
         "Informational only — no ticks here, because these are NOT the same "
         "file: different edits, remixes or rips that happen to be named alike.")
-    table_c = _rows(report.similar_name, preselect=False)
+    table_c = _rows(report.similar_name, preselect=False, full_paths=True)
     if table_c.empty:
         st.write("Nothing found.")
     else:
         _play_table(f"simil::{root}", table_c.drop(columns=["Move", "md5"]),
-                    ["folder", "keep", "duplicate", "size", "copies"],
-                    {c: st.column_config.TextColumn(disabled=True)
-                     for c in ("folder", "keep", "duplicate", "size")},
+                    ["stays", "moves if ticked", "size", "copies"],
+                    {c: st.column_config.TextColumn(disabled=True, width="large")
+                     for c in ("stays", "moves if ticked")}
+                    | {"size": st.column_config.TextColumn(disabled=True)},
                     editable=False, editor_key=f"simil_editor::{root}")
 
 # --- Report e quarantena --------------------------------------------------
