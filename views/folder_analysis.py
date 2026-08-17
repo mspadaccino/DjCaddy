@@ -301,7 +301,7 @@ def _selection_table(level: str, title: str, note: str, groups,
     Il pulsante globale cambia i valori di partenza, e perché l'editor li
     mostri davvero va ricreato da zero: da qui il contatore nella chiave.
     """
-    with st.expander(title, expanded=bool(groups) and level == "A"):
+    with st.expander(title, expanded=bool(groups)):
         st.caption(note)
         table = _rows(groups, preselect, full_paths=full_paths)
         if table.empty:
@@ -361,16 +361,20 @@ selected_a, bytes_a = _selection_table(
 selected_b, bytes_b = _selection_table(
     "B", f"B · Same file in other folders "
          f"({len(report.other_folder)} groups, {len(b_files)} files)",
-    "**Candidates only, so nothing is ticked by default.** The same track "
-    "under 80s/, DANCE RETRO/ and Workout/ is probably how you organised the "
-    "library on purpose.",
+    "Byte-identical copies sitting in different folders. If you organise in "
+    "rekordbox rather than by folder, one copy is enough — **Select all** "
+    "ticks the lot in one go. Nothing is ticked to begin with, because this "
+    "is the section where a folder layout you rely on would be undone. The "
+    "copy kept is the one on the left.",
     report.other_folder, preselect=False, full_paths=True)
 
 with st.expander(f"C · Similar names, different content "
                  f"({len(report.similar_name)} groups)"):
     st.caption(
         "Informational only — no ticks here, because these are NOT the same "
-        "file: different edits, remixes or rips that happen to be named alike.")
+        "file: different edits, remixes or rips that happen to be named "
+        "alike. Both paths are shown so you can tell them apart, and ▶ plays "
+        "either one.")
     table_c = _rows(report.similar_name, preselect=False, full_paths=True)
     if table_c.empty:
         st.write("Nothing found.")
@@ -406,7 +410,8 @@ if not plan:
     st.info("Nothing ticked yet — select the files to move in the tables above.")
 else:
     st.write(
-        f"**{len(plan):,} files** ticked, freeing **{human_size(bytes_a + bytes_b)}** — "
+        f"**{len(plan):,} files** ticked, freeing "
+        f"**{human_size(bytes_a + bytes_b)}** — "
         f"{len(selected_a):,} from A ({human_size(bytes_a)}), "
         f"{len(selected_b):,} from B ({human_size(bytes_b)}).")
     st.dataframe(

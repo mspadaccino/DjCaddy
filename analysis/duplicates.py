@@ -303,9 +303,14 @@ def build_quarantine_plan(paths, root: Path,
     quarantine = root / dirname
     plan: list[tuple[Path, Path]] = []
     taken: set[Path] = set()
+    seen: set[Path] = set()
     for src in paths:
-        if quarantine in src.parents:
+        # Lo stesso file puo' arrivare da due selezioni diverse: spostarlo
+        # una volta sola, o il secondo tentativo fallirebbe perche' non e'
+        # piu' dov'era.
+        if src in seen or quarantine in src.parents:
             continue
+        seen.add(src)
         try:
             relative = src.parent.relative_to(root)
         except ValueError:

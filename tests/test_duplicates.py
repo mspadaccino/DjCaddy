@@ -612,3 +612,12 @@ def test_read_durations_keeps_unknown_apart(tmp_path, monkeypatch):
     report = fs.read_durations([good, bad])
     assert [t.path for t in report.tracks] == [good]
     assert report.unknown == [bad]
+
+
+def test_quarantine_plan_moves_a_file_only_once(tmp_path):
+    """Lo stesso file puo' essere spuntato in due sezioni diverse: il piano
+    deve contenerlo una volta sola, altrimenti il secondo spostamento
+    fallisce perche' non e' piu' dov'era."""
+    target = _write(tmp_path / "f" / "Track.mp3", b"x")
+    plan = build_quarantine_plan([target, target], tmp_path)
+    assert len(plan) == 1
