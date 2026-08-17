@@ -345,3 +345,77 @@ def check_integrity(files, deep: bool = False, progress=None) -> IntegrityReport
         if progress is not None and (i % 200 == 0 or i == total):
             progress(i, total)
     return report
+
+
+# --------------------------------------------------------------------------
+# Durate: per stanare i medley
+# --------------------------------------------------------------------------
+
+@dataclass
+class TrackDuration:
+    path: Path
+    size: int
+    seconds: float
+
+
+@dataclass
+class DurationReport:
+    """Durate lette dalle intestazioni.
+
+    Si legge UNA volta e si filtra poi in memoria: leggere l'intestazione
+    costa circa 8 ms a file (misurato), che su una libreria da 90.000 brani
+    sono una dozzina di minuti — improponibili a ogni movimento di uno
+    slider, istantanei se fatti una volta sola.
+    """
+    tracks: list[TrackDuration] = field(default_factory=list)
+    unknown: list[Path] = field(default_factory=list)
+
+    def longer_than(self, minutes: float) -> list[TrackDuration]:
+        cutoff = minutes * 60
+        return sorted((t for t in self.tracks if t.seconds > cutoff),
+                      key=lambda t: t.seconds, reverse=True)
+
+    @property
+    def longest_minutes(self) -> float:
+        return max((t.seconds for t in self.tracks), default=0.0) / 60
+
+
+def read_durations(files, progress=None) -> DurationReport:
+    """Durata di ogni file audio, dall'intestazione.
+
+    I file di cui non si riesce a stabilire la durata finiscono in `unknown`
+    invece di essere considerati lunghi zero: uno zero inventato li farebbe
+    sparire da qualunque filtro "più lungo di", che è il verso sbagliato in
+    cui sbagliare quando poi si propone di spostarli.
+    """
+    import mutagen
+
+    report = DurationReport()
+    total = len(files)
+    for i, item in enumerate(files, 1):
+        path = item.path if isinstance(item, ScannedFile) else Path(item)
+        try:
+            audio = mutagen.File(path)
+            seconds = getattr(getattr(audio, "info", None), "length", None)
+        except Exception:
+            seconds = None
+        if seconds is None or seconds <= 0:
+            report.unknown.append(path)
+        else:
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+            report.tracks.append(
+                TrackDuration(path=path, size=size, seconds=float(seconds)))
+        if progress is not None and (i % 200 == 0 or i == total):
+            progress(i, total)
+    return report
+
+
+def human_duration(seconds: float) -> str:
+    """h:mm:ss, oppure mm:ss sotto l'ora."""
+    seconds = int(round(seconds))
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"

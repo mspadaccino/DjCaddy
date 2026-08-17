@@ -558,3 +558,45 @@ def test_quarantined_duplicates_are_not_found_again(tmp_path):
 
     report = find_duplicates(_scan_audio(tmp_path))
     assert report.same_folder == [] and report.other_folder == []
+
+
+# --- durate: filtro per stanare i medley ------------------------------------
+
+def test_human_duration():
+    from analysis.folder_scan import human_duration
+    assert human_duration(95) == "1:35"
+    assert human_duration(20 * 60) == "20:00"
+    assert human_duration(3661) == "1:01:01"
+
+
+def test_longer_than_filters_and_sorts(tmp_path):
+    from analysis.folder_scan import DurationReport, TrackDuration
+
+    report = DurationReport(tracks=[
+        TrackDuration(tmp_path / "corto.mp3", 1, 180),
+        TrackDuration(tmp_path / "medley.mp3", 2, 45 * 60),
+        TrackDuration(tmp_path / "lungo.mp3", 3, 25 * 60),
+    ])
+    got = report.longer_than(20)
+    assert [t.path.name for t in got] == ["medley.mp3", "lungo.mp3"]   # dal più lungo
+    assert report.longer_than(60) == []
+    assert round(report.longest_minutes) == 45
+
+
+def test_read_durations_keeps_unknown_apart(tmp_path, monkeypatch):
+    """Una durata non leggibile non deve diventare zero: sparirebbe da ogni
+    filtro "più lungo di", proprio mentre si propone di spostare dei file."""
+    import analysis.folder_scan as fs
+
+    good = _write(tmp_path / "ok.mp3", b"x")
+    bad = _write(tmp_path / "muto.mp3", b"y")
+
+    def _fake(path, *a, **k):
+        if Path(path).name == "ok.mp3":
+            return type("A", (), {"info": type("I", (), {"length": 1200.0})()})()
+        return None
+
+    monkeypatch.setattr("mutagen.File", _fake)
+    report = fs.read_durations([good, bad])
+    assert [t.path for t in report.tracks] == [good]
+    assert report.unknown == [bad]

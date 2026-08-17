@@ -23,6 +23,8 @@ from analysis.duplicates import (
 )
 from analysis.folder_scan import (
     check_integrity,
+    human_duration,
+    read_durations,
     delete_sidecars,
     find_sidecars,
     human_size,
@@ -475,3 +477,101 @@ if integrity is not None:
             if errors:
                 st.warning(f"{len(errors)} could not be moved.")
             st.session_state.pop(integrity_key, None)
+
+
+# --- Brani troppo lunghi (medley) ------------------------------------------
+
+st.divider()
+st.subheader("Long tracks")
+st.caption(
+    "Medleys and megamixes — one file holding a dozen songs. Useless in a "
+    "collection meant for mixing single tracks yourself. Durations are read "
+    "once (about 8 ms per file), then the slider filters them instantly."
+)
+
+dur_key = f"durations::{root}"
+if st.button(f"Read durations of {len(audio):,} files"):
+    bar = st.progress(0.0, text="Reading headers…")
+    st.session_state[dur_key] = read_durations(
+        audio, progress=lambda done, total: bar.progress(
+            done / total if total else 1.0, text=f"Read {done:,}/{total:,}…"))
+    bar.empty()
+
+durations = st.session_state.get(dur_key)
+if durations is not None and durations.tracks:
+    ceiling = max(30, int(durations.longest_minutes) + 1)
+    minutes = st.slider(
+        "Longer than (minutes)", min_value=1, max_value=ceiling, value=min(20, ceiling),
+        help="Move the slider: the list below follows immediately, because the "
+             "durations are already in memory.")
+
+    long_tracks = durations.longer_than(minutes)
+    total_bytes = sum(t.size for t in long_tracks)
+    l1, l2, l3 = st.columns(3)
+    l1.metric(f"Longer than {minutes} min", f"{len(long_tracks):,}")
+    l2.metric("Of", f"{len(durations.tracks):,} tracks")
+    l3.metric("Space", human_size(total_bytes))
+
+    if durations.unknown:
+        st.caption(f"{len(durations.unknown):,} file(s) had no readable duration "
+                   "and are left out of this filter entirely.")
+
+    if not long_tracks:
+        st.info(f"Nothing longer than {minutes} minutes.")
+    else:
+        epoch = st.session_state.setdefault(f"len_epoch::{root}", 0)
+        table = pd.DataFrame([
+            {"Move": True, "duration": human_duration(t.seconds),
+             "file": t.path.name, "folder": str(t.path.parent),
+             "size": human_size(t.size), "_path": str(t.path), "_bytes": t.size}
+            for t in long_tracks
+        ])
+        c_all, c_none, c_count = st.columns([1, 1, 3])
+        if c_all.button("Select all", key="all::len", width="stretch"):
+            st.session_state[f"len_force::{root}"] = True
+            st.session_state[f"len_epoch::{root}"] = epoch + 1
+            st.rerun()
+        if c_none.button("Select none", key="none::len", width="stretch"):
+            st.session_state[f"len_force::{root}"] = False
+            st.session_state[f"len_epoch::{root}"] = epoch + 1
+            st.rerun()
+        if f"len_force::{root}" in st.session_state:
+            table["Move"] = st.session_state[f"len_force::{root}"]
+
+        edited = st.data_editor(
+            table, key=f"len_editor::{root}::{minutes}::{epoch}",
+            width="stretch", hide_index=True,
+            column_order=["Move", "duration", "file", "folder", "size"],
+            column_config={
+                "Move": st.column_config.CheckboxColumn("Move"),
+                "duration": st.column_config.TextColumn(disabled=True),
+                "file": st.column_config.TextColumn(disabled=True),
+                "folder": st.column_config.TextColumn(disabled=True),
+                "size": st.column_config.TextColumn(disabled=True),
+            },
+        )
+        picked = edited.loc[edited["Move"]]
+        chosen = [Path(p) for p in picked["_path"]]
+        chosen_bytes = int(picked["_bytes"].sum()) if not picked.empty else 0
+        c_count.write("")
+        c_count.caption(
+            f"**{len(chosen):,}** of {len(table):,} selected · "
+            f"**{human_size(chosen_bytes)}** would be freed "
+            f"(of {human_size(total_bytes)} matching)")
+
+        if chosen:
+            long_plan = build_quarantine_plan(chosen, root)
+            st.caption(
+                f"Moved to `{root / QUARANTINE_DIRNAME}`, not deleted — a long "
+                "track might be a set you actually want, and you can put it "
+                "back from there.")
+            go = st.checkbox(
+                f"Move these {len(long_plan):,} long tracks to quarantine "
+                f"({human_size(chosen_bytes)})", key="long_confirm")
+            if st.button("Quarantine long tracks", disabled=not go):
+                moved, errors = apply_quarantine_plan(long_plan, dry_run=False)
+                st.success(f"{moved:,} tracks moved.")
+                if errors:
+                    st.warning(f"{len(errors)} could not be moved.")
+                st.session_state.pop(dur_key, None)
+                st.session_state.pop(scan_key, None)
