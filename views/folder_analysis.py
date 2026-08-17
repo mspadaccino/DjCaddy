@@ -7,6 +7,7 @@ una libreria vera dura minuti. La seconda si lancia solo quando serve.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pandas as pd
@@ -36,57 +37,41 @@ st.caption(
 PATH_KEY = "folder_analysis::path"
 
 
-def _folder_picker() -> Path | None:
-    """Campo di testo più navigazione fra le sottocartelle.
+def _pick_folder() -> None:
+    """Apre il selettore di cartelle nativo del Mac e riempie il campo.
 
-    Streamlit non ha un selettore di cartelle nativo — il browser non dà
-    accesso al filesystem — quindi si scende un livello alla volta: si
-    incolla un percorso se lo si ha già, altrimenti si naviga.
+    Stesso meccanismo di `_pick_file` in Wave analysis: Streamlit non ha un
+    dialogo di cartelle (il browser non dà accesso al filesystem), ma l'app
+    gira in locale, quindi si può chiedere direttamente al Finder.
     """
-    typed = st.text_input(
-        "Folder to analyze",
-        value=st.session_state.get(PATH_KEY, ""),
-        placeholder="/Volumes/Crucial X9/DJSet",
-        help="Paste a path, or walk down to it with the picker below.",
-    )
-    if typed.strip():
-        st.session_state[PATH_KEY] = typed.strip()
-
-    current = Path(st.session_state.get(PATH_KEY, "") or Path.home()).expanduser()
-    if not current.is_dir():
-        current = Path.home()
-
     try:
-        subfolders = sorted(
-            (p for p in current.iterdir() if p.is_dir() and not p.name.startswith(".")),
-            key=lambda p: p.name.lower(),
+        out = subprocess.run(
+            ["osascript", "-e",
+             'POSIX path of (choose folder with prompt "Choose a folder to analyze")'],
+            capture_output=True, text=True, check=True,
         )
-    except OSError:
-        subfolders = []
-
-    col_up, col_down = st.columns([1, 4])
-    with col_up:
-        st.write("")
-        if st.button("⬆️ Up", width="stretch", disabled=current.parent == current):
-            st.session_state[PATH_KEY] = str(current.parent)
-            st.rerun()
-    with col_down:
-        choice = st.selectbox(
-            f"Go into a subfolder of `{current.name or current}` ({len(subfolders)})",
-            options=["—"] + [p.name for p in subfolders],
-            index=0, disabled=not subfolders,
-        )
-        if choice != "—":
-            st.session_state[PATH_KEY] = str(current / choice)
-            st.rerun()
-
-    return current if current.is_dir() else None
+        chosen = out.stdout.strip()
+        if chosen:
+            st.session_state[PATH_KEY] = chosen.rstrip("/")
+    except Exception:
+        pass  # dialogo annullato o non disponibile: nessuna modifica
 
 
-root = _folder_picker()
-if root is None:
+col_path, col_browse = st.columns([5, 1])
+folder_input = col_path.text_input(
+    "Folder to analyze", key=PATH_KEY,
+    placeholder="/Volumes/Crucial X9/DJSet",
+)
+col_browse.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
+col_browse.button("📁 Browse…", on_click=_pick_folder, width="stretch")
+
+if not folder_input.strip():
+    st.info("Choose a folder to start.")
     st.stop()
-st.caption(f"Selected: `{root}`")
+root = Path(folder_input).expanduser()
+if not root.is_dir():
+    st.error(f"Not a folder: {root}")
+    st.stop()
 
 audio_only = st.checkbox(
     "Audio files only", value=False,
