@@ -322,3 +322,42 @@ def test_coverage_missing_filters():
     assert names(r.missing(require_both=True)) == ["vuoto.mp3"]
     # i file illeggibili non finiscono mai in coda: non e' un problema di tag
     assert all("rotto" not in n for n in names(r.missing()))
+
+
+def test_default_workers_stays_within_the_machine():
+    import os
+
+    from analysis.essentia_tags import default_workers
+
+    assert 1 <= default_workers() <= (os.cpu_count() or 2)
+
+
+def test_analyze_many_reports_a_failure_without_losing_the_rest(monkeypatch):
+    """Un brano illeggibile non deve buttare via la corsa.
+
+    Nel pool un'eccezione che risale fa fallire l'intera chiamata: un file
+    rotto su cinquemila perderebbe tutte le analisi gia' fatte. Per questo
+    l'errore torna come valore, e qui si verifica proprio quello.
+    """
+    from pathlib import Path
+
+    from analysis import essentia_tags as et
+
+    class FakeAnalyzer:
+        def __init__(self, settings, model_dir):
+            pass
+
+        def analyze(self, path):
+            if path.name == "rotto.mp3":
+                raise RuntimeError("non si apre")
+            return et.TrackTags(genres=[et.Prediction("House", 0.9)])
+
+    monkeypatch.setattr(et, "EssentiaAnalyzer", FakeAnalyzer)
+    paths = [Path("a.mp3"), Path("rotto.mp3"), Path("c.mp3")]
+
+    got = list(et.analyze_many(paths, et.TagSettings(), workers=1))
+
+    assert [p.name for p, _, _ in got] == ["a.mp3", "rotto.mp3", "c.mp3"]
+    assert got[0][1].genres[0].label == "House" and got[0][2] is None
+    assert got[1][1] is None and "non si apre" in got[1][2]
+    assert got[2][2] is None

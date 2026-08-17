@@ -8,6 +8,7 @@ fatti, 30 non erano più a quel percorso.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -17,10 +18,11 @@ from analysis.essentia_tags import (
     GENRE_FORMATS,
     MODEL_DIR,
     MODELS,
-    EssentiaAnalyzer,
     TagSettings,
+    analyze_many,
     available,
     build_tag_values,
+    default_workers,
     find_taggable,
     missing_models,
     scan_coverage,
@@ -275,35 +277,69 @@ if missing_models():
     st.stop()
 
 st.caption(
-    f"About 10-14 seconds per track, plus 2.6s once to load the models — "
-    f"roughly {len(queue) * 12 / 60:.0f} min for the {len(queue):,} ticked. "
     "Nothing is written at this stage: the results appear below and saving "
     "them is a separate click, so the analysis is never paid for twice."
 )
 
-batch = st.number_input(
+# Secondi a brano misurati su questa macchina (M5, 10 core, 24 analisi), per
+# numero di processi. Servono a dire quanto ci vorrà PRIMA di partire, che è
+# l'unica informazione che cambia la scelta.
+SECONDS_PER_TRACK = {1: 8.2, 2: 5.7, 3: 5.0, 5: 4.1, 8: 3.7}
+
+
+def _seconds_each(n: int) -> float:
+    known = min(SECONDS_PER_TRACK, key=lambda k: abs(k - n))
+    return SECONDS_PER_TRACK[known]
+
+
+col_batch, col_workers = st.columns(2)
+batch = int(col_batch.number_input(
     "How many to analyze now", 1, max(1, len(queue)), max(1, len(queue)),
     help="Defaults to the whole queue. Lower it to try a handful first and "
-         "see what comes back before committing to hours.")
-if batch * 12 > 3600:
-    st.warning(
-        f"{int(batch):,} tracks is roughly {batch * 12 / 3600:.1f} hours, and "
-        "the browser tab has to stay open the whole time — closing it stops "
-        "the run, though everything saved up to that point stays saved. Long "
-        "runs are what the background job is for.")
+         "see what comes back before committing to hours."))
+workers = int(col_workers.number_input(
+    "Tracks at the same time", 1, max(2, (os.cpu_count() or 2)),
+    default_workers(),
+    help="How many analyses run in parallel, each in its own process. "
+         "Half the cores is the sweet spot here — see the note below."))
 
-if st.button(f"Analyze {int(batch)} of {len(queue):,}", type="primary"):
-    todo = queue[:int(batch)]
-    analyzer = EssentiaAnalyzer(settings)
+each = _seconds_each(workers)
+eta = batch * each
+spelled = (f"{eta:.0f}s" if eta < 90 else
+           f"{eta / 60:.0f} min" if eta < 5400 else
+           f"{eta / 3600:.1f} hours")
+st.caption(
+    f"About **{each:.0f}s per track** at {workers} at a time"
+    f"{f' (vs {SECONDS_PER_TRACK[1]:.0f}s one at a time)' if workers > 1 else ''}"
+    f" — roughly **{spelled}** for {batch:,}. "
+    f"Each process holds its own copy of the models, about "
+    f"{workers * 1.3:.1f} GB in total."
+)
+if workers > 5:
+    st.caption(
+        "⚠️ Past 5 the gain is small — measured, 8 processes are only 8% "
+        "faster than 5 because the cores actually busy stop at 3.4 either "
+        "way, while the memory keeps going up.")
+if eta > 3600:
+    st.warning(
+        f"That is about {eta / 3600:.1f} hours, and the browser tab has to "
+        "stay open the whole time — closing it stops the run, though "
+        "everything already saved stays saved. Long runs are what the "
+        "background job is for.")
+
+if st.button(f"Analyze {batch} of {len(queue):,}", type="primary"):
+    todo = queue[:batch]
     bar = st.progress(0.0, text="Loading models…")
     done, failures = [], []
-    for i, path in enumerate(todo, 1):
-        bar.progress((i - 1) / len(todo), text=f"{i}/{len(todo)} · {path.name[:60]}")
-        try:
-            done.append((path, analyzer.analyze(path)))
-        except Exception as e:
+    for i, (path, tags, error) in enumerate(
+            analyze_many(todo, settings, workers=workers), 1):
+        bar.progress(i / len(todo),
+                     text=f"{i}/{len(todo)} · {path.name[:60]}")
+        if error is None:
+            done.append((path, tags))
+        else:
             failures.append({"file": path.name, "folder": str(path.parent),
-                             "error": f"{type(e).__name__}: {e}"})
+                             "error": error})
     bar.empty()
     st.session_state["tag_analysis::analyzed"] = done
     st.session_state["tag_analysis::failed"] = failures

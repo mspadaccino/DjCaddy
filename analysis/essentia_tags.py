@@ -574,3 +574,72 @@ def scan_coverage(files, progress=None) -> CoverageReport:
         if progress is not None and (i % 100 == 0 or i == total):
             progress(i, total)
     return report
+
+
+# --- Analisi in parallelo ---------------------------------------------------
+
+def default_workers() -> int:
+    """Quanti processi conviene usare qui.
+
+    Metà dei core. Misurato su M5 (10 core) con 24 analisi: 1 processo 8,2 s
+    a brano, 2 -> 5,7 s, 3 -> 5,0 s, 5 -> 4,1 s, 8 -> 3,7 s. Il guadagno si
+    ferma perché anche con 8 processi i core davvero occupati restano 3,4:
+    TensorFlow è già multi-thread al suo interno e i processi si contendono
+    la stessa banda di memoria. Da 5 a 8 si guadagna l'8% e si spendono 2,6 GB
+    in più — su una macchina da 16 GB condivisi col browser non vale.
+    """
+    return max(1, (os.cpu_count() or 2) // 2)
+
+
+# Ogni processo carica i modelli una volta sola (2 s) e poi li riusa per tutta
+# la sua parte di coda: sono ~1,3 GB a processo, il costo vero della scelta.
+_POOL_ANALYZER: "EssentiaAnalyzer | None" = None
+
+
+def _pool_init(settings: TagSettings, model_dir: Path) -> None:
+    global _POOL_ANALYZER
+    _POOL_ANALYZER = EssentiaAnalyzer(settings, model_dir)
+    _POOL_ANALYZER.load()
+
+
+def _pool_analyze(path: Path) -> tuple[Path, TrackTags | None, str | None]:
+    """L'errore torna come valore, non come eccezione.
+
+    Un'eccezione che attraversa il pool fa fallire l'intera chiamata: un
+    brano illeggibile su cinquemila butterebbe via tutto il resto.
+    """
+    try:
+        return path, _POOL_ANALYZER.analyze(path), None
+    except Exception as e:                              # noqa: BLE001
+        return path, None, f"{type(e).__name__}: {e}"
+
+
+def analyze_many(paths, settings: TagSettings, workers: int = 1,
+                 model_dir: Path = MODEL_DIR):
+    """Analizza `paths`, restituendo `(percorso, tag, errore)` uno per volta.
+
+    Con `workers` a 1 resta tutto nel processo corrente: sotto una manciata
+    di brani i 2 s di caricamento modelli per processo costerebbero più di
+    quanto rendano.
+    """
+    paths = list(paths)
+    if workers <= 1 or len(paths) <= 1:
+        analyzer = EssentiaAnalyzer(settings, model_dir)
+        for path in paths:
+            try:
+                yield path, analyzer.analyze(path), None
+            except Exception as e:                      # noqa: BLE001
+                yield path, None, f"{type(e).__name__}: {e}"
+        return
+
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    # "spawn" e non "fork": la fork di un processo che ha già caricato
+    # TensorFlow duplica uno stato di thread che nel figlio non riparte.
+    with ProcessPoolExecutor(
+        max_workers=min(workers, len(paths)),
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_pool_init, initargs=(settings, model_dir),
+    ) as pool:
+        yield from pool.map(_pool_analyze, paths)
