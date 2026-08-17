@@ -12,12 +12,17 @@ import pandas as pd
 import streamlit as st
 
 from analysis.essentia_tags import (
+    GENRE_FORMATS,
     MODEL_DIR,
     MODELS,
+    EssentiaAnalyzer,
+    TagSettings,
     available,
+    build_tag_values,
     find_taggable,
     missing_models,
     scan_coverage,
+    write_tags,
 )
 from analysis.tag_tracking import DEFAULT_TRACKING_FILE, ProcessedTracker
 from views.components import pick_folder, play_table
@@ -176,7 +181,127 @@ else:
         st.caption(f"Showing the first 1.000 of {len(selected):,}.")
 
     st.session_state["tag_analysis::queue"] = [c.path for c in selected]
-    st.info(
-        f"**{len(selected):,} tracks** are queued. Running them is the next "
-        "piece of this section — the analyzer and the tag writer are already "
-        "in place and verified against the real models.")
+
+# --- Impostazioni ----------------------------------------------------------
+
+queue = st.session_state.get("tag_analysis::queue", [])
+if not queue:
+    st.stop()
+
+st.divider()
+st.subheader("Settings")
+st.caption("The same options the terminal script asks for, as controls.")
+
+col_g, col_m = st.columns(2)
+with col_g:
+    do_genres = st.checkbox("Write genre", value=True)
+    top_genres = st.number_input("How many genres", 1, 10, 3, disabled=not do_genres)
+    genre_threshold = st.slider(
+        "Genre threshold", 0.0, 1.0, 0.15, 0.01, disabled=not do_genres,
+        help="Minimum activation. If nothing clears it the single best label "
+             "is written anyway — a track always has a genre.")
+    genre_format = st.selectbox(
+        "Genre format", GENRE_FORMATS, disabled=not do_genres,
+        help='How "Rock---Alternative Rock" is written out.')
+with col_m:
+    do_moods = st.checkbox("Write mood", value=True)
+    moods_in_tag = st.number_input("How many moods in the comment", 1, 5, 3,
+                                   disabled=not do_moods)
+    mood_threshold = st.slider(
+        "Mood threshold", 0.0, 1.0, 0.005, 0.005, disabled=not do_moods,
+        help="Lower than the genre one on purpose: mood activations are much "
+             "smaller. Nothing is invented if none clear it.")
+    confidence_tags = st.checkbox(
+        "Also write confidence tags", value=True,
+        help="Percentages in a separate field, next to the tag itself.")
+
+col_o, col_s = st.columns(2)
+overwrite = col_o.checkbox(
+    "Overwrite tags that are already there", value=False,
+    help="Off: a track that already has a genre keeps it. The queue above "
+         "mostly contains tracks missing something, so this rarely matters.")
+max_seconds = col_s.number_input(
+    "Seconds of audio to analyze", 0, 1200, 300, 30,
+    help="0 = the whole track. Do not go below 300 without reason: measured "
+         "on a disco-house track with a one-minute intro, 120s gave "
+         '"Ambient / Space, Dark, Relaxing" where 300s gave the correct '
+         '"Nu-Disco, House / Summer, Deep, Happy".')
+
+settings = TagSettings(
+    genres=do_genres, moods=do_moods, top_genres=int(top_genres),
+    genre_threshold=genre_threshold, genre_format=genre_format,
+    mood_threshold=mood_threshold, moods_in_tag=int(moods_in_tag),
+    confidence_tags=confidence_tags, overwrite=overwrite,
+    max_seconds=int(max_seconds),
+)
+
+# --- Esecuzione ------------------------------------------------------------
+
+st.divider()
+st.subheader("Run")
+
+if not available():
+    st.error("`essentia` is not importable, so nothing can be analyzed here.")
+    st.stop()
+if missing_models():
+    st.error("Model files are missing — see Environment above.")
+    st.stop()
+
+st.caption(
+    f"About 10-14 seconds per track, plus a one-off 2.6s to load the models. "
+    f"The whole queue of {len(queue):,} would take roughly "
+    f"{len(queue) * 12 / 3600:.1f} hours, so it runs in batches: each pass "
+    "writes as it goes and records what it finished, and pressing the button "
+    "again carries on from there.")
+
+col_n, col_dry = st.columns([1, 2])
+batch = col_n.number_input("Tracks this pass", 1, 500, min(10, len(queue)))
+dry_run = col_dry.checkbox(
+    "Dry run — analyze but write nothing", value=True,
+    help="On by default. Turn it off when the results look right.")
+
+if st.button(f"{'Analyze' if dry_run else 'Analyze and write'} "
+             f"{int(batch)} of {len(queue):,}",
+             type="primary"):
+    todo = queue[:int(batch)]
+    analyzer = EssentiaAnalyzer(settings)
+    tracker = ProcessedTracker()
+    bar = st.progress(0.0, text="Loading models…")
+    rows, failures = [], []
+
+    for i, path in enumerate(todo, 1):
+        bar.progress((i - 1) / len(todo), text=f"{i}/{len(todo)} · {path.name[:60]}")
+        try:
+            tags = analyzer.analyze(path)
+            values = build_tag_values(tags, settings)
+            written = [] if dry_run else write_tags(path, tags, settings)
+            rows.append({
+                "file": path.name, "genre": values.genre or "—",
+                "mood": values.mood or "—",
+                "written": "dry run" if dry_run else (", ".join(written) or "nothing"),
+                "_path": str(path),
+            })
+            if not dry_run:
+                tracker.mark(path)
+        except Exception as e:
+            failures.append({"file": path.name, "folder": str(path.parent),
+                             "error": f"{type(e).__name__}: {e}"})
+    bar.progress(1.0, text="Done")
+    st.session_state["tag_analysis::results"] = (rows, failures, dry_run)
+
+results = st.session_state.get("tag_analysis::results")
+if results:
+    rows, failures, was_dry = results
+    if rows:
+        st.success(f"{len(rows)} track(s) analyzed"
+                   + (" — nothing written (dry run)." if was_dry else " and written."))
+        play_table(
+            "run", pd.DataFrame(rows), ["file", "genre", "mood", "written"],
+            {c: st.column_config.TextColumn(disabled=True)
+             for c in ("file", "genre", "mood", "written")},
+            editable=False, editor_key="run_editor")
+    if failures:
+        st.warning(f"{len(failures)} track(s) could not be analyzed.")
+        st.dataframe(pd.DataFrame(failures), width="stretch", hide_index=True)
+    if not was_dry:
+        st.caption("Re-run **Scan tags** above to refresh the queue.")
