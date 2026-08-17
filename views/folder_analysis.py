@@ -7,7 +7,6 @@ una libreria vera dura minuti. La seconda si lancia solo quando serve.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pandas as pd
@@ -21,6 +20,7 @@ from analysis.duplicates import (
     find_duplicates,
     write_csv,
 )
+from views.components import pick_folder, play_table
 from analysis.folder_scan import (
     check_integrity,
     human_duration,
@@ -41,120 +41,11 @@ st.caption(
 
 
 
-# --- Ascolto per riga ------------------------------------------------------
-
-NOW_PLAYING = "folder::now_playing"
-
-# Formati che il browser sa riprodurre da solo, col tipo MIME da dichiarare.
-# Dichiararlo evita di affidarsi a come il browser indovina il contenuto:
-# senza, Streamlit serve un mp3 con estensione .wav e funziona solo perché
-# Chrome guarda dentro al file. Gli altri formati (wma, ape, wv...) si
-# possono elencare ma non ascoltare qui.
-PLAYABLE = {
-    ".mp3": "audio/mpeg",
-    ".flac": "audio/flac",
-    ".wav": "audio/wav",
-    ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".aac": "audio/mp4",
-    ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg",
-}
-
-
-def _play_table(section: str, table: pd.DataFrame, column_order: list[str],
-                column_config: dict, editable: bool = True,
-                editor_key: str | None = None) -> pd.DataFrame:
-    """Mostra la tabella con una colonna ▶ per riga e un lettore sotto.
-
-    Serve a sentire un file PRIMA di spuntarlo: fra due copie con nomi
-    diversi, o davanti a un brano di 45 minuti, l'orecchio decide meglio di
-    qualunque euristica sul nome.
-    """
-    order_key = f"order::{section}"
-    click_key = f"click::{section}"
-    st.session_state[order_key] = list(table["_path"])
-
-    def _on_play(order_key=order_key, click_key=click_key):
-        click = st.session_state.get(click_key)
-        order = st.session_state.get(order_key, [])
-        if click and 0 <= click.get("row", -1) < len(order):
-            st.session_state[NOW_PLAYING] = order[click["row"]]
-
-    shown = table.copy()
-    shown.insert(0, "Play", "▶")
-    config = {"Play": st.column_config.ButtonColumn(
-        "▶", on_click=_on_play, key=click_key, width="small"), **column_config}
-    order = ["Play", *column_order]
-
-    if editable:
-        edited = st.data_editor(shown, key=editor_key, width="stretch",
-                                hide_index=True, column_order=order,
-                                column_config=config)
-    else:
-        edited = st.data_editor(shown, key=editor_key, width="stretch",
-                                hide_index=True, column_order=order,
-                                column_config=config, disabled=column_order)
-    _render_player(set(table["_path"]))
-    return edited
-
-
-def _render_player(paths_here: set) -> None:
-    """Il lettore del file scelto, se appartiene a questa tabella."""
-    current = st.session_state.get(NOW_PLAYING)
-    if current is None or current not in paths_here:
-        return
-    track = Path(current)
-    if not track.exists():
-        st.warning(f"Not there any more: {track.name}")
-        return
-    st.caption(f"▶ {track.name}")
-    mime = PLAYABLE.get(track.suffix.lower())
-    if mime is None:
-        st.info(f"The browser cannot play {track.suffix} files.")
-        return
-    try:
-        st.audio(str(track), format=mime)
-    except Exception as e:
-        st.warning(f"Could not play it: {e}")
-
-
 # --- Scelta della cartella -------------------------------------------------
 
-PATH_KEY = "folder_analysis::path"
-
-
-def _pick_folder() -> None:
-    """Apre il selettore di cartelle nativo del Mac e riempie il campo.
-
-    Stesso meccanismo di `_pick_file` in Wave analysis: Streamlit non ha un
-    dialogo di cartelle (il browser non dà accesso al filesystem), ma l'app
-    gira in locale, quindi si può chiedere direttamente al Finder.
-    """
-    try:
-        out = subprocess.run(
-            ["osascript", "-e",
-             'POSIX path of (choose folder with prompt "Choose a folder to analyze")'],
-            capture_output=True, text=True, check=True,
-        )
-        chosen = out.stdout.strip()
-        if chosen:
-            st.session_state[PATH_KEY] = chosen.rstrip("/")
-    except Exception:
-        pass  # dialogo annullato o non disponibile: nessuna modifica
-
-
-col_path, col_browse = st.columns([5, 1])
-folder_input = col_path.text_input(
-    "Folder to analyze", key=PATH_KEY,
-    placeholder="/Volumes/Crucial X9/DJSet",
-)
-col_browse.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
-col_browse.button("📁 Browse…", on_click=_pick_folder, width="stretch")
-
-if not folder_input.strip():
+root = pick_folder("folder_analysis::path", "Folder to analyze")
+if root is None:
     st.info("Choose a folder to start.")
-    st.stop()
-root = Path(folder_input).expanduser()
-if not root.is_dir():
-    st.error(f"Not a folder: {root}")
     st.stop()
 
 audio_only = st.checkbox(
@@ -260,7 +151,7 @@ if report.broken:
         "tag. They are different tracks, so removing one would destroy the "
         "only trace of a song you are missing.")
     with st.expander(f"Show the {broken_files:,} broken files"):
-        _play_table(
+        play_table(
             f"broken::{root}",
             pd.DataFrame([{"file": p.name, "folder": str(p.parent),
                            "size": human_size(g.size), "why": g.reason,
@@ -325,7 +216,7 @@ def _selection_table(level: str, title: str, note: str, groups,
 
         pair = (["stays", "moves if ticked"] if full_paths
                 else ["folder", "keep", "duplicate"])
-        edited = _play_table(
+        edited = play_table(
             f"dup{level}::{root}", table,
             ["Move", *pair, "size", "copies", "md5"],
             {
@@ -379,7 +270,7 @@ with st.expander(f"C · Similar names, different content "
     if table_c.empty:
         st.write("Nothing found.")
     else:
-        _play_table(f"simil::{root}", table_c.drop(columns=["Move", "md5"]),
+        play_table(f"simil::{root}", table_c.drop(columns=["Move", "md5"]),
                     ["stays", "moves if ticked", "size", "copies"],
                     {c: st.column_config.TextColumn(disabled=True, width="large")
                      for c in ("stays", "moves if ticked")}
@@ -557,7 +448,7 @@ if integrity is not None:
     if not integrity.bad:
         st.success("Every file opened correctly.")
     else:
-        _play_table(
+        play_table(
             f"bad::{root}",
             pd.DataFrame([{"file": b.path.name, "folder": str(b.path.parent),
                            "size": human_size(b.size), "why": b.reason,
@@ -643,7 +534,7 @@ if durations is not None and durations.tracks:
         if f"len_force::{root}" in st.session_state:
             table["Move"] = st.session_state[f"len_force::{root}"]
 
-        edited = _play_table(
+        edited = play_table(
             f"long::{root}", table,
             ["Move", "duration", "file", "folder", "size"],
             {

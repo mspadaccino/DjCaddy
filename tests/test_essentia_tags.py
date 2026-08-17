@@ -289,3 +289,36 @@ def test_read_coverage_round_trips_what_we_write(tmp_path):
     assert cov.genre == "Rock - Alternative Rock; Pop"
     assert cov.comment == "Happy; Energetic; Dark"
     assert cov.complete
+
+
+def _cov(name, genre=None, comment=None, error=None):
+    from analysis.essentia_tags import TagCoverage
+    return TagCoverage(path=Path(name), genre=genre, comment=comment, error=error)
+
+
+def test_coverage_report_splits_readable_from_not():
+    from analysis.essentia_tags import CoverageReport
+
+    r = CoverageReport(items=[_cov("a.mp3", "House"), _cov("b.mp3", error="rotto")])
+    assert [c.path.name for c in r.readable] == ["a.mp3"]
+    assert [c.path.name for c in r.unreadable] == ["b.mp3"]
+
+
+def test_coverage_missing_filters():
+    from analysis.essentia_tags import CoverageReport
+
+    r = CoverageReport(items=[
+        _cov("completo.mp3", "House", "Happy"),
+        _cov("solo_genere.mp3", "House", None),
+        _cov("solo_commento.mp3", None, "Happy"),
+        _cov("vuoto.mp3", None, None),
+        _cov("rotto.mp3", error="illeggibile"),
+    ])
+    names = lambda got: sorted(c.path.name for c in got)
+
+    assert names(r.missing()) == ["solo_commento.mp3", "solo_genere.mp3", "vuoto.mp3"]
+    assert names(r.missing(comment=False)) == ["solo_commento.mp3", "vuoto.mp3"]
+    assert names(r.missing(genre=False)) == ["solo_genere.mp3", "vuoto.mp3"]
+    assert names(r.missing(require_both=True)) == ["vuoto.mp3"]
+    # i file illeggibili non finiscono mai in coda: non e' un problema di tag
+    assert all("rotto" not in n for n in names(r.missing()))

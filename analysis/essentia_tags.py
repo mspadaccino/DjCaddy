@@ -529,3 +529,48 @@ def read_coverage(path: Path) -> TagCoverage:
         for key in ("COMMENT", "comment", "Description", "Comment"):
             comment = comment or _first(tags.get(key))
     return TagCoverage(path=path, genre=genre, comment=comment)
+
+
+@dataclass
+class CoverageReport:
+    """Copertura dei tag su un insieme di file."""
+    items: list[TagCoverage] = field(default_factory=list)
+
+    @property
+    def readable(self) -> list[TagCoverage]:
+        return [c for c in self.items if c.error is None]
+
+    @property
+    def unreadable(self) -> list[TagCoverage]:
+        return [c for c in self.items if c.error is not None]
+
+    def missing(self, genre: bool = True, comment: bool = True,
+                require_both: bool = False) -> list[TagCoverage]:
+        """Chi ha bisogno di essere (ri)analizzato.
+
+        `require_both` chiede i file a cui mancano ENTRAMBI i tag, invece di
+        quelli a cui ne manca almeno uno.
+        """
+        out = []
+        for c in self.readable:
+            lacks = []
+            if genre:
+                lacks.append(not c.has_genre)
+            if comment:
+                lacks.append(not c.has_comment)
+            if not lacks:
+                continue
+            if all(lacks) if require_both else any(lacks):
+                out.append(c)
+        return out
+
+
+def scan_coverage(files, progress=None) -> CoverageReport:
+    """Legge la copertura dei tag di ogni file. Circa 12 ms l'uno."""
+    report = CoverageReport()
+    total = len(files)
+    for i, path in enumerate(files, 1):
+        report.items.append(read_coverage(Path(path)))
+        if progress is not None and (i % 100 == 0 or i == total):
+            progress(i, total)
+    return report
