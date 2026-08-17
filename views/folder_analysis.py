@@ -40,6 +40,82 @@ st.caption(
 )
 
 
+
+# --- Ascolto per riga ------------------------------------------------------
+
+NOW_PLAYING = "folder::now_playing"
+
+# Formati che il browser sa riprodurre da solo, col tipo MIME da dichiarare.
+# Dichiararlo evita di affidarsi a come il browser indovina il contenuto:
+# senza, Streamlit serve un mp3 con estensione .wav e funziona solo perché
+# Chrome guarda dentro al file. Gli altri formati (wma, ape, wv...) si
+# possono elencare ma non ascoltare qui.
+PLAYABLE = {
+    ".mp3": "audio/mpeg",
+    ".flac": "audio/flac",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".aac": "audio/mp4",
+    ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg",
+}
+
+
+def _play_table(section: str, table: pd.DataFrame, column_order: list[str],
+                column_config: dict, editable: bool = True,
+                editor_key: str | None = None) -> pd.DataFrame:
+    """Mostra la tabella con una colonna ▶ per riga e un lettore sotto.
+
+    Serve a sentire un file PRIMA di spuntarlo: fra due copie con nomi
+    diversi, o davanti a un brano di 45 minuti, l'orecchio decide meglio di
+    qualunque euristica sul nome.
+    """
+    order_key = f"order::{section}"
+    click_key = f"click::{section}"
+    st.session_state[order_key] = list(table["_path"])
+
+    def _on_play(order_key=order_key, click_key=click_key):
+        click = st.session_state.get(click_key)
+        order = st.session_state.get(order_key, [])
+        if click and 0 <= click.get("row", -1) < len(order):
+            st.session_state[NOW_PLAYING] = order[click["row"]]
+
+    shown = table.copy()
+    shown.insert(0, "Play", "▶")
+    config = {"Play": st.column_config.ButtonColumn(
+        "▶", on_click=_on_play, key=click_key, width="small"), **column_config}
+    order = ["Play", *column_order]
+
+    if editable:
+        edited = st.data_editor(shown, key=editor_key, width="stretch",
+                                hide_index=True, column_order=order,
+                                column_config=config)
+    else:
+        edited = st.data_editor(shown, key=editor_key, width="stretch",
+                                hide_index=True, column_order=order,
+                                column_config=config, disabled=column_order)
+    _render_player(set(table["_path"]))
+    return edited
+
+
+def _render_player(paths_here: set) -> None:
+    """Il lettore del file scelto, se appartiene a questa tabella."""
+    current = st.session_state.get(NOW_PLAYING)
+    if current is None or current not in paths_here:
+        return
+    track = Path(current)
+    if not track.exists():
+        st.warning(f"Not there any more: {track.name}")
+        return
+    st.caption(f"▶ {track.name}")
+    mime = PLAYABLE.get(track.suffix.lower())
+    if mime is None:
+        st.info(f"The browser cannot play {track.suffix} files.")
+        return
+    try:
+        st.audio(str(track), format=mime)
+    except Exception as e:
+        st.warning(f"Could not play it: {e}")
+
+
 # --- Scelta della cartella -------------------------------------------------
 
 PATH_KEY = "folder_analysis::path"
@@ -184,11 +260,16 @@ if report.broken:
         "tag. They are different tracks, so removing one would destroy the "
         "only trace of a song you are missing.")
     with st.expander(f"Show the {broken_files:,} broken files"):
-        st.dataframe(
+        _play_table(
+            f"broken::{root}",
             pd.DataFrame([{"file": p.name, "folder": str(p.parent),
-                           "size": human_size(g.size), "why": g.reason}
+                           "size": human_size(g.size), "why": g.reason,
+                           "_path": str(p)}
                           for g in report.broken for p in g.paths]),
-            width="stretch", hide_index=True)
+            ["file", "folder", "size", "why"],
+            {c: st.column_config.TextColumn(disabled=True)
+             for c in ("file", "folder", "size", "why")},
+            editable=False, editor_key=f"broken_editor::{root}")
         st.caption(
             "Use **Unreadable files** below to move these to quarantine if "
             "you want them out of the way — one by one, not as duplicates.")
@@ -234,11 +315,10 @@ def _selection_table(level: str, title: str, note: str, groups,
         if force_key in st.session_state:
             table["Move"] = st.session_state[force_key]
 
-        edited = st.data_editor(
-            table, key=f"editor::{level}::{root}::{epoch}",
-            width="stretch", hide_index=True,
-            column_order=["Move", "folder", "keep", "duplicate", "size", "copies", "md5"],
-            column_config={
+        edited = _play_table(
+            f"dup{level}::{root}", table,
+            ["Move", "folder", "keep", "duplicate", "size", "copies", "md5"],
+            {
                 "Move": st.column_config.CheckboxColumn(
                     "Move", help="Tick the files to move into quarantine."),
                 "folder": st.column_config.TextColumn(disabled=True),
@@ -248,7 +328,7 @@ def _selection_table(level: str, title: str, note: str, groups,
                 "copies": st.column_config.NumberColumn(disabled=True),
                 "md5": st.column_config.TextColumn(disabled=True),
             },
-        )
+            editor_key=f"editor::{level}::{root}::{epoch}")
         picked = edited.loc[edited["Move"]]
         chosen = [Path(p) for p in picked["_path"]]
         chosen_bytes = int(picked["_bytes"].sum()) if not picked.empty else 0
@@ -283,8 +363,11 @@ with st.expander(f"C · Similar names, different content "
     if table_c.empty:
         st.write("Nothing found.")
     else:
-        st.dataframe(table_c.drop(columns=["Move", "md5", "_path"]),
-                     width="stretch", hide_index=True)
+        _play_table(f"simil::{root}", table_c.drop(columns=["Move", "md5"]),
+                    ["folder", "keep", "duplicate", "size", "copies"],
+                    {c: st.column_config.TextColumn(disabled=True)
+                     for c in ("folder", "keep", "duplicate", "size")},
+                    editable=False, editor_key=f"simil_editor::{root}")
 
 # --- Report e quarantena --------------------------------------------------
 
@@ -456,12 +539,16 @@ if integrity is not None:
     if not integrity.bad:
         st.success("Every file opened correctly.")
     else:
-        st.dataframe(
+        _play_table(
+            f"bad::{root}",
             pd.DataFrame([{"file": b.path.name, "folder": str(b.path.parent),
-                           "size": human_size(b.size), "why": b.reason}
+                           "size": human_size(b.size), "why": b.reason,
+                           "_path": str(b.path)}
                           for b in integrity.bad]),
-            width="stretch", hide_index=True,
-        )
+            ["file", "folder", "size", "why"],
+            {c: st.column_config.TextColumn(disabled=True)
+             for c in ("file", "folder", "size", "why")},
+            editable=False, editor_key=f"bad_editor::{root}")
         bad_plan = build_quarantine_plan([b.path for b in integrity.bad], root)
         bad_bytes = sum(b.size for b in integrity.bad)
         st.caption(
@@ -538,18 +625,17 @@ if durations is not None and durations.tracks:
         if f"len_force::{root}" in st.session_state:
             table["Move"] = st.session_state[f"len_force::{root}"]
 
-        edited = st.data_editor(
-            table, key=f"len_editor::{root}::{minutes}::{epoch}",
-            width="stretch", hide_index=True,
-            column_order=["Move", "duration", "file", "folder", "size"],
-            column_config={
+        edited = _play_table(
+            f"long::{root}", table,
+            ["Move", "duration", "file", "folder", "size"],
+            {
                 "Move": st.column_config.CheckboxColumn("Move"),
                 "duration": st.column_config.TextColumn(disabled=True),
                 "file": st.column_config.TextColumn(disabled=True),
                 "folder": st.column_config.TextColumn(disabled=True),
                 "size": st.column_config.TextColumn(disabled=True),
             },
-        )
+            editor_key=f"len_editor::{root}::{minutes}::{epoch}")
         picked = edited.loc[edited["Move"]]
         chosen = [Path(p) for p in picked["_path"]]
         chosen_bytes = int(picked["_bytes"].sum()) if not picked.empty else 0
