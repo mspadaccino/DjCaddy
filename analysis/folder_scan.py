@@ -44,6 +44,11 @@ OTHER = "OTHER"
 # 116.381, cioè i tre quarti di quello che una scansione ingenua conta.
 APPLEDOUBLE = "AppleDouble (._ macOS)"
 
+# Cartella in cui finiscono i duplicati messi da parte. Va SALTATA dalle
+# scansioni successive: sta dentro la libreria, e senza escluderla la seconda
+# analisi ritrova quello che la prima aveva gia' spostato.
+QUARANTINE_DIRNAME = "_DUPLICATES_TO_DELETE"
+
 # I primi quattro byte di un file AppleDouble. Serve a NON cancellare per
 # sbaglio un file che si chiama "._qualcosa" senza esserlo davvero: il nome
 # da solo non basta a giustificare una cancellazione.
@@ -107,8 +112,12 @@ def format_of(path: Path) -> str:
     return AUDIO_FORMATS.get(path.suffix.lower(), OTHER)
 
 
-def scan_folder(root: Path, audio_only: bool = False, progress=None) -> FolderScan:
+def scan_folder(root: Path, audio_only: bool = False, progress=None,
+                skip_dirs=(QUARANTINE_DIRNAME,)) -> FolderScan:
     """Elenca ricorsivamente i file sotto `root`.
+
+    `skip_dirs` esclude intere cartelle: di default la quarantena, che
+    altrimenti verrebbe rianalizzata a ogni giro.
 
     `audio_only` tiene solo i formati audio riconosciuti. `progress`, se
     passato, viene chiamato ogni tanto con il numero di file visti finora:
@@ -116,10 +125,13 @@ def scan_folder(root: Path, audio_only: bool = False, progress=None) -> FolderSc
     istantanea e in una UI serve poterlo dire.
     """
     scan = FolderScan(root=root)
+    skip = set(skip_dirs)
     seen = 0
     for path in root.rglob("*"):
         try:
             if not path.is_file():
+                continue
+            if skip & set(path.relative_to(root).parts[:-1]):
                 continue
             fmt = format_of(path)
             if audio_only and fmt in (OTHER, APPLEDOUBLE):

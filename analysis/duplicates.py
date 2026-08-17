@@ -14,6 +14,14 @@ B. DUPLICATE_OTHER_FOLDER stessa dimensione e stesso MD5, cartelle diverse.
 C. SIMILAR_NAME           nome molto simile ma contenuto diverso.
    Puramente informativo: possono essere edit, remix, rip diversi.
 
+Prima di tutto questo però va tolto di mezzo un caso insidioso: i file
+identici perché ugualmente ROTTI. Nella libreria reale ci sono 49 file da
+zero byte — tutti con lo stesso MD5, quello del vuoto — e gruppi di stub da
+2311 byte contenenti solo un tag ID3 e nessun audio. Sono brani DIVERSI che
+si somigliano solo nel fallimento, e proporne la cancellazione sarebbe il
+peggior errore possibile: si toglierebbe l'unica traccia di un brano che
+manca. Finiscono quindi in `broken`, che non si può selezionare.
+
 Niente in questo modulo cancella file. `build_quarantine_plan` prepara uno
 spostamento in una cartella di quarantena, che è un'operazione separata ed
 esplicita: la libreria resta verificabile in djay Pro finché non si svuota
@@ -31,13 +39,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .folder_scan import ScannedFile, human_size
+from .folder_scan import QUARANTINE_DIRNAME, ScannedFile, check_readable, human_size
 
 LEVEL_SAME_FOLDER = "DUPLICATE_SAME_FOLDER"
 LEVEL_OTHER_FOLDER = "DUPLICATE_OTHER_FOLDER"
 LEVEL_SIMILAR_NAME = "SIMILAR_NAME"
 
-QUARANTINE_DIRNAME = "_DUPLICATES_TO_DELETE"
 
 # Segni che un nome è la copia fatta dal sistema operativo, non l'originale.
 _COPY_MARKERS = re.compile(r"(\(\d+\)$|\bcopy\b|\bcopia\b|\bconflicted\b)", re.IGNORECASE)
@@ -73,10 +80,21 @@ class DuplicateGroup:
 
 
 @dataclass
+class BrokenGroup:
+    """File byte-identici che però non sono audio: stessa rottura, non stessa
+    musica. Si riportano soltanto, senza mai proporne la rimozione."""
+    size: int
+    md5: str
+    reason: str
+    paths: list[Path] = field(default_factory=list)
+
+
+@dataclass
 class DuplicateReport:
     same_folder: list[DuplicateGroup] = field(default_factory=list)
     other_folder: list[DuplicateGroup] = field(default_factory=list)
     similar_name: list[DuplicateGroup] = field(default_factory=list)
+    broken: list[BrokenGroup] = field(default_factory=list)
     hashed_files: int = 0
     unreadable: list[tuple[Path, str]] = field(default_factory=list)
 
@@ -140,12 +158,16 @@ def md5_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
 
 
 def find_duplicates(files: list[ScannedFile], progress=None,
-                    hasher=md5_file) -> DuplicateReport:
+                    hasher=md5_file, verify_audio: bool = True) -> DuplicateReport:
     """Costruisce il report a tre livelli su una lista di file già scansionati.
 
     L'MD5 si calcola SOLO per i file la cui dimensione compare più di una
     volta: due file di dimensione diversa non possono essere identici, e su
     una libreria vera questo evita di leggere per intero decine di gigabyte.
+
+    Con `verify_audio` ogni gruppo di file identici viene controllato una
+    volta sola — sono uguali byte per byte, quindi guardarne uno basta — e
+    se non è audio finisce in `broken` invece che fra i duplicati.
     """
     report = DuplicateReport()
 
@@ -173,6 +195,17 @@ def find_duplicates(files: list[ScannedFile], progress=None,
     for (size, digest), paths in sorted(identical.items(), key=lambda kv: kv[0][1]):
         if len(paths) < 2:
             continue
+
+        # I file del gruppo sono byte-identici, quindi basta guardarne UNO per
+        # sapere se sono audio: se non lo sono, sono brani diversi accomunati
+        # solo dall'essere rotti allo stesso modo (tipicamente zero byte, o
+        # uno stub di soli tag). Non vanno mai proposti per la rimozione.
+        if verify_audio:
+            reason = check_readable(paths[0])
+            if reason is not None:
+                report.broken.append(BrokenGroup(
+                    size=size, md5=digest, reason=reason, paths=sorted(paths)))
+                continue
 
         by_folder: dict[Path, list[Path]] = defaultdict(list)
         for p in paths:

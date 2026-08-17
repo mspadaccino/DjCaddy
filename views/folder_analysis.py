@@ -135,7 +135,9 @@ st.subheader("Duplicates")
 st.caption(
     "Files are grouped by size first, and only same-size files get hashed — "
     "two files of different size cannot be identical. Expect the hashing pass "
-    "to read those files in full."
+    "to read those files in full. Each identical set is then checked once to "
+    f"confirm it is really audio, and the `{QUARANTINE_DIRNAME}/` folder is "
+    "skipped so a second run does not re-find what the first set aside."
 )
 
 dup_key = f"dups::{root}"
@@ -169,6 +171,25 @@ d2.metric("B — other folders", f"{len(report.other_folder):,} groups",
 d3.metric("C — similar name", f"{len(report.similar_name):,} groups",
           delta="informational only", delta_color="off",
           help="Names that look alike but the files differ.")
+
+if report.broken:
+    broken_files = sum(len(g.paths) for g in report.broken)
+    st.error(
+        f"**{broken_files:,} files in {len(report.broken):,} groups are "
+        "identical because they are equally BROKEN, not because they are the "
+        "same music** — and they are excluded from everything above. Empty "
+        "files all share the hash of nothingness; tag-only stubs share their "
+        "tag. They are different tracks, so removing one would destroy the "
+        "only trace of a song you are missing.")
+    with st.expander(f"Show the {broken_files:,} broken files"):
+        st.dataframe(
+            pd.DataFrame([{"file": p.name, "folder": str(p.parent),
+                           "size": human_size(g.size), "why": g.reason}
+                          for g in report.broken for p in g.paths]),
+            width="stretch", hide_index=True)
+        st.caption(
+            "Use **Unreadable files** below to move these to quarantine if "
+            "you want them out of the way — one by one, not as duplicates.")
 st.caption(f"{report.hashed_files:,} files hashed · "
            f"{human_size(recoverable)} recoverable from level A alone")
 

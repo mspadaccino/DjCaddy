@@ -30,6 +30,14 @@ def _scan_audio(root):
     return scan_folder(root, audio_only=True).audio
 
 
+def _find(root, **kw):
+    """Duplicati con la verifica audio SPENTA: questi test guardano il
+    raggruppamento, e i loro contenuti finti non sono audio vero. La verifica
+    ha i suoi test dedicati più sotto."""
+    kw.setdefault("verify_audio", False)
+    return find_duplicates(_scan_audio(root), **kw)
+
+
 # --- scansione -------------------------------------------------------------
 
 def test_scan_counts_by_format_and_size(tmp_path):
@@ -102,7 +110,7 @@ def test_name_quality_prefers_shallower_path(tmp_path):
 def test_level_a_same_folder_identical_files(tmp_path):
     _write(tmp_path / "f" / "Track.mp3", b"same")
     _write(tmp_path / "f" / "Track (1).mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
 
     assert len(report.same_folder) == 1
     group = report.same_folder[0]
@@ -118,7 +126,7 @@ def test_level_b_other_folders_is_only_a_candidate(tmp_path):
     mai in A."""
     _write(tmp_path / "80s" / "Track.mp3", b"same")
     _write(tmp_path / "Workout" / "Track.mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
 
     assert report.same_folder == []
     assert len(report.other_folder) == 1
@@ -130,7 +138,7 @@ def test_level_a_and_b_together(tmp_path):
     _write(tmp_path / "80s" / "Track.mp3", b"same")
     _write(tmp_path / "80s" / "Track copy.mp3", b"same")
     _write(tmp_path / "Workout" / "Track.mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
 
     assert len(report.same_folder) == 1          # la coppia dentro 80s/
     assert len(report.other_folder) == 1         # 80s/ contro Workout/
@@ -141,7 +149,7 @@ def test_level_a_and_b_together(tmp_path):
 def test_level_c_similar_name_but_different_content(tmp_path):
     _write(tmp_path / "Track (Radio Edit).mp3", b"one")
     _write(tmp_path / "Track [Radio Edit].mp3", b"two-different")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
 
     assert report.same_folder == [] and report.other_folder == []
     assert len(report.similar_name) == 1
@@ -152,14 +160,14 @@ def test_level_c_similar_name_but_different_content(tmp_path):
 def test_identical_files_do_not_also_appear_as_similar_name(tmp_path):
     _write(tmp_path / "f" / "Track.mp3", b"same")
     _write(tmp_path / "f" / "Track (1).mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
     assert report.similar_name == []
 
 
 def test_same_size_different_content_is_not_a_duplicate(tmp_path):
     _write(tmp_path / "a.mp3", b"aaaa")
     _write(tmp_path / "b.mp3", b"bbbb")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
     assert report.same_folder == [] and report.other_folder == []
 
 
@@ -175,7 +183,7 @@ def test_only_same_size_files_get_hashed(tmp_path):
         hashed.append(path)
         return "digest"
 
-    find_duplicates(_scan_audio(tmp_path), hasher=_spy)
+    _find(tmp_path, hasher=_spy)
     assert sorted(p.name for p in hashed) == ["b.mp3", "c.mp3"]
 
 
@@ -186,7 +194,7 @@ def test_unreadable_file_is_reported_not_raised(tmp_path):
     def _boom(path):
         raise OSError("permesso negato")
 
-    report = find_duplicates(_scan_audio(tmp_path), hasher=_boom)
+    report = _find(tmp_path, hasher=_boom)
     assert len(report.unreadable) == 2
     assert report.same_folder == []
 
@@ -197,7 +205,7 @@ def test_csv_marks_only_same_folder_as_delete(tmp_path):
     _write(tmp_path / "f" / "Track.mp3", b"same")
     _write(tmp_path / "f" / "Track (1).mp3", b"same")
     _write(tmp_path / "other" / "Track.mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
 
     out = write_csv(report.all_groups(), tmp_path / "report.csv")
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
@@ -216,7 +224,7 @@ def test_csv_marks_only_same_folder_as_delete(tmp_path):
 def test_quarantine_plan_mirrors_the_original_structure(tmp_path):
     _write(tmp_path / "DANCE RETRO" / "Track.mp3", b"same")
     _write(tmp_path / "DANCE RETRO" / "Track (1).mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
 
     plan = build_quarantine_plan(duplicates_of(report.same_folder), tmp_path)
     assert len(plan) == 1
@@ -231,7 +239,7 @@ def test_quarantine_plan_disambiguates_equal_names(tmp_path):
     for folder in ("a", "b"):
         _write(tmp_path / folder / "Track.mp3", b"same")
         _write(tmp_path / folder / "Track copy.mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
     plan = build_quarantine_plan(duplicates_of(report.same_folder), tmp_path)
 
     assert len(plan) == 2
@@ -241,7 +249,7 @@ def test_quarantine_plan_disambiguates_equal_names(tmp_path):
 def test_quarantine_moves_and_never_deletes(tmp_path):
     _write(tmp_path / "f" / "Track.mp3", b"same")
     dup = _write(tmp_path / "f" / "Track (1).mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
     plan = build_quarantine_plan(duplicates_of(report.same_folder), tmp_path)
 
     moved, errors = apply_quarantine_plan(plan, dry_run=False)
@@ -254,7 +262,7 @@ def test_quarantine_moves_and_never_deletes(tmp_path):
 def test_quarantine_dry_run_touches_nothing(tmp_path):
     _write(tmp_path / "f" / "Track.mp3", b"same")
     dup = _write(tmp_path / "f" / "Track (1).mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
     plan = build_quarantine_plan(duplicates_of(report.same_folder), tmp_path)
 
     moved, errors = apply_quarantine_plan(plan)               # dry_run di default
@@ -266,7 +274,7 @@ def test_quarantine_plan_skips_what_is_already_quarantined(tmp_path):
     q = tmp_path / QUARANTINE_DIRNAME / "f"
     _write(q / "Track.mp3", b"same")
     _write(q / "Track (1).mp3", b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
     assert build_quarantine_plan(duplicates_of(report.same_folder), tmp_path) == []
 
 
@@ -278,7 +286,7 @@ def test_similar_name_survives_when_one_file_is_a_copy_of_a_third(tmp_path):
     _write(tmp_path / "80s" / "Some Track (Radio Edit).mp3", b"one")
     _write(tmp_path / "80s" / "Some Track [Radio Edit].mp3", b"different")
     _write(tmp_path / "Workout" / "Some Track (Radio Edit).mp3", b"one")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
 
     assert len(report.other_folder) == 1          # la copia fra cartelle c'e'
     assert len(report.similar_name) == 1          # ...e la coppia simile pure
@@ -295,7 +303,7 @@ def test_duplicates_of_counts_files_not_groups(tmp_path):
         _write(tmp_path / "f" / name, b"same")
     _write(tmp_path / "g" / "Other.mp3", b"pair")
     _write(tmp_path / "g" / "Other copy.mp3", b"pair")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
 
     assert len(report.same_folder) == 2                  # gruppi
     assert len(duplicates_of(report.same_folder)) == 3   # file da spostare
@@ -306,7 +314,7 @@ def test_quarantine_plan_takes_only_the_selected_paths(tmp_path):
     quello che gli viene passato."""
     for name in ("Track.mp3", "Track (1).mp3", "Track (2).mp3"):
         _write(tmp_path / "f" / name, b"same")
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
     everything = duplicates_of(report.same_folder)
 
     plan = build_quarantine_plan(everything[:1], tmp_path)
@@ -338,7 +346,7 @@ def test_appledouble_files_never_become_duplicates(tmp_path):
         _write(tmp_path / folder / "Track.mp3", f"brano {folder}".encode())
         _write(tmp_path / folder / "._Track.mp3", sidecar)
 
-    report = find_duplicates(_scan_audio(tmp_path))
+    report = _find(tmp_path)
     assert report.same_folder == [] and report.other_folder == []
     assert all("._" not in g.keep.name for g in report.all_groups())
 
@@ -477,3 +485,76 @@ def test_decoder_error_stays_silent_without_ffprobe(tmp_path, monkeypatch):
 
     monkeypatch.setattr(fs.subprocess, "run", _boom)
     assert fs._decoder_error(tmp_path / "x.mp3") is None
+
+
+# --- identici perché rotti, non perché la stessa musica ---------------------
+
+def test_zero_byte_files_are_not_duplicates_of_each_other(tmp_path):
+    """Il caso che ha fatto scattare l'allarme: nella libreria reale ci sono
+    49 file da zero byte. Hanno tutti lo stesso MD5 — quello del vuoto — e
+    venivano proposti come duplicati fra loro, pur essendo BRANI DIVERSI.
+    Cancellarne uno vorrebbe dire perdere l'unica traccia di un brano che
+    manca."""
+    for name in ("Os Serranos - Baile da Mariquinha.mp3",
+                 "JOCA MARTINS _ Baile do Sapucay.mp3",
+                 "Tche Garotos - Ajoelha e chora.mp3"):
+        _write(tmp_path / "GAUCHAS" / name, b"")
+    report = find_duplicates(_scan_audio(tmp_path))
+
+    assert report.same_folder == [] and report.other_folder == []
+    assert len(report.broken) == 1
+    assert report.broken[0].reason == "file vuoto"
+    assert len(report.broken[0].paths) == 3
+
+
+def test_tag_only_stubs_are_not_duplicates(tmp_path):
+    """Stessa famiglia: stub da 2311 byte con dentro solo un tag ID3 e
+    nessun audio, identici fra loro ma relativi a brani diversi."""
+    stub = b"ID3\x04" + b"\x00" * 40 + b"WXXXwww.soundarea.org"
+    _write(tmp_path / "07. Tony Dize - El Doctorado.mp3", stub)
+    _write(tmp_path / "10. Prince Royce - Stand By Me.mp3", stub)
+    report = find_duplicates(_scan_audio(tmp_path))
+
+    assert report.same_folder == []
+    assert len(report.broken) == 1 and len(report.broken[0].paths) == 2
+
+
+def test_broken_groups_never_reach_the_quarantine_plan(tmp_path):
+    for name in ("uno.mp3", "due.mp3"):
+        _write(tmp_path / name, b"")
+    report = find_duplicates(_scan_audio(tmp_path))
+    assert build_quarantine_plan(duplicates_of(report.all_groups()), tmp_path) == []
+
+
+def test_verify_audio_can_be_turned_off(tmp_path):
+    _write(tmp_path / "uno.mp3", b"")
+    _write(tmp_path / "due.mp3", b"")
+    report = find_duplicates(_scan_audio(tmp_path), verify_audio=False)
+    assert len(report.same_folder) == 1 and report.broken == []
+
+
+# --- la quarantena non va rianalizzata --------------------------------------
+
+def test_scan_skips_the_quarantine_folder(tmp_path):
+    """Sta dentro la libreria: senza escluderla, la seconda analisi ritrova
+    quello che la prima aveva gia' messo da parte."""
+    from analysis.folder_scan import QUARANTINE_DIRNAME, scan_folder
+
+    _write(tmp_path / "Track.mp3", b"brano")
+    _write(tmp_path / QUARANTINE_DIRNAME / "library" / "Vecchio.mp3", b"gia' spostato")
+
+    scan = scan_folder(tmp_path)
+    assert [f.path.name for f in scan.files] == ["Track.mp3"]
+    assert len(scan_folder(tmp_path, skip_dirs=()).files) == 2
+
+
+def test_quarantined_duplicates_are_not_found_again(tmp_path):
+    """Scenario reale: prima pulizia fatta, seconda analisi lanciata."""
+    from analysis.folder_scan import QUARANTINE_DIRNAME
+
+    _write(tmp_path / "DANCE RETRO" / "Track.mp3", b"stesso contenuto")
+    _write(tmp_path / QUARANTINE_DIRNAME / "DANCE RETRO" / "Track (1).mp3",
+           b"stesso contenuto")
+
+    report = find_duplicates(_scan_audio(tmp_path))
+    assert report.same_folder == [] and report.other_folder == []
