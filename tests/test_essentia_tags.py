@@ -361,3 +361,26 @@ def test_analyze_many_reports_a_failure_without_losing_the_rest(monkeypatch):
     assert got[0][1].genres[0].label == "House" and got[0][2] is None
     assert got[1][1] is None and "non si apre" in got[1][2]
     assert got[2][2] is None
+
+
+def test_percentages_in_the_comment_are_optional():
+    """Il commento predefinito e' l'unica riga che djay Pro mostra.
+
+    Con l'opzione spenta ci vanno le sole etichette, come e' sempre stato;
+    accesa, anche le percentuali. Il campo MOOD dedicato resta pulito nei
+    due casi: serve a chi legge i tag da programma, non da leggio.
+    """
+    from analysis.essentia_tags import (
+        Prediction, TagSettings, TrackTags, build_tag_values)
+
+    tags = TrackTags(moods=[Prediction("happy", 0.8712),
+                            Prediction("energetic", 0.6234)])
+
+    spento = build_tag_values(tags, TagSettings(moods_in_tag=2))
+    assert spento.comment == "Happy; Energetic"
+    assert spento.mood == "Happy; Energetic"
+
+    acceso = build_tag_values(
+        tags, TagSettings(moods_in_tag=2, confidence_in_comment=True))
+    assert acceso.comment == "Happy 87%; Energetic 62%"
+    assert acceso.mood == "Happy; Energetic"

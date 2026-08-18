@@ -105,6 +105,12 @@ class TagSettings:
     max_moods: int = 5                 # quanti mood tenere in tutto
     moods_in_tag: int = 3              # quanti finiscono nel tag/commento
     confidence_tags: bool = True
+    # Se le percentuali entrano anche nel COMMENTO predefinito, quello che
+    # djay Pro mostra: "Happy 87%; Deep 62%" invece di "Happy; Deep". Spenta
+    # di default — il commento e' l'unica riga che si legge mentre si suona,
+    # e allungarla e' una scelta, non un miglioramento ovvio. Il campo MOOD
+    # dedicato resta pulito in ogni caso.
+    confidence_in_comment: bool = False
     overwrite: bool = False            # riscrive anche se il tag c'è già
     # Quanti secondi di audio dare ai modelli, presi dall'INIZIO (0 = tutto).
     # Non abbassarlo sotto i 300 senza motivo: misurato su un disco-house con
@@ -193,6 +199,7 @@ class TagValues:
     genre_confidence: str | None = None
     mood: str | None = None
     mood_confidence: str | None = None
+    comment: str | None = None         # cosa va nel commento PREDEFINITO
 
 
 def build_tag_values(tags: TrackTags, settings: TagSettings) -> TagValues:
@@ -205,6 +212,11 @@ def build_tag_values(tags: TrackTags, settings: TagSettings) -> TagValues:
     if settings.moods and tags.moods:
         picked = tags.moods[:settings.moods_in_tag]
         values.mood = "; ".join(format_mood_tag(m.label) for m in picked)
+        # Percentuali intere: il commento si legge di sfuggita mentre si
+        # suona, i due decimali dei tag di servizio qui sono rumore.
+        values.comment = "; ".join(
+            f"{format_mood_tag(m.label)} {m.confidence:.0%}" for m in picked
+        ) if settings.confidence_in_comment else values.mood
         if settings.confidence_tags:
             values.mood_confidence = ", ".join(
                 f"{m.label}: {m.confidence:.2%}" for m in picked)
@@ -264,8 +276,8 @@ def _write_vorbis(filepath: Path, values: TagValues, settings: TagSettings) -> l
         if values.mood_confidence:
             audio["ESSENTIA_MOOD"] = values.mood_confidence
         # Il campo che djay Pro mostra davvero.
-        audio["COMMENT"] = values.mood
-        written.append(f"COMMENT={values.mood}")
+        audio["COMMENT"] = values.comment
+        written.append(f"COMMENT={values.comment}")
     if written:
         audio.save()
     return written
@@ -291,12 +303,16 @@ def _write_id3(filepath: Path, values: TagValues, settings: TagSettings) -> list
         tags.setall("COMM:Essentia Mood:eng", [COMM(
             encoding=3, lang="eng", desc="Essentia Mood", text=values.mood)])
         written.append(f"COMM(Essentia Mood)={values.mood}")
+        if values.mood_confidence:
+            tags.setall("COMM:Essentia Mood Confidence:eng", [COMM(
+                encoding=3, lang="eng", desc="Essentia Mood Confidence",
+                text=values.mood_confidence)])
         # I frame COMM sono indicizzati per (lingua, descrizione): quello qui
         # sopra è invisibile a chi mostra solo il commento predefinito, djay
         # Pro compreso. Questo lo rende visibile lì.
         tags.setall("COMM::eng", [COMM(
-            encoding=3, lang="eng", desc="", text=values.mood)])
-        written.append(f"COMM(default)={values.mood}")
+            encoding=3, lang="eng", desc="", text=values.comment)])
+        written.append(f"COMM(default)={values.comment}")
     if written:
         tags.save(filepath)
     return written
@@ -320,8 +336,8 @@ def _write_mp4(filepath: Path, values: TagValues, settings: TagSettings) -> list
         written.append(f"MOOD={values.mood}")
         if values.mood_confidence:
             audio["----:com.apple.iTunes:ESSENTIA_MOOD"] = freeform(values.mood_confidence)
-        audio["\xa9cmt"] = [values.mood]
-        written.append(f"comment={values.mood}")
+        audio["\xa9cmt"] = [values.comment]
+        written.append(f"comment={values.comment}")
     if written:
         audio.save()
     return written
@@ -342,8 +358,8 @@ def _write_asf(filepath: Path, values: TagValues, settings: TagSettings) -> list
         written.append(f"WM/Mood={values.mood}")
         if values.mood_confidence:
             audio["ESSENTIA_MOOD"] = values.mood_confidence
-        audio["Description"] = values.mood
-        written.append(f"Description={values.mood}")
+        audio["Description"] = values.comment
+        written.append(f"Description={values.comment}")
     if written:
         audio.save()
     return written
@@ -368,7 +384,7 @@ def _write_apev2(filepath: Path, values: TagValues, settings: TagSettings) -> li
         written.append(f"Mood={values.mood}")
         if values.mood_confidence:
             audio.tags["Essentia Mood"] = values.mood_confidence
-        audio.tags["Comment"] = values.mood
+        audio.tags["Comment"] = values.comment
         written.append(f"Comment={values.mood}")
     if written:
         audio.save()

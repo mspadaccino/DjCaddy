@@ -242,7 +242,14 @@ with col_m:
              "smaller. Nothing is invented if none clear it.")
     confidence_tags = st.checkbox(
         "Also write confidence tags", value=True,
-        help="Percentages in a separate field, next to the tag itself.")
+        help="Percentages in a SEPARATE field (ESSENTIA_GENRE / "
+             "ESSENTIA_MOOD), beside the tag itself. djay Pro does not "
+             "display these — they are there for later inspection.")
+    confidence_in_comment = st.checkbox(
+        "Percentages in the comment too", value=False, disabled=not do_moods,
+        help="Puts them in the comment djay Pro actually shows: "
+             '"Happy 87%; Deep 62%" instead of "Happy; Deep". The dedicated '
+             "MOOD field stays clean either way.")
 
 col_o, col_s = st.columns(2)
 overwrite = col_o.checkbox(
@@ -261,6 +268,7 @@ settings = TagSettings(
     genre_threshold=genre_threshold, genre_format=genre_format,
     mood_threshold=mood_threshold, moods_in_tag=int(moods_in_tag),
     confidence_tags=confidence_tags, overwrite=overwrite,
+    confidence_in_comment=confidence_in_comment,
     max_seconds=int(max_seconds),
 )
 
