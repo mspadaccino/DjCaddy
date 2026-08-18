@@ -9,6 +9,10 @@ fatti, 30 non erano più a quel percorso.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+import tempfile
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -28,8 +32,28 @@ from analysis.essentia_tags import (
     scan_coverage,
     write_tags,
 )
+from analysis.tag_job import load_state
 from analysis.tag_tracking import DEFAULT_TRACKING_FILE, ProcessedTracker
 from views.components import pick_folder, play_table
+
+# Secondi a brano misurati su questa macchina (M5, 10 core, 24 analisi), per
+# numero di processi. Servono a dire quanto ci vorrà PRIMA di partire, che è
+# l'unica informazione che cambia la scelta.
+SECONDS_PER_TRACK = {1: 8.2, 2: 5.7, 3: 5.0, 5: 4.1, 8: 3.7}
+
+
+def _spelled(seconds: float) -> str:
+    if seconds < 90:
+        return f"{seconds:.0f}s"
+    if seconds < 5400:
+        return f"{seconds / 60:.0f} min"
+    return f"{seconds / 3600:.1f} hours"
+
+
+def _seconds_each(n: int) -> float:
+    known = min(SECONDS_PER_TRACK, key=lambda k: abs(k - n))
+    return SECONDS_PER_TRACK[known]
+
 
 st.title("🏷️ Tag analysis")
 st.caption(
@@ -95,6 +119,146 @@ if not scope:
     st.info("Nothing selected yet.")
     st.stop()
 st.success(f"**{scope_name}** ready.")
+
+# --- Impostazioni ----------------------------------------------------------
+
+st.divider()
+st.subheader("Settings")
+st.caption("The same options the terminal script asks for, as controls.")
+
+col_g, col_m = st.columns(2)
+with col_g:
+    do_genres = st.checkbox("Write genre", value=True)
+    top_genres = st.number_input("How many genres", 1, 10, 3, disabled=not do_genres)
+    genre_threshold = st.slider(
+        "Genre threshold", 0.0, 1.0, 0.15, 0.01, disabled=not do_genres,
+        help="Minimum activation. If nothing clears it the single best label "
+             "is written anyway — a track always has a genre.")
+    genre_format = st.selectbox(
+        "Genre format", GENRE_FORMATS, disabled=not do_genres,
+        help='How "Rock---Alternative Rock" is written out.')
+with col_m:
+    do_moods = st.checkbox("Write mood", value=True)
+    moods_in_tag = st.number_input("How many moods in the comment", 1, 5, 3,
+                                   disabled=not do_moods)
+    mood_threshold = st.slider(
+        "Mood threshold", 0.0, 1.0, 0.005, 0.005, disabled=not do_moods,
+        help="Lower than the genre one on purpose: mood activations are much "
+             "smaller. Nothing is invented if none clear it.")
+    confidence_tags = st.checkbox(
+        "Also write confidence tags", value=True,
+        help="Percentages in a SEPARATE field (ESSENTIA_GENRE / "
+             "ESSENTIA_MOOD), beside the tag itself. djay Pro does not "
+             "display these — they are there for later inspection.")
+    confidence_in_comment = st.checkbox(
+        "Percentages in the comment too", value=False, disabled=not do_moods,
+        help="Puts them in the comment djay Pro actually shows: "
+             '"Happy 87%; Deep 62%" instead of "Happy; Deep". The dedicated '
+             "MOOD field stays clean either way.")
+
+col_o, col_s = st.columns(2)
+overwrite = col_o.checkbox(
+    "Overwrite tags that are already there", value=False,
+    help="Off: a track that already has a genre keeps it. The queue above "
+         "mostly contains tracks missing something, so this rarely matters.")
+max_seconds = col_s.number_input(
+    "Seconds of audio to analyze", 0, 1200, 300, 30,
+    help="0 = the whole track. Do not go below 300 without reason: measured "
+         "on a disco-house track with a one-minute intro, 120s gave "
+         '"Ambient / Space, Dark, Relaxing" where 300s gave the correct '
+         '"Nu-Disco, House / Summer, Deep, Happy".')
+
+workers = int(st.number_input(
+    "Tracks at the same time", 1, max(2, (os.cpu_count() or 2)),
+    default_workers(),
+    help="How many analyses run in parallel, each in its own process. Half "
+         "the cores is the sweet spot here: measured, 8 processes are only "
+         "8% faster than 5 because the cores actually busy stop at 3.4 "
+         "either way, while the memory keeps going up (~1.3 GB each)."))
+
+settings = TagSettings(
+    genres=do_genres, moods=do_moods, top_genres=int(top_genres),
+    genre_threshold=genre_threshold, genre_format=genre_format,
+    mood_threshold=mood_threshold, moods_in_tag=int(moods_in_tag),
+    confidence_tags=confidence_tags, overwrite=overwrite,
+    confidence_in_comment=confidence_in_comment,
+    max_seconds=int(max_seconds),
+)
+
+# --- Job in background -----------------------------------------------------
+
+# L'alternativa al blocco qui sopra, per quando i brani sono troppi: la
+# pagina resta bloccata per tutta la durata di una corsa, e a qualche secondo
+# per brano una libreria intera sono giorni. Il job e' lo STESSO lavoro
+# lanciato come processo a se', che sopravvive alla chiusura del browser.
+
+st.divider()
+st.subheader("Or run it in the background")
+
+stato = load_state()
+
+if stato is not None and stato.running:
+    fatti, totale = stato.done, max(1, stato.total)
+    st.progress(fatti / totale,
+                text=f"{fatti:,}/{stato.total:,} · {stato.current[:50]}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Written", f"{stato.written:,}")
+    c2.metric("Failed", f"{stato.failed:,}")
+    c3.metric("Per track", f"{stato.seconds_each:.1f}s")
+    c4.metric("Left", _spelled(stato.eta_seconds))
+    st.caption(
+        f"Running as process {stato.pid} on `{stato.folder}` — closing this "
+        "tab does not stop it. Unlike the run above, the job writes the tags "
+        "as it goes, so what is done is already saved.")
+    if st.button("↻ Refresh"):
+        st.rerun()
+else:
+    if stato is not None:
+        esito = (f"Last job: {stato.written:,} written, {stato.failed:,} "
+                 f"failed out of {stato.total:,}.")
+        (st.warning if stato.failed else st.success)(esito)
+        if stato.errors:
+            with st.expander(f"{len(stato.errors)} error(s) kept"):
+                st.dataframe(pd.DataFrame(stato.errors), width="stretch",
+                             hide_index=True)
+
+    st.caption(
+        f"Analyzes **{root}** and writes as it goes, skipping whatever the "
+        "progress file already records — so it can be stopped and restarted "
+        "without losing or repeating work. It uses the settings above.")
+    if st.button(f"▶ Start the job with {workers} at a time"):
+        log = Path(tempfile.gettempdir()) / "wavecut_tag_job.log"
+        cmd = [sys.executable, str(Path(__file__).resolve().parent.parent / "tag_cli.py"),
+               str(root), "--workers", str(workers),
+               "--genre-format", settings.genre_format,
+               "--max-seconds", str(settings.max_seconds)]
+        if settings.overwrite:
+            cmd.append("--overwrite")
+        if settings.confidence_in_comment:
+            cmd.append("--confidence-in-comment")
+        if not settings.genres:
+            cmd.append("--no-genres")
+        if not settings.moods:
+            cmd.append("--no-moods")
+        # start_new_session: staccato da Streamlit, cosi' un riavvio della
+        # pagina (o la sua chiusura) non porta giu' anche il lavoro.
+        with open(log, "w") as out:
+            subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT,
+                             start_new_session=True,
+                             cwd=Path(__file__).resolve().parent.parent)
+        st.success(f"Started. Output in `{log}`.")
+        time.sleep(1.5)          # il job scrive lo stato quasi subito
+        st.rerun()
+
+analyzed = st.session_state.get("tag_analysis::analyzed", [])
+failures = st.session_state.get("tag_analysis::failed", [])
+
+if failures:
+    st.warning(f"{len(failures)} track(s) could not be analyzed.")
+    st.dataframe(pd.DataFrame(failures), width="stretch", hide_index=True)
+
+if not analyzed:
+    st.stop()
 
 # --- Cosa c'è dentro -------------------------------------------------------
 
@@ -211,68 +375,11 @@ if coverage.unreadable:
 
 st.session_state["tag_analysis::queue"] = queue
 
-# --- Impostazioni ----------------------------------------------------------
+# --- Esecuzione ------------------------------------------------------------
 
 if not queue:
     st.info("Nothing left to do with this filter.")
     st.stop()
-
-st.divider()
-st.subheader("Settings")
-st.caption("The same options the terminal script asks for, as controls.")
-
-col_g, col_m = st.columns(2)
-with col_g:
-    do_genres = st.checkbox("Write genre", value=True)
-    top_genres = st.number_input("How many genres", 1, 10, 3, disabled=not do_genres)
-    genre_threshold = st.slider(
-        "Genre threshold", 0.0, 1.0, 0.15, 0.01, disabled=not do_genres,
-        help="Minimum activation. If nothing clears it the single best label "
-             "is written anyway — a track always has a genre.")
-    genre_format = st.selectbox(
-        "Genre format", GENRE_FORMATS, disabled=not do_genres,
-        help='How "Rock---Alternative Rock" is written out.')
-with col_m:
-    do_moods = st.checkbox("Write mood", value=True)
-    moods_in_tag = st.number_input("How many moods in the comment", 1, 5, 3,
-                                   disabled=not do_moods)
-    mood_threshold = st.slider(
-        "Mood threshold", 0.0, 1.0, 0.005, 0.005, disabled=not do_moods,
-        help="Lower than the genre one on purpose: mood activations are much "
-             "smaller. Nothing is invented if none clear it.")
-    confidence_tags = st.checkbox(
-        "Also write confidence tags", value=True,
-        help="Percentages in a SEPARATE field (ESSENTIA_GENRE / "
-             "ESSENTIA_MOOD), beside the tag itself. djay Pro does not "
-             "display these — they are there for later inspection.")
-    confidence_in_comment = st.checkbox(
-        "Percentages in the comment too", value=False, disabled=not do_moods,
-        help="Puts them in the comment djay Pro actually shows: "
-             '"Happy 87%; Deep 62%" instead of "Happy; Deep". The dedicated '
-             "MOOD field stays clean either way.")
-
-col_o, col_s = st.columns(2)
-overwrite = col_o.checkbox(
-    "Overwrite tags that are already there", value=False,
-    help="Off: a track that already has a genre keeps it. The queue above "
-         "mostly contains tracks missing something, so this rarely matters.")
-max_seconds = col_s.number_input(
-    "Seconds of audio to analyze", 0, 1200, 300, 30,
-    help="0 = the whole track. Do not go below 300 without reason: measured "
-         "on a disco-house track with a one-minute intro, 120s gave "
-         '"Ambient / Space, Dark, Relaxing" where 300s gave the correct '
-         '"Nu-Disco, House / Summer, Deep, Happy".')
-
-settings = TagSettings(
-    genres=do_genres, moods=do_moods, top_genres=int(top_genres),
-    genre_threshold=genre_threshold, genre_format=genre_format,
-    mood_threshold=mood_threshold, moods_in_tag=int(moods_in_tag),
-    confidence_tags=confidence_tags, overwrite=overwrite,
-    confidence_in_comment=confidence_in_comment,
-    max_seconds=int(max_seconds),
-)
-
-# --- Esecuzione ------------------------------------------------------------
 
 st.divider()
 st.subheader("Analyze")
@@ -289,33 +396,14 @@ st.caption(
     "them is a separate click, so the analysis is never paid for twice."
 )
 
-# Secondi a brano misurati su questa macchina (M5, 10 core, 24 analisi), per
-# numero di processi. Servono a dire quanto ci vorrà PRIMA di partire, che è
-# l'unica informazione che cambia la scelta.
-SECONDS_PER_TRACK = {1: 8.2, 2: 5.7, 3: 5.0, 5: 4.1, 8: 3.7}
-
-
-def _seconds_each(n: int) -> float:
-    known = min(SECONDS_PER_TRACK, key=lambda k: abs(k - n))
-    return SECONDS_PER_TRACK[known]
-
-
-col_batch, col_workers = st.columns(2)
-batch = int(col_batch.number_input(
+batch = int(st.number_input(
     "How many to analyze now", 1, max(1, len(queue)), max(1, len(queue)),
     help="Defaults to the whole queue. Lower it to try a handful first and "
          "see what comes back before committing to hours."))
-workers = int(col_workers.number_input(
-    "Tracks at the same time", 1, max(2, (os.cpu_count() or 2)),
-    default_workers(),
-    help="How many analyses run in parallel, each in its own process. "
-         "Half the cores is the sweet spot here — see the note below."))
 
 each = _seconds_each(workers)
 eta = batch * each
-spelled = (f"{eta:.0f}s" if eta < 90 else
-           f"{eta / 60:.0f} min" if eta < 5400 else
-           f"{eta / 3600:.1f} hours")
+spelled = _spelled(eta)
 st.caption(
     f"About **{each:.0f}s per track** at {workers} at a time"
     f"{f' (vs {SECONDS_PER_TRACK[1]:.0f}s one at a time)' if workers > 1 else ''}"
@@ -323,11 +411,6 @@ st.caption(
     f"Each process holds its own copy of the models, about "
     f"{workers * 1.3:.1f} GB in total."
 )
-if workers > 5:
-    st.caption(
-        "⚠️ Past 5 the gain is small — measured, 8 processes are only 8% "
-        "faster than 5 because the cores actually busy stop at 3.4 either "
-        "way, while the memory keeps going up.")
 if eta > 3600:
     st.warning(
         f"That is about {eta / 3600:.1f} hours, and the browser tab has to "
@@ -351,16 +434,6 @@ if st.button(f"Analyze {batch} of {len(queue):,}", type="primary"):
     bar.empty()
     st.session_state["tag_analysis::analyzed"] = done
     st.session_state["tag_analysis::failed"] = failures
-
-analyzed = st.session_state.get("tag_analysis::analyzed", [])
-failures = st.session_state.get("tag_analysis::failed", [])
-
-if failures:
-    st.warning(f"{len(failures)} track(s) could not be analyzed.")
-    st.dataframe(pd.DataFrame(failures), width="stretch", hide_index=True)
-
-if not analyzed:
-    st.stop()
 
 # --- Cosa verrebbe scritto, e salvataggio ----------------------------------
 
