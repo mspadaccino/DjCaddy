@@ -467,11 +467,11 @@ def test_check_integrity_separates_bad_from_missing(tmp_path):
     reason="serve un file audio vero in test_mp3/",
 )
 def test_check_integrity_passes_a_real_track(tmp_path):
-    """Nessun falso positivo su un brano vero, controllo profondo incluso."""
+    """Nessun falso positivo su un brano vero: il decoder viene sempre interpellato."""
     from analysis.folder_scan import check_integrity
 
     src = next((Path(__file__).resolve().parent.parent / "test_mp3").glob("*.mp3"))
-    report = check_integrity([src], deep=True)
+    report = check_integrity([src])
     assert report.bad == [] and report.missing == []
 
 

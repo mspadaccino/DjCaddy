@@ -22,6 +22,7 @@ from analysis.duplicates import (
 )
 from views.components import pick_folder, play_table
 from analysis.folder_scan import (
+    CHECK_THREADS,
     check_integrity,
     human_duration,
     read_durations,
@@ -406,26 +407,24 @@ st.caption(
     "fetch them again."
 )
 
-deep = st.radio(
-    "How thoroughly?", ["Headers only (instant)", "Ask the decoder (slower, definitive)"],
-    horizontal=True,
-    help="Headers only reads the first bytes: it catches empty files, "
-         "truncated downloads and HTML saved as .mp3, but NOT a file with a "
-         "valid header and a broken stream — measured on a real track where "
-         "the header reports 219 seconds and the decoder still refuses it. "
-         "Asking the decoder uses ffprobe, the same one the tagging will "
-         "use, at roughly 0.05s per file.",
-) == "Ask the decoder (slower, definitive)"
+# Secondi a file col controllo in parallelo, misurati su questa libreria via
+# USB: 5,8 s per 800 file con 8 thread, contro 40,3 s in fila.
+SECONDS_PER_CHECK = 0.0073
 
-if deep and audio:
-    st.caption(f"≈ {len(audio) * 0.05 / 60:.0f} min for {len(audio):,} files "
-               "on a local disk, longer over USB.")
+st.caption(
+    "Every file is opened with the decoder — the same one the tagging uses. "
+    f"About **{len(audio) * SECONDS_PER_CHECK / 60:.0f} min** for "
+    f"{len(audio):,} files, {CHECK_THREADS} at a time. There is no "
+    "headers-only shortcut any more: it was quick and wrong, condemning 31 "
+    "tracks here that the decoder opens without complaint. This list decides "
+    "what goes to quarantine, so a guess is not good enough."
+)
 
-integrity_key = f"integrity::{root}::{deep}"
+integrity_key = f"integrity::{root}"
 if st.button(f"Check {len(audio):,} audio files"):
     bar = st.progress(0.0, text="Checking…")
     st.session_state[integrity_key] = check_integrity(
-        audio, deep=deep,
+        audio,
         progress=lambda done, total: bar.progress(
             done / total if total else 1.0, text=f"Checked {done:,}/{total:,}…"))
     bar.empty()

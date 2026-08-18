@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -391,25 +392,47 @@ def _header_error(path: Path) -> str | None:
     return None
 
 
-def check_integrity(files, deep: bool = False, progress=None) -> IntegrityReport:
-    """Controlla la leggibilità di una lista di file audio già scansionati."""
+# Quanti ffprobe tenere in volo insieme. Thread e non processi: il lavoro lo
+# fa un sottoprocesso esterno, quindi il GIL non è in mezzo e ogni thread non
+# fa altro che aspettare.
+CHECK_THREADS = 8
+
+
+def check_integrity(files, progress=None, workers: int = CHECK_THREADS) -> IntegrityReport:
+    """Quali file non si aprono davvero. Interpella SEMPRE il decoder.
+
+    Non c'è più una modalità "solo intestazioni": era veloce e sbagliata.
+    Mutagen legge i tag, e su questa libreria ne condannava 31 che il decoder
+    apre senza fiatare — MP4 battezzati ".mp3", audio che comincia oltre la
+    finestra in cui mutagen lo cerca, contenitori che non conosce. Dato che
+    da questo elenco si decide cosa mettere in quarantena, un "forse" non è
+    un risultato utilizzabile. La velocità la si recupera in parallelo.
+    """
     report = IntegrityReport()
     total = len(files)
-    for i, item in enumerate(files, 1):
-        path = _as_path(item)
+    paths = [_as_path(item) for item in files]
+
+    def esamina(path: Path):
         if not path.exists():
-            report.missing.append(path)
-        else:
-            reason = check_readable(path, deep=deep)
-            if reason is not None:
-                try:
-                    size = path.stat().st_size
-                except OSError:
-                    size = 0
-                report.bad.append(BadFile(path=path, size=size, reason=reason))
-        report.checked += 1
-        if progress is not None and (i % 200 == 0 or i == total):
-            progress(i, total)
+            return path, None, True
+        reason = check_readable(path, deep=True)
+        if reason is None:
+            return path, None, False
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        return path, BadFile(path=path, size=size, reason=reason), False
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        for i, (path, bad, missing) in enumerate(pool.map(esamina, paths), 1):
+            if missing:
+                report.missing.append(path)
+            elif bad is not None:
+                report.bad.append(bad)
+            report.checked += 1
+            if progress is not None and (i % 50 == 0 or i == total):
+                progress(i, total)
     return report
 
 
