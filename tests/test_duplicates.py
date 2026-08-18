@@ -652,3 +652,65 @@ def test_scanned_items_also_accept_plain_paths_and_strings(tmp_path):
     target = _write(tmp_path / "vuoto.mp3", b"")
     assert check_integrity([target]).checked == 1
     assert check_integrity([str(target)]).checked == 1
+
+
+# --- Riconoscere mix e mashup dal nome -------------------------------------
+
+def test_default_keywords_catch_mixes_and_spare_extended_versions():
+    """I casi veri presi dalla libreria: i mix passano, gli extended no."""
+    from analysis.mix_names import DEFAULT_KEYWORDS, matching_words
+
+    caught = [
+        "The Outhere Brothers - The Outhere Brothers Megamix (Revibes).wav",
+        "[02] Celebrate The Nun - Medley (Razormaid Mix).flac",
+        "03 Awsome Party Mix Vol. 2 (Late 70's European Mix).flac",
+        "Select Essentials 125th Anniversary Mini Mix.mp3",
+        "Some Guy - Whatever (Mash-Up).mp3",
+    ]
+    spared = [
+        "01. Mina - Ancora, ancora, ancora (Extended Version).m4a",
+        "ANOTR, 54 Ultra - Talk To You (Dj Dark Extended Remix).mp3",
+        "0409 - DJ Gregory - Elle (Main Version).flac",
+        # "bootleg" e " vs " NON sono fra i default: misurati, durano quanto
+        # un brano qualunque e sono strumenti da dj, non raccolte mixate
+        "Artist A vs Artist B - Track (Bootleg).mp3",
+    ]
+    for name in caught:
+        assert matching_words(name, DEFAULT_KEYWORDS), name
+    for name in spared:
+        assert not matching_words(name, DEFAULT_KEYWORDS), name
+
+
+def test_keyword_matching_ignores_case_and_parses_the_box():
+    from analysis.mix_names import matching_words, parse_keywords
+
+    assert parse_keywords(" Megamix , medley ,, ") == ["megamix", "medley"]
+    assert matching_words("X - MEGAMIX.mp3", ["megamix"]) == ["megamix"]
+    assert matching_words("X.mp3", ["megamix"]) == []
+
+
+def test_mixed_by_does_not_swallow_remixed_by():
+    """Il caso vero che ha fatto cambiare il confronto a parola intera.
+
+    Nelle raccolte DMC "Remixed By" indica il remixer di un brano singolo:
+    sono 138 file nella libreria, tutti da tenere, e come sottostringa
+    finivano fra i mix da spostare.
+    """
+    from analysis.mix_names import DEFAULT_KEYWORDS, matching_words
+
+    remix = "Barry White - Everything (DMC RKL Remix) (Remixed By Rod Layman).mp3"
+    megamix = "Duke Dumont - Duke Dumont Megamix (Mixed By Kevin Sweeney).mp3"
+
+    assert matching_words(remix, DEFAULT_KEYWORDS) == []
+    assert "mixed by" in matching_words(megamix, DEFAULT_KEYWORDS)
+
+
+def test_two_vs_mean_a_mashup_but_one_does_not():
+    from analysis.mix_names import looks_like_a_mashup
+
+    assert looks_like_a_mashup(
+        "david guetta vs. alice deejay - play hard vs. better off alone.mp3")
+    assert looks_like_a_mashup("03 beyonce vs destiny's child - 7-11 vs independent woman.mp3")
+    # una collaborazione, o un remix: resta dov'e'
+    assert not looks_like_a_mashup("Artist A vs Artist B - Some Track (Extended).mp3")
+    assert not looks_like_a_mashup("Elvis - Suspicious Minds.mp3")

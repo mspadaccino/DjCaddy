@@ -21,6 +21,13 @@ from analysis.duplicates import (
     write_csv,
 )
 from views.components import pick_folder, play_table
+from analysis.mix_names import (
+    DEFAULT_KEYWORDS,
+    NOT_BY_DEFAULT,
+    looks_like_a_mashup,
+    matching_words,
+    parse_keywords,
+)
 from analysis.folder_scan import (
     CHECK_THREADS,
     check_integrity,
@@ -474,14 +481,14 @@ if integrity is not None:
             st.session_state.pop(integrity_key, None)
 
 
-# --- Brani troppo lunghi (medley) ------------------------------------------
+# --- Mix, medley e mashup --------------------------------------------------
 
 st.divider()
-st.subheader("Long tracks")
+st.subheader("Mixes, medleys and mashups")
 st.caption(
-    "Medleys and megamixes — one file holding a dozen songs. Useless in a "
-    "collection meant for mixing single tracks yourself. Durations are read "
-    "once (about 8 ms per file), then the slider filters them instantly."
+    "Files holding several songs mixed together, in a collection meant for "
+    "mixing single tracks yourself. Two signals, because neither is enough "
+    "alone: how long the file is, and what it is called."
 )
 
 dur_key = f"durations::{root}"
@@ -495,28 +502,74 @@ if st.button(f"Read durations of {len(audio):,} files"):
 durations = st.session_state.get(dur_key)
 if durations is not None and durations.tracks:
     ceiling = max(30, int(durations.longest_minutes) + 1)
+    # 10 e non 20: sulla libreria reale NIENTE supera i 20 minuti, e una
+    # soglia che non trova mai nulla sembra un guasto. A 10 minuti passa
+    # metà dei megamix e solo l'1% delle versioni extended (misurato).
     minutes = st.slider(
-        "Longer than (minutes)", min_value=1, max_value=ceiling, value=min(20, ceiling),
-        help="Move the slider: the list below follows immediately, because the "
-             "durations are already in memory.")
+        "Longer than (minutes)", min_value=1, max_value=ceiling,
+        value=min(10, ceiling),
+        help="Moves instantly: the durations are already in memory. Around "
+             "10 minutes is the useful line — half of the megamixes are "
+             "longer, while only 1% of extended versions are.")
 
-    long_tracks = durations.longer_than(minutes)
+    words_text = st.text_input(
+        "…or the name contains", value=", ".join(DEFAULT_KEYWORDS),
+        help="Comma separated, matched anywhere in the file name, case "
+             "insensitive. Add your own.")
+    keywords = parse_keywords(words_text)
+
+    vs_rule = st.checkbox(
+        'Also catch "A vs B - first song vs second song"', value=True,
+        help="Two 'vs' in one name means two artists and two titles — a "
+             "mashup. One 'vs' alone is usually a real collaboration, so it "
+             "is not enough: measured here, one catches 2,312 files, two "
+             "catch 679 and twelve out of twelve sampled were mashups.")
+
+    with st.expander("Words deliberately left out, and why"):
+        st.caption(
+            "Measured on this library — these look like clues but the files "
+            "carrying them are ordinary length. Add them above if you "
+            "disagree, but check the list before moving anything.")
+        for word, why in NOT_BY_DEFAULT.items():
+            st.markdown(f"- **`{word.strip()}`** — {why}")
+
+    # L'unione dei due criteri, non l'intersezione: i mashup durano quanto un
+    # brano normale (4,2 min di mediana) e per la durata sono invisibili;
+    # certi megamix non hanno nessuna parola nel nome. Ognuno prende quello
+    # che l'altro non vede, e la colonna "why" dice sempre chi ha deciso.
+    by_length = {t.path: t for t in durations.longer_than(minutes)}
+    reasons: dict[Path, list[str]] = {}
+    for path, track in by_length.items():
+        reasons[path] = [f"longer than {minutes} min"]
+    for track in durations.tracks:
+        hits = matching_words(track.path.name, keywords)
+        if hits:
+            reasons.setdefault(track.path, []).append("name: " + ", ".join(hits))
+        if vs_rule and looks_like_a_mashup(track.path.name):
+            reasons.setdefault(track.path, []).append("two “vs”")
+
+    long_tracks = sorted(
+        (t for t in durations.tracks if t.path in reasons),
+        key=lambda t: t.seconds, reverse=True)
     total_bytes = sum(t.size for t in long_tracks)
-    l1, l2, l3 = st.columns(3)
-    l1.metric(f"Longer than {minutes} min", f"{len(long_tracks):,}")
-    l2.metric("Of", f"{len(durations.tracks):,} tracks")
-    l3.metric("Space", human_size(total_bytes))
+
+    l1, l2, l3, l4 = st.columns(4)
+    l1.metric("Matching", f"{len(long_tracks):,}")
+    l2.metric(f"Over {minutes} min", f"{len(by_length):,}")
+    l3.metric("By name", f"{sum(1 for r in reasons.values() if any(x.startswith('name') for x in r)):,}")
+    l4.metric("Space", human_size(total_bytes))
 
     if durations.unknown:
         st.caption(f"{len(durations.unknown):,} file(s) had no readable duration "
                    "and are left out of this filter entirely.")
 
     if not long_tracks:
-        st.info(f"Nothing longer than {minutes} minutes.")
+        st.info("Nothing matches either signal.")
     else:
         epoch = st.session_state.setdefault(f"len_epoch::{root}", 0)
         table = pd.DataFrame([
             {"Move": True, "duration": human_duration(t.seconds),
+             "why": " + ".join(reasons[t.path]),
              "file": t.path.name, "folder": str(t.path.parent),
              "size": human_size(t.size), "_path": str(t.path), "_bytes": t.size}
             for t in long_tracks
@@ -535,15 +588,18 @@ if durations is not None and durations.tracks:
 
         edited = play_table(
             f"long::{root}", table,
-            ["Move", "duration", "file", "folder", "size"],
+            ["Move", "duration", "why", "file", "folder", "size"],
             {
                 "Move": st.column_config.CheckboxColumn("Move"),
                 "duration": st.column_config.TextColumn(disabled=True),
+                "why": st.column_config.TextColumn(
+                    "why", disabled=True, width="medium",
+                    help="Which signal put this row here."),
                 "file": st.column_config.TextColumn(disabled=True),
                 "folder": st.column_config.TextColumn(disabled=True),
                 "size": st.column_config.TextColumn(disabled=True),
             },
-            editor_key=f"len_editor::{root}::{minutes}::{epoch}")
+            editor_key=f"len_editor::{root}::{minutes}::{len(long_tracks)}::{vs_rule}::{epoch}")
         picked = edited.loc[edited["Move"]]
         chosen = [Path(p) for p in picked["_path"]]
         chosen_bytes = int(picked["_bytes"].sum()) if not picked.empty else 0
@@ -556,13 +612,13 @@ if durations is not None and durations.tracks:
         if chosen:
             long_plan = build_quarantine_plan(chosen, root)
             st.caption(
-                f"Moved to `{root / QUARANTINE_DIRNAME}`, not deleted — a long "
-                "track might be a set you actually want, and you can put it "
+                f"Moved to `{root / QUARANTINE_DIRNAME}`, not deleted — a "
+                "match might be a set you actually want, and you can put it "
                 "back from there.")
             go = st.checkbox(
-                f"Move these {len(long_plan):,} long tracks to quarantine "
+                f"Move these {len(long_plan):,} files to quarantine "
                 f"({human_size(chosen_bytes)})", key="long_confirm")
-            if st.button("Quarantine long tracks", disabled=not go):
+            if st.button("Quarantine these", disabled=not go):
                 moved, errors = apply_quarantine_plan(long_plan, dry_run=False)
                 st.success(f"{moved:,} tracks moved.")
                 if errors:
