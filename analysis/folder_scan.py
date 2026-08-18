@@ -7,9 +7,11 @@ un'operazione molto più costosa e va lanciata a parte.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 # Estensioni audio riconosciute -> etichetta di formato mostrata nei conteggi.
@@ -264,29 +266,61 @@ class IntegrityReport:
     missing: list[Path] = field(default_factory=list)
 
 
+# Che demuxer imporre a ffmpeg quando il riconoscimento automatico sbaglia,
+# in base all'estensione. Serve solo come SECONDO tentativo: al primo giro si
+# lascia decidere a ffmpeg, che di norma ci azzecca.
+_DEMUXERS = {
+    ".mp3": "mp3", ".mp2": "mp3",
+    ".flac": "flac",
+    ".wav": "wav",
+    ".aif": "aiff", ".aiff": "aiff",
+    ".m4a": "mp4", ".m4b": "mp4", ".mp4": "mp4", ".aac": "aac",
+    ".ogg": "ogg", ".oga": "ogg", ".opus": "ogg",
+    ".wma": "asf",
+    ".ape": "ape", ".wv": "wv", ".mpc": "mpc",
+}
+
+
+def _probe(path: Path, demuxer: str | None, timeout: float) -> tuple[bool, str]:
+    """Un giro di ffprobe. Torna (ha_funzionato, ultima riga d'errore)."""
+    forced = ["-f", demuxer] if demuxer else []
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", *forced, "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    if out.returncode == 0 and out.stdout.strip():
+        return True, ""
+    lines = (out.stderr or "").strip().splitlines()
+    return False, lines[-1].split(": ")[-1] if lines else "il decoder rifiuta il file"
+
+
 def _decoder_error(path: Path, timeout: float = 60.0) -> str | None:
     """Chiede a ffprobe se il file si apre. None se sì, altrimenti il motivo.
 
-    È il controllo che conta davvero, perché ffprobe usa lo stesso decoder
-    che userà il tagging: se lo rifiuta qui, lo rifiuterà anche là. Costa
-    circa 0,05 s a file su disco locale.
+    Se il riconoscimento automatico fallisce si RIPROVA imponendo il demuxer
+    che l'estensione suggerisce, e solo un secondo rifiuto conta. Non è uno
+    scrupolo teorico: nella libreria reale i pool per DJ (Mixx-It, DMC,
+    Music Factory) distribuiscono MP3 incapsulati in un contenitore WAV, cioè
+    tag ID3, poi header RIFF/WAVE, poi i frame MPEG. ffmpeg salta l'ID3 per
+    riconoscere il formato, vede RIFF e sceglie il demuxer wav; quello però
+    rilegge dall'offset 0, trova "ID3" e si ferma. Sono file sanissimi —
+    misurati 79 su 92 respinti, tutti con durata giusta e audio che decodifica
+    senza un errore — e macOS e rekordbox li riproducono senza storie. Al
+    primo giro finivano in quarantena come illeggibili.
     """
+    demuxer = _DEMUXERS.get(path.suffix.lower())
     try:
-        out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True, timeout=timeout,
-        )
+        ok, reason = _probe(path, None, timeout)
+        if not ok and demuxer:
+            ok, reason = _probe(path, demuxer, timeout)
     except FileNotFoundError:
         return None            # ffprobe non c'è: meglio tacere che accusare
     except subprocess.TimeoutExpired:
         return "il decoder non risponde"
     except OSError as e:
         return f"decoder non eseguibile: {e}"
-    if out.returncode != 0 or not out.stdout.strip():
-        last = (out.stderr or "").strip().splitlines()
-        return last[-1].split(": ")[-1] if last else "il decoder rifiuta il file"
-    return None
+    return None if ok else reason
 
 
 def _as_path(item) -> Path:
@@ -313,17 +347,38 @@ def check_readable(path: Path, deep: bool = False) -> str | None:
     Con `deep` la domanda la si gira a ffprobe, che è lo stesso decoder che
     userà il tagging. Definitivo, ma va pagato a file.
     """
-    import mutagen
-
     try:
         size = path.stat().st_size
     except OSError as e:
         return f"non leggibile: {e}"
     if size == 0:
         return "file vuoto"
+
+    header = _header_error(path)
+    if not deep or not _has_ffprobe():
+        return header
+
+    # In profondità l'ultima parola è del DECODER, non di mutagen: mutagen
+    # legge i tag, e un file che non gli torna può benissimo suonare. Misurati
+    # 3 file su 36 respinti da mutagen che ffprobe apre senza problemi.
+    decoder = _decoder_error(path)
+    if decoder is None:
+        return None
+    return header or decoder
+
+
+@lru_cache(maxsize=1)
+def _has_ffprobe() -> bool:
+    return shutil.which("ffprobe") is not None
+
+
+def _header_error(path: Path) -> str | None:
+    """I controlli a costo zero sull'intestazione, via mutagen."""
+    import mutagen
+
     try:
         audio = mutagen.File(path)
-    except Exception as e:
+    except Exception as e:                              # noqa: BLE001
         return f"intestazione illeggibile: {type(e).__name__}"
     if audio is None:
         return "nessuna intestazione audio riconosciuta"
@@ -333,7 +388,7 @@ def check_readable(path: Path, deep: bool = False) -> str | None:
     length = getattr(info, "length", None)
     if length is not None and length <= 0:
         return "durata nulla"
-    return _decoder_error(path) if deep else None
+    return None
 
 
 def check_integrity(files, deep: bool = False, progress=None) -> IntegrityReport:
