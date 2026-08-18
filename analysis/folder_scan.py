@@ -464,6 +464,18 @@ class DurationReport:
         return sorted((t for t in self.tracks if t.seconds > cutoff),
                       key=lambda t: t.seconds, reverse=True)
 
+    def between(self, low_minutes: float, high_minutes: float) -> list[TrackDuration]:
+        """I brani in una fascia di durata, estremo alto compreso.
+
+        Il basso e' escluso e l'alto no: cosi' "da 10 a 30" non ripesca chi
+        dura esattamente 10 minuti (che il filtro "piu' lungo di 10" gia'
+        lasciava fuori) ma tiene chi ne dura esattamente 30, che altrimenti
+        sfuggirebbe a qualunque fascia scelta.
+        """
+        low, high = low_minutes * 60, high_minutes * 60
+        return sorted((t for t in self.tracks if low < t.seconds <= high),
+                      key=lambda t: t.seconds, reverse=True)
+
     @property
     def longest_minutes(self) -> float:
         return max((t.seconds for t in self.tracks), default=0.0) / 60

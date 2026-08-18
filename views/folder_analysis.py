@@ -505,12 +505,13 @@ if durations is not None and durations.tracks:
     # 10 e non 20: sulla libreria reale NIENTE supera i 20 minuti, e una
     # soglia che non trova mai nulla sembra un guasto. A 10 minuti passa
     # metà dei megamix e solo l'1% delle versioni extended (misurato).
-    minutes = st.slider(
-        "Longer than (minutes)", min_value=1, max_value=ceiling,
-        value=min(10, ceiling),
+    low, high = st.slider(
+        "Duration between (minutes)", min_value=1, max_value=ceiling,
+        value=(min(10, ceiling), ceiling),
         help="Moves instantly: the durations are already in memory. Around "
-             "10 minutes is the useful line — half of the megamixes are "
-             "longer, while only 1% of extended versions are.")
+             "10 minutes is the useful lower line — half of the megamixes "
+             "are longer, while only 1% of extended versions are. The upper "
+             "end lets you leave the very long sets alone.")
 
     words_text = st.text_input(
         "…or the name contains", value=", ".join(DEFAULT_KEYWORDS),
@@ -533,20 +534,40 @@ if durations is not None and durations.tracks:
         for word, why in NOT_BY_DEFAULT.items():
             st.markdown(f"- **`{word.strip()}`** — {why}")
 
-    # L'unione dei due criteri, non l'intersezione: i mashup durano quanto un
-    # brano normale (4,2 min di mediana) e per la durata sono invisibili;
-    # certi megamix non hanno nessuna parola nel nome. Ognuno prende quello
-    # che l'altro non vede, e la colonna "why" dice sempre chi ha deciso.
-    by_length = {t.path: t for t in durations.longer_than(minutes)}
-    reasons: dict[Path, list[str]] = {}
-    for path, track in by_length.items():
-        reasons[path] = [f"longer than {minutes} min"]
+    # Di default i due criteri si sommano in AND, che è il verso più
+    # prudente e — la ragione vera — l'unico che copre tutta la scala:
+    # abbassando la soglia l'AND converge su "solo il nome", mentre l'OR non
+    # può mai stringere al di sotto di quello. La differenza è grossa e va
+    # detta: sulla cartella DMC 416 l'AND a 10 minuti trova 5 file, l'OR 24,
+    # e fra quei 19 ci sono "Pink Hitmix" e "80s Hen Party Mix" — mix veri,
+    # appena sotto i 10 minuti. Con l'AND si prendono abbassando la soglia.
+    both = st.radio(
+        "A file is listed when…",
+        ["both signals fire", "either one fires"],
+        horizontal=True,
+        help="Both: long enough AND named like a mix — near-certain, and you "
+             "widen it by lowering the slider until only the name matters. "
+             "Either: the wider net, which also shows mashups — they are of "
+             "ordinary length, so no duration will ever reach "
+             "them.") == "both signals fire"
+
+    by_length = {t.path for t in durations.between(low, high)}
+    by_name: dict[Path, list[str]] = {}
     for track in durations.tracks:
         hits = matching_words(track.path.name, keywords)
         if hits:
-            reasons.setdefault(track.path, []).append("name: " + ", ".join(hits))
+            by_name.setdefault(track.path, []).append("name: " + ", ".join(hits))
         if vs_rule and looks_like_a_mashup(track.path.name):
-            reasons.setdefault(track.path, []).append("two “vs”")
+            by_name.setdefault(track.path, []).append("two “vs”")
+
+    reasons: dict[Path, list[str]] = {}
+    for track in durations.tracks:
+        long_enough, named = track.path in by_length, track.path in by_name
+        if not ((long_enough and named) if both else (long_enough or named)):
+            continue
+        reasons[track.path] = (
+            ([f"{low}–{high} min"] if long_enough else [])
+            + by_name.get(track.path, []))
 
     long_tracks = sorted(
         (t for t in durations.tracks if t.path in reasons),
@@ -555,8 +576,8 @@ if durations is not None and durations.tracks:
 
     l1, l2, l3, l4 = st.columns(4)
     l1.metric("Matching", f"{len(long_tracks):,}")
-    l2.metric(f"Over {minutes} min", f"{len(by_length):,}")
-    l3.metric("By name", f"{sum(1 for r in reasons.values() if any(x.startswith('name') for x in r)):,}")
+    l2.metric(f"{low}–{high} min", f"{len(by_length):,}")
+    l3.metric("By name", f"{len(by_name):,}")
     l4.metric("Space", human_size(total_bytes))
 
     if durations.unknown:
@@ -599,7 +620,7 @@ if durations is not None and durations.tracks:
                 "folder": st.column_config.TextColumn(disabled=True),
                 "size": st.column_config.TextColumn(disabled=True),
             },
-            editor_key=f"len_editor::{root}::{minutes}::{len(long_tracks)}::{vs_rule}::{epoch}")
+            editor_key=f"len_editor::{root}::{low}::{high}::{len(long_tracks)}::{vs_rule}::{both}::{epoch}")
         picked = edited.loc[edited["Move"]]
         chosen = [Path(p) for p in picked["_path"]]
         chosen_bytes = int(picked["_bytes"].sum()) if not picked.empty else 0

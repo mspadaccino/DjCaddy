@@ -714,3 +714,19 @@ def test_two_vs_mean_a_mashup_but_one_does_not():
     # una collaborazione, o un remix: resta dov'e'
     assert not looks_like_a_mashup("Artist A vs Artist B - Some Track (Extended).mp3")
     assert not looks_like_a_mashup("Elvis - Suspicious Minds.mp3")
+
+
+def test_duration_band_includes_the_top_but_not_the_bottom():
+    from analysis.folder_scan import DurationReport, TrackDuration
+
+    t = lambda name, mins: TrackDuration(path=Path(name), size=0, seconds=mins * 60)
+    report = DurationReport(tracks=[
+        t("corto.mp3", 4), t("dieci.mp3", 10), t("dodici.mp3", 12),
+        t("trenta.mp3", 30), t("lunghissimo.mp3", 45),
+    ])
+
+    got = [p.path.name for p in report.between(10, 30)]
+    # 10 escluso (lo escludeva gia' "piu' lungo di 10"), 30 compreso
+    assert got == ["trenta.mp3", "dodici.mp3"]
+    assert [p.path.name for p in report.between(1, 45)] == [
+        "lunghissimo.mp3", "trenta.mp3", "dodici.mp3", "dieci.mp3", "corto.mp3"]
