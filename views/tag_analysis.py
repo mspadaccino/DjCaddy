@@ -193,7 +193,12 @@ settings = TagSettings(
 # lanciato come processo a se', che sopravvive alla chiusura del browser.
 
 st.divider()
-st.subheader("Or run it in the background")
+st.subheader("The whole folder, in the background")
+st.caption(
+    "Two ways to run, and this is the one for a lot of tracks: it works "
+    "through the folder on its own and writes as it goes. To pick tracks by "
+    "hand and see what comes back before saving, keep scrolling — the tag "
+    "read and the **Analyze** button are below.")
 
 stato = load_state()
 
