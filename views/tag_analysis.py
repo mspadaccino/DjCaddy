@@ -51,6 +51,20 @@ def _spelled(seconds: float) -> str:
     return f"{seconds / 3600:.1f} hours"
 
 
+def _etichetta(tipi: list[str]) -> str:
+    """I tipi scelti in forma leggibile: oltre i tre si conta, non si elenca."""
+    if len(tipi) <= 3:
+        return ", ".join(tipi)
+    return f"{', '.join(tipi[:3])} and {len(tipi) - 3} more"
+
+
+def _file_name(campo: str, tipi: list[str]) -> str:
+    """Un nome di file leggibile anche con molte righe scelte."""
+    pulito = [t.replace("/", "-").replace(" ", "_") for t in tipi[:3]]
+    resto = f"_and_{len(tipi) - 3}_more" if len(tipi) > 3 else ""
+    return f"{campo.lower()}_{'+'.join(pulito)}{resto}.txt"
+
+
 def _seconds_each(n: int) -> float:
     known = min(SECONDS_PER_TRACK, key=lambda k: abs(k - n))
     return SECONDS_PER_TRACK[known]
@@ -287,7 +301,7 @@ if readable:
 
             scelta = st.dataframe(
                 pd.DataFrame(rottura.rows()), width="stretch", hide_index=True,
-                on_select="rerun", selection_mode="single-row",
+                on_select="rerun", selection_mode="multi-row",
                 key=f"breakdown::{campo}",
                 column_config={
                     "Type": st.column_config.TextColumn(campo, width="medium"),
@@ -299,9 +313,24 @@ if readable:
             if not righe:
                 continue
 
-            tipo = rottura.rows()[righe[0]]["Type"]
-            brani = rottura.tracks(tipo)
-            st.markdown(f"**{tipo}** — {len(brani):,} track(s)")
+            elenco = rottura.rows()
+            tipi = [elenco[i]["Type"] for i in righe]
+            brani = rottura.tracks_of(tipi)
+            etichetta = ", ".join(tipi)
+
+            # I conteggi delle righe scelte sommano a piu' dei brani trovati
+            # ogni volta che un brano porta due dei tipi scelti. Va detto,
+            # altrimenti la differenza sembra un errore — ma va detto per
+            # quello che e': un eccesso di CONTEGGI, non di brani. (Dire
+            # "38 in piu' di uno" su 19 brani si contraddice da solo.)
+            somma = sum(elenco[i]["Tracks"] for i in righe)
+            nota = (f" — the rows add up to {somma:,}, but a track carrying "
+                    "several of them is listed once"
+                    if somma != len(brani) else "")
+            st.markdown(
+                f"**{_etichetta(tipi)}** — {len(brani):,} track(s)"
+                f"{' in any of the ' + str(len(tipi)) if len(tipi) > 1 else ''}"
+                f"{nota}")
             play_table(
                 f"bd_{campo}", pd.DataFrame([
                     {"file": b.name, "folder": str(b.parent), "_path": str(b)}
@@ -309,12 +338,12 @@ if readable:
                 ["file", "folder"],
                 {"file": st.column_config.TextColumn(disabled=True),
                  "folder": st.column_config.TextColumn(disabled=True)},
-                editable=False, editor_key=f"bd_editor::{campo}::{tipo}")
+                editable=False, editor_key=f"bd_editor::{campo}::{etichetta}")
             st.download_button(
                 f"⬇ Save these {len(brani):,} paths as .txt",
-                data=as_text(brani, f"{campo} = {tipo}"),
-                file_name=f"{campo.lower()}_{tipo.replace('/', '-')}.txt",
-                mime="text/plain", key=f"dl::{campo}::{tipo}")
+                data=as_text(brani, f"{campo} = {etichetta}"),
+                file_name=_file_name(campo, tipi),
+                mime="text/plain", key=f"dl::{campo}::{etichetta}")
 
 
 # --- Impostazioni ----------------------------------------------------------

@@ -72,6 +72,25 @@ class Breakdown:
     def tracks(self, tipo: str) -> list[Path]:
         return self.paths.get(tipo, [])
 
+    def tracks_of(self, tipi) -> list[Path]:
+        """I brani che portano ALMENO UNO dei tipi indicati.
+
+        Unione, non intersezione: scegliere "House" e "Tech House" vuol dire
+        quasi sempre "fammi vedere tutte e due", non "i brani che sono
+        entrambe le cose" — che per due generi sorelle sarebbe spesso vuoto.
+
+        Senza doppioni, perche' un brano che porta tutti e due i tipi
+        comparirebbe due volte, e l'elenco esportato conterebbe piu' righe
+        dei brani che contiene.
+        """
+        visti, fuori = set(), []
+        for t in tipi:
+            for percorso in self.paths.get(t, []):
+                if percorso not in visti:
+                    visti.add(percorso)
+                    fuori.append(percorso)
+        return sorted(fuori)
+
 
 def build_breakdown(items, field_name: str,
                     split_hierarchy: bool = True) -> Breakdown:

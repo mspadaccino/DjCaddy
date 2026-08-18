@@ -69,3 +69,34 @@ def test_the_export_is_one_path_per_line():
     righe = testo.splitlines()
     assert righe[0].startswith("#") and "House" in righe[0]
     assert righe[-2:] == ["/x/uno.mp3", "/y/due.mp3"]
+
+
+def test_several_types_give_the_union_without_repeating_a_track():
+    """Un brano che porta due dei tipi scelti va contato una volta sola.
+
+    E' il motivo per cui l'unione non e' una somma: sommando i conteggi
+    delle righe scelte si otterrebbero piu' righe dei brani esistenti, e
+    l'elenco esportato mentirebbe sulla propria lunghezza.
+    """
+    voci = [
+        Voce(Path("/a.mp3"), genre="Electronic - House; Electronic - Tech House"),
+        Voce(Path("/b.mp3"), genre="Electronic - House"),
+        Voce(Path("/c.mp3"), genre="Rock - Punk"),
+    ]
+
+    b = build_breakdown(voci, "genre")
+
+    assert b.counts["House"] == 2 and b.counts["Tech House"] == 1
+    # /a.mp3 porta entrambi: i conteggi sommano 3, i brani sono 2
+    assert b.tracks_of(["House", "Tech House"]) == [Path("/a.mp3"), Path("/b.mp3")]
+    assert b.tracks_of(["Punk"]) == [Path("/c.mp3")]
+    assert b.tracks_of([]) == []
+    assert b.tracks_of(["non esiste"]) == []
+
+
+def test_the_union_comes_out_sorted():
+    """L'ordine non deve dipendere da quale riga si e' cliccata per prima."""
+    voci = [Voce(Path("/z.mp3"), genre="Rock"), Voce(Path("/a.mp3"), genre="Pop")]
+    b = build_breakdown(voci, "genre")
+    assert b.tracks_of(["Rock", "Pop"]) == b.tracks_of(["Pop", "Rock"])
+    assert b.tracks_of(["Rock", "Pop"]) == [Path("/a.mp3"), Path("/z.mp3")]
