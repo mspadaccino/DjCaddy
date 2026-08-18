@@ -32,6 +32,7 @@ from analysis.essentia_tags import (
     scan_coverage,
     write_tags,
 )
+from analysis.tag_breakdown import as_text, build_breakdown
 from analysis.tag_job import load_state
 from analysis.tag_tracking import DEFAULT_TRACKING_FILE, ProcessedTracker
 from views.components import pick_folder, play_table
@@ -120,6 +121,202 @@ if not scope:
     st.stop()
 st.success(f"**{scope_name}** ready.")
 
+# --- Cosa c'è dentro -------------------------------------------------------
+
+# Sotto questa soglia i tag si leggono da soli appena scegli la cartella: a
+# ~12 ms l'uno, duemila file sono meno di mezzo minuto. Sopra, il tempo lo si
+# dichiara e lo si fa chiedere — sull'intera libreria sarebbero 18 minuti, e
+# non è una cosa da far partire per sbaglio.
+AUTO_READ_BELOW = 2000
+
+st.divider()
+st.subheader("What is in them")
+
+scan_key = f"tagscan::{root}::{len(scope)}"
+
+
+def _read_tags(files, testo="Reading tags…"):
+    bar = st.progress(0.0, text=testo)
+    out = scan_coverage(files, progress=lambda done, total: bar.progress(
+        done / total if total else 1.0,
+        text=f"Read {done:,}/{total:,} — about "
+             f"{max(0, total - done) * 0.012 / 60:.0f} min left"))
+    bar.empty()
+    return out
+
+
+if scan_key not in st.session_state and len(scope) <= AUTO_READ_BELOW:
+    st.session_state[scan_key] = _read_tags(scope)
+
+coverage = st.session_state.get(scan_key)
+
+if coverage is None:
+    st.info(
+        f"**{len(scope):,} tracks** — reading their tags takes about "
+        f"{len(scope) * 0.012 / 60:.0f} minutes. It happens once; after that "
+        "the filters and the breakdown below are instant.")
+    if st.button(f"Read the tags of {len(scope):,} tracks", type="primary"):
+        st.session_state[scan_key] = _read_tags(scope)
+        st.rerun()
+    # Niente st.stop(): più in basso ci sono le impostazioni e il job in
+    # background, che NON hanno bisogno di questa lettura — e su una libreria
+    # intera è proprio l'attesa che il job serve a evitare.
+
+readable = coverage.readable if coverage is not None else []
+selected: list = []
+queue: list = []
+choice = "none"
+
+if coverage is not None and not readable:
+    st.warning("None of these files had readable tags.")
+
+if readable:
+    with_genre = sum(c.has_genre for c in readable)
+    with_comment = sum(c.has_comment for c in readable)
+    complete = sum(c.complete for c in readable)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Tracks read", f"{len(readable):,}")
+    m2.metric("With genre", f"{with_genre:,}",
+              delta=f"{with_genre / len(readable):.0%}", delta_color="off")
+    m3.metric("With comment", f"{with_comment:,}",
+              delta=f"{with_comment / len(readable):.0%}", delta_color="off",
+              help="Only the default comment counts — the one djay Pro shows.")
+    m4.metric("Complete", f"{complete:,}",
+              delta=f"{complete / len(readable):.0%}", delta_color="off")
+
+    if coverage.unreadable:
+        with st.expander(
+                f"⚠️ {len(coverage.unreadable)} files whose tags could not be read"):
+            st.caption("Not a tagging problem — no reader opens these. Folder "
+                       "analysis → **Unreadable files** deals with them.")
+            st.dataframe(
+                pd.DataFrame([{"file": c.path.name, "folder": str(c.path.parent),
+                               "why": c.error} for c in coverage.unreadable]),
+                width="stretch", hide_index=True)
+
+    choice = st.radio(
+        "Work on tracks missing…",
+        ["genre or comment", "genre", "comment", "both", "everything (no filter)"],
+        horizontal=True)
+    if choice.startswith("everything"):
+        selected = readable
+    else:
+        selected = coverage.missing(
+            genre=choice in ("genre or comment", "genre", "both"),
+            comment=choice in ("genre or comment", "comment", "both"),
+            require_both=choice == "both")
+
+    if not selected:
+        st.success(
+            "**Every track here already has what this filter looks for.** "
+            "That is why there is no table and no **Analyze** button below: "
+            "with nothing missing, there is nothing queued. To go over these "
+            "tracks anyway — different settings, a second opinion — pick "
+            "**everything (no filter)** above, and turn on *Overwrite tags "
+            "that are already there* in the settings if the point is to "
+            "replace what they carry.")
+    else:
+        st.caption(
+            f"**{len(selected):,} tracks** match — all of them listed, all "
+            "ticked. Untick whatever you want left alone.")
+
+        # Si elencano TUTTI, senza tetto: la griglia disegna solo le righe a
+        # schermo, quindi la lunghezza dell'elenco quasi non si paga — misurate
+        # 26 ms per 10.000 righe e 88 ms per 90.000. Un tetto renderebbe
+        # invisibile lo stato di tag proprio dei file che restano da sistemare.
+        table = pd.DataFrame([
+            {"Analyze": True, "file": c.path.name,
+             "GENRE": c.genre or "❌ missing",
+             "COMMENT": c.comment or "❌ missing",
+             "folder": str(c.path.parent), "_path": str(c.path)}
+            for c in selected])
+        edited_cov = play_table(
+            "cov", table, ["Analyze", "file", "GENRE", "COMMENT", "folder"],
+            {"Analyze": st.column_config.CheckboxColumn("Analyze"),
+             "GENRE": st.column_config.TextColumn(
+                "GENRE", disabled=True, width="medium",
+                help="What is in the genre tag right now."),
+             "COMMENT": st.column_config.TextColumn(
+                "COMMENT", disabled=True, width="medium",
+                help="The default comment — where the moods go, and the only "
+                     "one djay Pro displays."),
+             "file": st.column_config.TextColumn(disabled=True),
+             "folder": st.column_config.TextColumn(disabled=True)},
+            editor_key=f"cov_editor::{choice}")
+
+        unticked = {Path(x) for x in edited_cov.loc[~edited_cov["Analyze"], "_path"]}
+        queue = [c.path for c in selected if c.path not in unticked]
+
+st.session_state["tag_analysis::queue"] = queue
+
+# --- Tag scomposti ---------------------------------------------------------
+
+# Un tag e' piu' cose insieme: "Electronic - House; Electronic - Tech House"
+# sono due generi su due livelli. Qui si contano gli elementi uno per uno,
+# perche' la domanda "quanta house ho" non si risponde guardando le stringhe
+# intere — quella sopra e' una riga sola, e di house ne contiene due.
+
+if readable:
+    st.divider()
+    st.subheader("What those tags are made of")
+    st.caption(
+        "Every tag broken into its parts and counted. `;` separates one "
+        "element from the next and ` - ` separates the parent genre from the "
+        "child, so *Electronic - House* counts under both. `/` and `&` are "
+        "left alone: they belong inside names like *Funk / Soul* and "
+        "*Brass & Military*, and splitting there would invent genres that "
+        "do not exist.")
+
+    scomposto = {
+        "GENRE": build_breakdown(readable, "genre"),
+        "COMMENT": build_breakdown(readable, "comment"),
+    }
+
+    for campo, tab in zip(scomposto, st.tabs(["Genre", "Comment"])):
+        rottura = scomposto[campo]
+        with tab:
+            if not rottura.counts:
+                st.info(f"No {campo.lower()} to break down here.")
+                continue
+
+            st.caption(
+                f"**{len(rottura.counts):,} distinct** across "
+                f"{rottura.tracks_with_any:,} tracks · "
+                f"{rottura.tracks_without:,} with no {campo.lower()} at all. "
+                "Click a row to see its tracks.")
+
+            scelta = st.dataframe(
+                pd.DataFrame(rottura.rows()), width="stretch", hide_index=True,
+                on_select="rerun", selection_mode="single-row",
+                key=f"breakdown::{campo}",
+                column_config={
+                    "Type": st.column_config.TextColumn(campo, width="medium"),
+                    "Tracks": st.column_config.NumberColumn(
+                        "Tracks", help="Quanti brani portano questo elemento."),
+                })
+
+            righe = scelta.selection.rows if scelta and scelta.selection else []
+            if not righe:
+                continue
+
+            tipo = rottura.rows()[righe[0]]["Type"]
+            brani = rottura.tracks(tipo)
+            st.markdown(f"**{tipo}** — {len(brani):,} track(s)")
+            play_table(
+                f"bd_{campo}", pd.DataFrame([
+                    {"file": b.name, "folder": str(b.parent), "_path": str(b)}
+                    for b in brani]),
+                ["file", "folder"],
+                {"file": st.column_config.TextColumn(disabled=True),
+                 "folder": st.column_config.TextColumn(disabled=True)},
+                editable=False, editor_key=f"bd_editor::{campo}::{tipo}")
+            st.download_button(
+                f"⬇ Save these {len(brani):,} paths as .txt",
+                data=as_text(brani, f"{campo} = {tipo}"),
+                file_name=f"{campo.lower()}_{tipo.replace('/', '-')}.txt",
+                mime="text/plain", key=f"dl::{campo}::{tipo}")
+
+
 # --- Impostazioni ----------------------------------------------------------
 
 st.divider()
@@ -196,9 +393,9 @@ st.divider()
 st.subheader("The whole folder, in the background")
 st.caption(
     "Two ways to run, and this is the one for a lot of tracks: it works "
-    "through the folder on its own and writes as it goes. To pick tracks by "
-    "hand and see what comes back before saving, keep scrolling — the tag "
-    "read and the **Analyze** button are below.")
+    "through the folder on its own and writes as it goes, so it needs none "
+    "of the picking above. To choose tracks by hand and see what comes back "
+    "before saving, use the **Analyze** button below instead.")
 
 stato = load_state()
 
@@ -255,135 +452,15 @@ else:
         time.sleep(1.5)          # il job scrive lo stato quasi subito
         st.rerun()
 
-# --- Cosa c'è dentro -------------------------------------------------------
-
-# Sotto questa soglia i tag si leggono da soli appena scegli la cartella: a
-# ~12 ms l'uno, duemila file sono meno di mezzo minuto. Sopra, il tempo lo si
-# dichiara e lo si fa chiedere — sull'intera libreria sarebbero 18 minuti, e
-# non è una cosa da far partire per sbaglio.
-AUTO_READ_BELOW = 2000
-
-st.divider()
-st.subheader("What is in them")
-
-scan_key = f"tagscan::{root}::{len(scope)}"
-estimate = len(scope) * 0.012 / 60
-
-if scan_key not in st.session_state:
-    if len(scope) <= AUTO_READ_BELOW:
-        bar = st.progress(0.0, text="Reading tags…")
-        st.session_state[scan_key] = scan_coverage(
-            scope, progress=lambda done, total: bar.progress(
-                done / total if total else 1.0, text=f"Read {done:,}/{total:,}…"))
-        bar.empty()
-    else:
-        st.info(
-            f"**{len(scope):,} tracks** — reading their tags takes about "
-            f"{estimate:.0f} minutes. It happens once; after that the filters "
-            "are instant. Pick a smaller folder if that is too long.")
-        if st.button(f"Read the tags of {len(scope):,} tracks", type="primary"):
-            bar = st.progress(0.0, text="Reading tags…")
-            st.session_state[scan_key] = scan_coverage(
-                scope, progress=lambda done, total: bar.progress(
-                    done / total if total else 1.0,
-                    text=f"Read {done:,}/{total:,} — about "
-                         f"{max(0, total - done) * 0.012 / 60:.0f} min left"))
-            bar.empty()
-            st.rerun()
-        st.stop()
-
-coverage = st.session_state[scan_key]
-readable = coverage.readable
-
-if not readable:
-    st.warning("None of these files had readable tags.")
-    st.stop()
-
-with_genre = sum(c.has_genre for c in readable)
-with_comment = sum(c.has_comment for c in readable)
-complete = sum(c.complete for c in readable)
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Tracks read", f"{len(readable):,}")
-m2.metric("With genre", f"{with_genre:,}",
-          delta=f"{with_genre / len(readable):.0%}", delta_color="off")
-m3.metric("With comment", f"{with_comment:,}",
-          delta=f"{with_comment / len(readable):.0%}", delta_color="off",
-          help="Only the default comment counts — the one djay Pro shows.")
-m4.metric("Complete", f"{complete:,}",
-          delta=f"{complete / len(readable):.0%}", delta_color="off")
-
-choice = st.radio(
-    "Work on tracks missing…",
-    ["genre or comment", "genre", "comment", "both", "everything (no filter)"],
-    horizontal=True)
-if choice.startswith("everything"):
-    selected = readable
-else:
-    selected = coverage.missing(
-        genre=choice in ("genre or comment", "genre", "both"),
-        comment=choice in ("genre or comment", "comment", "both"),
-        require_both=choice == "both")
-
-if not selected:
-    st.success(
-        "**Every track here already has what this filter looks for.** "
-        "That is why there is no table and no **Analyze** button below: with "
-        "nothing missing, there is nothing queued. To go over these tracks "
-        "anyway — different settings, a second opinion — pick "
-        "**everything (no filter)** above, and turn on *Overwrite tags that "
-        "are already there* in the settings if the point is to replace what "
-        "they carry.")
-    st.stop()
-
-st.caption(
-    f"**{len(selected):,} tracks** match — all of them listed, all ticked. "
-    "Untick whatever you want left alone.")
-
-# Si elencano TUTTI, senza tetto: la griglia disegna solo le righe a schermo,
-# quindi la lunghezza dell'elenco quasi non si paga — misurate 26 ms per
-# 10.000 righe e 88 ms per 90.000. Un tetto renderebbe invisibile lo stato di
-# tag proprio dei file che restano da sistemare.
-table = pd.DataFrame([
-    {"Analyze": True, "file": c.path.name,
-     "GENRE": c.genre or "❌ missing",
-     "COMMENT": c.comment or "❌ missing",
-     "folder": str(c.path.parent), "_path": str(c.path)}
-    for c in selected])
-edited_cov = play_table(
-    "cov", table, ["Analyze", "file", "GENRE", "COMMENT", "folder"],
-    {"Analyze": st.column_config.CheckboxColumn("Analyze"),
-     "GENRE": st.column_config.TextColumn(
-        "GENRE", disabled=True, width="medium",
-        help="What is in the genre tag right now."),
-     "COMMENT": st.column_config.TextColumn(
-        "COMMENT", disabled=True, width="medium",
-        help="The default comment — where the moods go, and the only one "
-             "djay Pro displays."),
-     "file": st.column_config.TextColumn(disabled=True),
-     "folder": st.column_config.TextColumn(disabled=True)},
-    editor_key=f"cov_editor::{choice}")
-
-unticked = {Path(x) for x in edited_cov.loc[~edited_cov["Analyze"], "_path"]}
-queue = [c.path for c in selected if c.path not in unticked]
-
-if coverage.unreadable:
-    with st.expander(f"⚠️ {len(coverage.unreadable)} files whose tags could not be read"):
-        st.caption("Not a tagging problem — no reader opens these. Folder "
-                   "analysis → **Unreadable files** deals with them.")
-        st.dataframe(
-            pd.DataFrame([{"file": c.path.name, "folder": str(c.path.parent),
-                           "why": c.error} for c in coverage.unreadable]),
-            width="stretch", hide_index=True)
-
-st.session_state["tag_analysis::queue"] = queue
-
 # --- Esecuzione ------------------------------------------------------------
 
 if not queue:
     st.info(
-        "Everything in the table is unticked, so nothing is queued and the "
-        "**Analyze** button has nothing to run on. Tick a row to bring it "
-        "back.")
+        "Nothing is queued, so there is nothing to analyze by hand. Widen "
+        "**Work on tracks missing…** above to bring tracks in."
+        if not selected else
+        "Everything in the table is unticked, so nothing is queued. Tick a "
+        "row to bring it back.")
     st.stop()
 
 st.divider()
