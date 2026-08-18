@@ -255,16 +255,6 @@ else:
         time.sleep(1.5)          # il job scrive lo stato quasi subito
         st.rerun()
 
-analyzed = st.session_state.get("tag_analysis::analyzed", [])
-failures = st.session_state.get("tag_analysis::failed", [])
-
-if failures:
-    st.warning(f"{len(failures)} track(s) could not be analyzed.")
-    st.dataframe(pd.DataFrame(failures), width="stretch", hide_index=True)
-
-if not analyzed:
-    st.stop()
-
 # --- Cosa c'è dentro -------------------------------------------------------
 
 # Sotto questa soglia i tag si leggono da soli appena scegli la cartella: a
@@ -335,7 +325,14 @@ else:
         require_both=choice == "both")
 
 if not selected:
-    st.success("Nothing matches this filter.")
+    st.success(
+        "**Every track here already has what this filter looks for.** "
+        "That is why there is no table and no **Analyze** button below: with "
+        "nothing missing, there is nothing queued. To go over these tracks "
+        "anyway — different settings, a second opinion — pick "
+        "**everything (no filter)** above, and turn on *Overwrite tags that "
+        "are already there* in the settings if the point is to replace what "
+        "they carry.")
     st.stop()
 
 st.caption(
@@ -383,7 +380,10 @@ st.session_state["tag_analysis::queue"] = queue
 # --- Esecuzione ------------------------------------------------------------
 
 if not queue:
-    st.info("Nothing left to do with this filter.")
+    st.info(
+        "Everything in the table is unticked, so nothing is queued and the "
+        "**Analyze** button has nothing to run on. Tick a row to bring it "
+        "back.")
     st.stop()
 
 st.divider()
@@ -439,6 +439,16 @@ if st.button(f"Analyze {batch} of {len(queue):,}", type="primary"):
     bar.empty()
     st.session_state["tag_analysis::analyzed"] = done
     st.session_state["tag_analysis::failed"] = failures
+
+analyzed = st.session_state.get("tag_analysis::analyzed", [])
+failures = st.session_state.get("tag_analysis::failed", [])
+
+if failures:
+    st.warning(f"{len(failures)} track(s) could not be analyzed.")
+    st.dataframe(pd.DataFrame(failures), width="stretch", hide_index=True)
+
+if not analyzed:
+    st.stop()
 
 # --- Cosa verrebbe scritto, e salvataggio ----------------------------------
 
