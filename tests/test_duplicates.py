@@ -758,3 +758,35 @@ def test_a_band_starting_at_zero_reaches_the_short_files():
 
     # e la fascia alta continua a comportarsi come prima
     assert [t.path.name for t in r.between(10, 30)] == ["megamix.mp3"]
+
+
+def test_an_unreadable_folder_is_not_reported_as_clean(tmp_path):
+    """Il silenzio peggiore: "non c'e' niente" quando non si e' potuto guardare.
+
+    `rglob` inghiotte gli errori di percorso, quindi un volume USB che nega
+    l'accesso produce lo stesso rapporto vuoto di una cartella pulita — ed e'
+    successo davvero: una ricerca lanciata mentre il disco era bloccato ha
+    risposto "nessun sidecar" su una cartella che ne conteneva 29.522.
+    """
+    from analysis.folder_scan import find_sidecars
+
+    vuota = find_sidecars(tmp_path)
+    assert vuota.looked_properly and not vuota.confirmed
+
+    assente = find_sidecars(tmp_path / "mai-esistita")
+    assert not assente.looked_properly
+    assert assente.root_error and not assente.confirmed
+
+
+def test_a_real_sidecar_is_confirmed_by_its_content(tmp_path):
+    from analysis.folder_scan import APPLEDOUBLE_MAGIC, find_sidecars
+
+    (tmp_path / "brano.mp3").write_bytes(b"finto audio")
+    (tmp_path / "._brano.mp3").write_bytes(APPLEDOUBLE_MAGIC + b"\x00" * 60)
+    (tmp_path / "._bugiardo.mp3").write_bytes(b"non sono un AppleDouble")
+
+    r = find_sidecars(tmp_path)
+
+    assert [p.name for p in r.confirmed] == ["._brano.mp3"]
+    assert [p.name for p in r.unverified] == ["._bugiardo.mp3"]
+    assert r.walked == 3          # tutte le voci, non solo i "._"

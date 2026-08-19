@@ -7,6 +7,7 @@ un'operazione molto più costosa e va lanciata a parte.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from collections import Counter
@@ -177,6 +178,17 @@ class SidecarReport:
     unverified: list[Path] = field(default_factory=list)
     freed_bytes: int = 0
     unreadable: list[tuple[Path, str]] = field(default_factory=list)
+    # Quante voci sono state ATTRAVERSATE in tutto, sidecar o no. Serve a
+    # distinguere "ho guardato e non ce n'erano" da "non ho potuto guardare":
+    # `rglob` inghiotte gli errori di percorso, quindi una cartella
+    # illeggibile — un volume USB che nega l'accesso, come è successo qui —
+    # produce un rapporto vuoto identico a quello di una cartella pulita.
+    walked: int = 0
+    root_error: str | None = None
+
+    @property
+    def looked_properly(self) -> bool:
+        return self.root_error is None
 
 
 def is_appledouble_content(path: Path) -> bool:
@@ -195,8 +207,17 @@ def find_sidecars(root: Path, progress=None) -> SidecarReport:
     cosa e la stessa spazzatura.
     """
     report = SidecarReport()
+    try:
+        next(iter(os.scandir(root)), None)
+    except OSError as e:
+        report.root_error = str(e)
+        return report
+
     seen = 0
-    for path in root.rglob("._*"):
+    for path in root.rglob("*"):
+        report.walked += 1
+        if not path.name.startswith("._"):
+            continue
         try:
             if not path.is_file():
                 continue

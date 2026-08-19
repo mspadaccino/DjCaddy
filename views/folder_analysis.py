@@ -590,8 +590,16 @@ if sidecars is not None:
         st.dataframe(pd.DataFrame([{"path": str(p)} for p in sidecars.unverified]),
                      width="stretch", hide_index=True)
 
-    if not sidecars.confirmed:
-        st.info("No sidecar files here.")
+    if not sidecars.looked_properly:
+        st.error(
+            f"**The folder could not be read**, so this says nothing about "
+            f"what is in it: `{sidecars.root_error}`. A removable volume that "
+            "denies access looks exactly like an empty one to a directory "
+            "walk — press the button again once it is reachable.")
+    elif not sidecars.confirmed:
+        st.info(
+            f"No sidecar files here — {sidecars.walked:,} entries walked and "
+            "none of them was one.")
     else:
         with st.expander(f"Show the {len(sidecars.confirmed):,} files"):
             st.dataframe(
