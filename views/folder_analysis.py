@@ -28,6 +28,7 @@ from analysis.mix_names import (
     matching_words,
     parse_keywords,
 )
+from analysis.truncation import inspect
 from analysis.folder_scan import (
     CHECK_THREADS,
     check_integrity,
@@ -457,10 +458,38 @@ if durations is not None and durations.tracks:
     if not long_tracks:
         st.info("Nothing matches either signal.")
     else:
+        # Fra i file corti convivono due cose opposte: sample voluti e
+        # canzoni il cui scaricamento si e' interrotto. I metadati non le
+        # separano — misurato, un mp3 tagliato a meta' dichiara la durata
+        # che ha davvero e ffprobe non protesta — quindi si guarda l'audio,
+        # e solo su richiesta: va decodificato un file per volta.
+        verdetti = st.session_state.get(f"cut::{root}")
+        if any(t.seconds <= 60 for t in long_tracks):
+            st.caption(
+                f"{sum(1 for t in long_tracks if t.seconds <= 60):,} of these "
+                "last under a minute, where deliberate samples and "
+                "interrupted downloads sit side by side. Two things tell "
+                "them apart: whether the file **ends at full volume** "
+                "instead of dying away, and whether it still **claims to be "
+                "a whole song** — ID3 tags live at the head of the file, so "
+                "an interrupted download keeps its artist and title.")
+            if st.button("Listen to how the short ones end"):
+                corti = [t for t in long_tracks if t.seconds <= 60]
+                bar = st.progress(0.0, text="Decoding…")
+                fatti = {}
+                for i, t in enumerate(corti, 1):
+                    bar.progress(i / len(corti), text=f"{i}/{len(corti)} · {t.path.name[:50]}")
+                    fatti[t.path] = inspect(t.path, t.seconds)
+                bar.empty()
+                st.session_state[f"cut::{root}"] = fatti
+                st.rerun()
+
         epoch = st.session_state.setdefault(f"len_epoch::{root}", 0)
         table = pd.DataFrame([
             {"Move": True, "duration": human_duration(t.seconds),
              "why": " + ".join(reasons[t.path]),
+             "verdict": (verdetti or {}).get(t.path).verdict
+                        if (verdetti or {}).get(t.path) else "—",
              "file": t.path.name, "folder": str(t.path.parent),
              "size": human_size(t.size), "_path": str(t.path), "_bytes": t.size}
             for t in long_tracks
@@ -479,10 +508,19 @@ if durations is not None and durations.tracks:
 
         edited = play_table(
             f"long::{root}", table,
-            ["Move", "duration", "why", "file", "folder", "size"],
+            ["Move", "duration", "verdict", "why", "file", "folder", "size"],
             {
                 "Move": st.column_config.CheckboxColumn("Move"),
                 "duration": st.column_config.TextColumn(disabled=True),
+                "verdict": st.column_config.TextColumn(
+                    "verdict", disabled=True,
+                    help="Only for files under a minute, and only after the "
+                         "button above: «cut off» ends at full volume AND "
+                         "still carries artist and title, so it was meant to "
+                         "be a whole song; «finished» dies away; «ends "
+                         "sharp, untagged» is the honest middle — a hard-cut "
+                         "excerpt looks the same as an interrupted download "
+                         "when nothing says whose song it was."),
                 "why": st.column_config.TextColumn(
                     "why", disabled=True, width="medium",
                     help="Which signal put this row here."),
