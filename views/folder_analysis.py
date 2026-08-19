@@ -108,7 +108,7 @@ if scan.unreadable:
 # --- Duplicati ------------------------------------------------------------
 
 st.divider()
-st.subheader("Duplicates")
+st.header("Duplicates")
 st.caption(
     "Files are grouped by size first, and only same-size files get hashed — "
     "two files of different size cannot be identical. Expect the hashing pass "
@@ -126,72 +126,6 @@ if st.button(f"Find duplicates among {len(audio):,} audio files"):
             done / total if total else 1.0,
             text=f"Hashing {done:,}/{total:,} candidate files…"))
     bar.empty()
-
-report = st.session_state.get(dup_key)
-if report is None:
-    st.stop()
-
-# Gruppi e file sono due numeri diversi: un gruppo con tre copie e' un gruppo
-# solo ma DUE file da spostare. Mostrarli entrambi evita di chiedersi perche'
-# la quarantena ne proponga piu' di quanti ne conta il riquadro qui sopra.
-a_files = duplicates_of(report.same_folder)
-b_files = duplicates_of(report.other_folder)
-recoverable = sum(g.wasted_bytes for g in report.same_folder)
-
-d1, d2, d3 = st.columns(3)
-d1.metric("A — same folder", f"{len(report.same_folder):,} groups",
-          delta=f"{len(a_files):,} duplicate files", delta_color="off",
-          help="Certain duplicates: same folder, same size, same MD5.")
-d2.metric("B — other folders", f"{len(report.other_folder):,} groups",
-          delta=f"{len(b_files):,} duplicate files", delta_color="off",
-          help="Same file in different folders — often deliberate.")
-d3.metric("C — similar name", f"{len(report.similar_name):,} groups",
-          delta="informational only", delta_color="off",
-          help="Names that look alike but the files differ.")
-
-if report.broken:
-    broken_files = sum(len(g.paths) for g in report.broken)
-    st.error(
-        f"**{broken_files:,} files in {len(report.broken):,} groups are "
-        "identical because they are equally BROKEN, not because they are the "
-        "same music** — and they are excluded from everything above. Empty "
-        "files all share the hash of nothingness; tag-only stubs share their "
-        "tag. They are different tracks, so removing one would destroy the "
-        "only trace of a song you are missing.")
-    with st.expander(f"Show the {broken_files:,} broken files"):
-        play_table(
-            f"broken::{root}",
-            pd.DataFrame([{"file": p.name, "folder": str(p.parent),
-                           "size": human_size(g.size), "why": g.reason,
-                           "_path": str(p)}
-                          for g in report.broken for p in g.paths]),
-            ["file", "folder", "size", "why"],
-            {c: st.column_config.TextColumn(disabled=True)
-             for c in ("file", "folder", "size", "why")},
-            editable=False, editor_key=f"broken_editor::{root}")
-        st.caption(
-            "Use **Unreadable files** below to move these to quarantine if "
-            "you want them out of the way — one by one, not as duplicates.")
-st.caption(f"{report.hashed_files:,} files hashed · "
-           f"{human_size(recoverable)} recoverable from level A alone")
-
-
-def _rows(groups, preselect: bool, full_paths: bool = False) -> pd.DataFrame:
-    """Righe della tabella. Con `full_paths` le due copie sono mostrate per
-    intero invece che come nome più una cartella sola: nei livelli B e C
-    stanno in cartelle DIVERSE, e vedere solo quella di una delle due non
-    dice dove sia l'altra — che è proprio l'informazione che serve per
-    decidere."""
-    return pd.DataFrame([
-        {"Move": preselect,
-         **({"stays": str(g.keep), "moves if ticked": str(dup)} if full_paths
-            else {"folder": str(g.folder), "keep": g.keep.name,
-                  "duplicate": dup.name}),
-         "size": human_size(g.size), "copies": g.copies,
-         "md5": (g.md5 or "")[:12], "_path": str(dup), "_bytes": g.size}
-        for g in groups for dup in g.duplicates
-    ])
-
 
 def _selection_table(level: str, title: str, note: str, groups,
                      preselect: bool, full_paths: bool = False) -> tuple[list[Path], int]:
@@ -251,240 +185,164 @@ def _selection_table(level: str, title: str, note: str, groups,
         return chosen, chosen_bytes
 
 
-selected_a, bytes_a = _selection_table(
-    "A", f"A · Certain duplicates, same folder "
-         f"({len(report.same_folder)} groups, {len(a_files)} files)",
-    "Byte-identical files sitting side by side. Ticked by default.",
-    report.same_folder, preselect=True)
 
-selected_b, bytes_b = _selection_table(
-    "B", f"B · Same file in other folders "
-         f"({len(report.other_folder)} groups, {len(b_files)} files)",
-    "Byte-identical copies sitting in different folders. If you organise in "
-    "rekordbox rather than by folder, one copy is enough — **Select all** "
-    "ticks the lot in one go. Nothing is ticked to begin with, because this "
-    "is the section where a folder layout you rely on would be undone. The "
-    "copy kept is the one on the left.",
-    report.other_folder, preselect=False, full_paths=True)
+report = st.session_state.get(dup_key)
 
-with st.expander(f"C · Similar names, different content "
-                 f"({len(report.similar_name)} groups)"):
-    st.caption(
-        "Informational only — no ticks here, because these are NOT the same "
-        "file: different edits, remixes or rips that happen to be named "
-        "alike. Both paths are shown so you can tell them apart, and ▶ plays "
-        "either one.")
-    table_c = _rows(report.similar_name, preselect=False, full_paths=True)
-    if table_c.empty:
-        st.write("Nothing found.")
-    else:
-        play_table(f"simil::{root}", table_c.drop(columns=["Move", "md5"]),
-                    ["stays", "moves if ticked", "size", "copies"],
-                    {c: st.column_config.TextColumn(disabled=True, width="large")
-                     for c in ("stays", "moves if ticked")}
-                    | {"size": st.column_config.TextColumn(disabled=True)},
-                    editable=False, editor_key=f"simil_editor::{root}")
+# Se i duplicati non sono ancora stati cercati si salta SOLO questo blocco:
+# fermare la pagina qui teneva in ostaggio anche le sezioni sotto, che con i
+# duplicati non c'entrano, ed e' il motivo per cui sembravano parte di essi.
+if report is not None:
 
-# --- Report e quarantena --------------------------------------------------
+    # Gruppi e file sono due numeri diversi: un gruppo con tre copie e' un gruppo
+    # solo ma DUE file da spostare. Mostrarli entrambi evita di chiedersi perche'
+    # la quarantena ne proponga piu' di quanti ne conta il riquadro qui sopra.
+    a_files = duplicates_of(report.same_folder)
+    b_files = duplicates_of(report.other_folder)
+    recoverable = sum(g.wasted_bytes for g in report.same_folder)
 
-st.divider()
-csv_name = st.text_input("Report file name", value=f"{root.name}_duplicates.csv")
-if st.button("Write CSV report"):
-    try:
-        st.success(f"Report written: {write_csv(report.all_groups(), root / csv_name)}")
-    except OSError as e:
-        st.error(f"Could not write the report: {e}")
+    d1, d2, d3 = st.columns(3)
+    d1.metric("A — same folder", f"{len(report.same_folder):,} groups",
+              delta=f"{len(a_files):,} duplicate files", delta_color="off",
+              help="Certain duplicates: same folder, same size, same MD5.")
+    d2.metric("B — other folders", f"{len(report.other_folder):,} groups",
+              delta=f"{len(b_files):,} duplicate files", delta_color="off",
+              help="Same file in different folders — often deliberate.")
+    d3.metric("C — similar name", f"{len(report.similar_name):,} groups",
+              delta="informational only", delta_color="off",
+              help="Names that look alike but the files differ.")
 
-st.subheader("Quarantine")
-st.caption(
-    f"Moves the ticked files into `{root / QUARANTINE_DIRNAME}`, keeping their "
-    "original folder structure so you can see where each came from and put it "
-    "back. Nothing is deleted — check djay Pro still sees everything, then "
-    "empty that folder yourself."
-)
-
-selected = selected_a + selected_b
-plan = build_quarantine_plan(selected, root)
-if not plan:
-    st.info("Nothing ticked yet — select the files to move in the tables above.")
-else:
-    st.write(
-        f"**{len(plan):,} files** ticked, freeing "
-        f"**{human_size(bytes_a + bytes_b)}** — "
-        f"{len(selected_a):,} from A ({human_size(bytes_a)}), "
-        f"{len(selected_b):,} from B ({human_size(bytes_b)}).")
-    st.dataframe(
-        pd.DataFrame([{"from": str(s), "to": str(d)} for s, d in plan[:200]]),
-        width="stretch", hide_index=True,
-    )
-    if len(plan) > 200:
-        st.caption(f"Showing the first 200 of {len(plan):,}.")
-
-    confirm = st.checkbox(
-        f"I have read the list and want to move these {len(plan):,} files",
-        key="quarantine_confirm")
-    if st.button("Move to quarantine", type="primary", disabled=not confirm):
-        moved, errors = apply_quarantine_plan(plan, dry_run=False)
-        st.success(f"{moved:,} files moved to {root / QUARANTINE_DIRNAME}")
-        if errors:
-            st.warning(f"{len(errors)} could not be moved.")
-            st.dataframe(pd.DataFrame([{"path": str(p), "error": e}
-                                       for p, e in errors]),
-                         width="stretch", hide_index=True)
-        st.session_state.pop(dup_key, None)
-        st.session_state.pop(scan_key, None)
+    if report.broken:
+        broken_files = sum(len(g.paths) for g in report.broken)
+        st.error(
+            f"**{broken_files:,} files in {len(report.broken):,} groups are "
+            "identical because they are equally BROKEN, not because they are the "
+            "same music** — and they are excluded from everything above. Empty "
+            "files all share the hash of nothingness; tag-only stubs share their "
+            "tag. They are different tracks, so removing one would destroy the "
+            "only trace of a song you are missing.")
+        with st.expander(f"Show the {broken_files:,} broken files"):
+            play_table(
+                f"broken::{root}",
+                pd.DataFrame([{"file": p.name, "folder": str(p.parent),
+                               "size": human_size(g.size), "why": g.reason,
+                               "_path": str(p)}
+                              for g in report.broken for p in g.paths]),
+                ["file", "folder", "size", "why"],
+                {c: st.column_config.TextColumn(disabled=True)
+                 for c in ("file", "folder", "size", "why")},
+                editable=False, editor_key=f"broken_editor::{root}")
+            st.caption(
+                "Use **Unreadable files** below to move these to quarantine if "
+                "you want them out of the way — one by one, not as duplicates.")
+    st.caption(f"{report.hashed_files:,} files hashed · "
+               f"{human_size(recoverable)} recoverable from level A alone")
 
 
-# --- Sidecar AppleDouble ---------------------------------------------------
+    def _rows(groups, preselect: bool, full_paths: bool = False) -> pd.DataFrame:
+        """Righe della tabella. Con `full_paths` le due copie sono mostrate per
+        intero invece che come nome più una cartella sola: nei livelli B e C
+        stanno in cartelle DIVERSE, e vedere solo quella di una delle due non
+        dice dove sia l'altra — che è proprio l'informazione che serve per
+        decidere."""
+        return pd.DataFrame([
+            {"Move": preselect,
+             **({"stays": str(g.keep), "moves if ticked": str(dup)} if full_paths
+                else {"folder": str(g.folder), "keep": g.keep.name,
+                      "duplicate": dup.name}),
+             "size": human_size(g.size), "copies": g.copies,
+             "md5": (g.md5 or "")[:12], "_path": str(dup), "_bytes": g.size}
+            for g in groups for dup in g.duplicates
+        ])
 
-st.divider()
-st.subheader("macOS sidecar files")
-st.caption(
-    "On a non-macOS volume (this drive is exFAT) the Finder cannot store a "
-    "file's extended attributes inside it, so it writes them to a companion "
-    "`._<name>` — one per track, plus one per folder. They carry the track's "
-    "own extension but hold no audio: typically 4 KB whose only real content "
-    "is the browser's download-quarantine flag. The Finder hides them, "
-    "rekordbox refuses them, djay Pro ignores them."
-)
 
-sidecar_key = f"sidecars::{root}"
-if st.button("Find sidecar files"):
-    seen = st.empty()
-    with st.spinner("Looking for sidecars…"):
-        st.session_state[sidecar_key] = find_sidecars(
-            root, progress=lambda n: seen.caption(f"{n:,} checked…"))
-    seen.empty()
+    selected_a, bytes_a = _selection_table(
+        "A", f"A · Certain duplicates, same folder "
+             f"({len(report.same_folder)} groups, {len(a_files)} files)",
+        "Byte-identical files sitting side by side. Ticked by default.",
+        report.same_folder, preselect=True)
 
-sidecars = st.session_state.get(sidecar_key)
-if sidecars is not None:
-    s1, s2 = st.columns(2)
-    s1.metric("Sidecars found", f"{len(sidecars.confirmed):,}",
-              help="Name starts with ._ AND the content is a real AppleDouble.")
-    s2.metric("Space they take", human_size(sidecars.freed_bytes))
+    selected_b, bytes_b = _selection_table(
+        "B", f"B · Same file in other folders "
+             f"({len(report.other_folder)} groups, {len(b_files)} files)",
+        "Byte-identical copies sitting in different folders. If you organise in "
+        "rekordbox rather than by folder, one copy is enough — **Select all** "
+        "ticks the lot in one go. Nothing is ticked to begin with, because this "
+        "is the section where a folder layout you rely on would be undone. The "
+        "copy kept is the one on the left.",
+        report.other_folder, preselect=False, full_paths=True)
 
-    if sidecars.unverified:
-        st.warning(
-            f"{len(sidecars.unverified)} file(s) are named like a sidecar but "
-            "are not one. They will NOT be touched — deleting on the strength "
-            "of a name is how a real file gets lost.")
-        st.dataframe(pd.DataFrame([{"path": str(p)} for p in sidecars.unverified]),
-                     width="stretch", hide_index=True)
-
-    if not sidecars.confirmed:
-        st.info("No sidecar files here.")
-    else:
-        with st.expander(f"Show the {len(sidecars.confirmed):,} files"):
-            st.dataframe(
-                pd.DataFrame([{"path": str(p)} for p in sidecars.confirmed[:500]]),
-                width="stretch", hide_index=True)
-            if len(sidecars.confirmed) > 500:
-                st.caption(f"Showing the first 500 of {len(sidecars.confirmed):,}.")
-
+    with st.expander(f"C · Similar names, different content "
+                     f"({len(report.similar_name)} groups)"):
         st.caption(
-            "These are **deleted**, not quarantined: there is nothing inside "
-            "worth keeping, and on this filesystem macOS recreates them the "
-            "next time the Finder touches a folder — so it is a recurring "
-            "tidy-up, not a one-off. Each file's content is re-checked "
-            "immediately before removal.")
-        sure = st.checkbox(
-            f"Delete these {len(sidecars.confirmed):,} files "
-            f"({human_size(sidecars.freed_bytes)})", key="sidecar_confirm")
-        if st.button("Delete sidecar files", type="primary", disabled=not sure):
-            removed, freed, errors = delete_sidecars(sidecars.confirmed, dry_run=False)
-            st.success(f"{removed:,} sidecar files deleted, {human_size(freed)} freed.")
+            "Informational only — no ticks here, because these are NOT the same "
+            "file: different edits, remixes or rips that happen to be named "
+            "alike. Both paths are shown so you can tell them apart, and ▶ plays "
+            "either one.")
+        table_c = _rows(report.similar_name, preselect=False, full_paths=True)
+        if table_c.empty:
+            st.write("Nothing found.")
+        else:
+            play_table(f"simil::{root}", table_c.drop(columns=["Move", "md5"]),
+                        ["stays", "moves if ticked", "size", "copies"],
+                        {c: st.column_config.TextColumn(disabled=True, width="large")
+                         for c in ("stays", "moves if ticked")}
+                        | {"size": st.column_config.TextColumn(disabled=True)},
+                        editable=False, editor_key=f"simil_editor::{root}")
+
+    # --- Report e quarantena --------------------------------------------------
+
+    st.divider()
+    csv_name = st.text_input("Report file name", value=f"{root.name}_duplicates.csv")
+    if st.button("Write CSV report"):
+        try:
+            st.success(f"Report written: {write_csv(report.all_groups(), root / csv_name)}")
+        except OSError as e:
+            st.error(f"Could not write the report: {e}")
+
+    st.subheader("Quarantine")
+    st.caption(
+        f"Moves the ticked files into `{root / QUARANTINE_DIRNAME}`, keeping their "
+        "original folder structure so you can see where each came from and put it "
+        "back. Nothing is deleted — check djay Pro still sees everything, then "
+        "empty that folder yourself."
+    )
+
+    selected = selected_a + selected_b
+    plan = build_quarantine_plan(selected, root)
+    if not plan:
+        st.info("Nothing ticked yet — select the files to move in the tables above.")
+    else:
+        st.write(
+            f"**{len(plan):,} files** ticked, freeing "
+            f"**{human_size(bytes_a + bytes_b)}** — "
+            f"{len(selected_a):,} from A ({human_size(bytes_a)}), "
+            f"{len(selected_b):,} from B ({human_size(bytes_b)}).")
+        st.dataframe(
+            pd.DataFrame([{"from": str(s), "to": str(d)} for s, d in plan[:200]]),
+            width="stretch", hide_index=True,
+        )
+        if len(plan) > 200:
+            st.caption(f"Showing the first 200 of {len(plan):,}.")
+
+        confirm = st.checkbox(
+            f"I have read the list and want to move these {len(plan):,} files",
+            key="quarantine_confirm")
+        if st.button("Move to quarantine", type="primary", disabled=not confirm):
+            moved, errors = apply_quarantine_plan(plan, dry_run=False)
+            st.success(f"{moved:,} files moved to {root / QUARANTINE_DIRNAME}")
             if errors:
-                st.warning(f"{len(errors)} skipped.")
-                st.dataframe(pd.DataFrame([{"path": str(p), "reason": e}
+                st.warning(f"{len(errors)} could not be moved.")
+                st.dataframe(pd.DataFrame([{"path": str(p), "error": e}
                                            for p, e in errors]),
                              width="stretch", hide_index=True)
-            st.session_state.pop(sidecar_key, None)
+            st.session_state.pop(dup_key, None)
             st.session_state.pop(scan_key, None)
 
 
-# --- File audio illeggibili ------------------------------------------------
+# --- Filtri sulla libreria -------------------------------------------------
 
 st.divider()
-st.subheader("Unreadable files")
-st.caption(
-    "Tracks that no player will open — usually a download that arrived "
-    "truncated, or an error page saved with an .mp3 name. Unlike the "
-    "sidecars these were meant to be music, so they are **moved to "
-    "quarantine, not deleted**: the list is what you need in order to "
-    "fetch them again."
-)
-
-# Secondi a file col controllo in parallelo, misurati su questa libreria via
-# USB: 5,8 s per 800 file con 8 thread, contro 40,3 s in fila.
-SECONDS_PER_CHECK = 0.0073
-
-st.caption(
-    "Every file is opened with the decoder — the same one the tagging uses. "
-    f"About **{len(audio) * SECONDS_PER_CHECK / 60:.0f} min** for "
-    f"{len(audio):,} files, {CHECK_THREADS} at a time. There is no "
-    "headers-only shortcut any more: it was quick and wrong, condemning 31 "
-    "tracks here that the decoder opens without complaint. This list decides "
-    "what goes to quarantine, so a guess is not good enough."
-)
-
-integrity_key = f"integrity::{root}"
-if st.button(f"Check {len(audio):,} audio files"):
-    bar = st.progress(0.0, text="Checking…")
-    st.session_state[integrity_key] = check_integrity(
-        audio,
-        progress=lambda done, total: bar.progress(
-            done / total if total else 1.0, text=f"Checked {done:,}/{total:,}…"))
-    bar.empty()
-
-integrity = st.session_state.get(integrity_key)
-if integrity is not None:
-    i1, i2, i3 = st.columns(3)
-    i1.metric("Checked", f"{integrity.checked:,}")
-    i2.metric("Unreadable", f"{len(integrity.bad):,}",
-              delta=human_size(sum(b.size for b in integrity.bad)), delta_color="off")
-    i3.metric("Vanished", f"{len(integrity.missing):,}",
-              help="Listed by the scan but gone by the time we looked — "
-                   "moved or renamed in the meantime. Nothing to do.")
-
-    if integrity.missing:
-        with st.expander(f"{len(integrity.missing)} vanished since the scan"):
-            st.dataframe(pd.DataFrame([{"path": str(p)} for p in integrity.missing]),
-                         width="stretch", hide_index=True)
-
-    if not integrity.bad:
-        st.success("Every file opened correctly.")
-    else:
-        play_table(
-            f"bad::{root}",
-            pd.DataFrame([{"file": b.path.name, "folder": str(b.path.parent),
-                           "size": human_size(b.size), "why": b.reason,
-                           "_path": str(b.path)}
-                          for b in integrity.bad]),
-            ["file", "folder", "size", "why"],
-            {c: st.column_config.TextColumn(disabled=True)
-             for c in ("file", "folder", "size", "why")},
-            editable=False, editor_key=f"bad_editor::{root}")
-        bad_plan = build_quarantine_plan([b.path for b in integrity.bad], root)
-        bad_bytes = sum(b.size for b in integrity.bad)
-        st.caption(
-            f"Moving them to `{root / QUARANTINE_DIRNAME}` keeps the folder "
-            "structure, so you can see which album each came from and "
-            "re-download just those.")
-        ok = st.checkbox(
-            f"Move these {len(bad_plan):,} unreadable files to quarantine "
-            f"({human_size(bad_bytes)})", key="bad_confirm")
-        if st.button("Quarantine unreadable files", disabled=not ok):
-            moved, errors = apply_quarantine_plan(bad_plan, dry_run=False)
-            st.success(f"{moved:,} files moved.")
-            if errors:
-                st.warning(f"{len(errors)} could not be moved.")
-            st.session_state.pop(integrity_key, None)
-
-
-# --- Mix, medley e mashup --------------------------------------------------
-
-st.divider()
-st.subheader("Mixes, medleys and mashups")
+st.header("Library filtering")
 st.caption(
     "Files holding several songs mixed together, in a collection meant for "
     "mixing single tracks yourself. Two signals, because neither is enough "
@@ -646,3 +504,149 @@ if durations is not None and durations.tracks:
                     st.warning(f"{len(errors)} could not be moved.")
                 st.session_state.pop(dur_key, None)
                 st.session_state.pop(scan_key, None)
+# --- File che non sono musica ----------------------------------------------
+
+st.divider()
+st.header("Junk files")
+st.caption(
+    "On a non-macOS volume (this drive is exFAT) the Finder cannot store a "
+    "file's extended attributes inside it, so it writes them to a companion "
+    "`._<name>` — one per track, plus one per folder. They carry the track's "
+    "own extension but hold no audio: typically 4 KB whose only real content "
+    "is the browser's download-quarantine flag. The Finder hides them, "
+    "rekordbox refuses them, djay Pro ignores them."
+)
+
+sidecar_key = f"sidecars::{root}"
+if st.button("Find sidecar files"):
+    seen = st.empty()
+    with st.spinner("Looking for sidecars…"):
+        st.session_state[sidecar_key] = find_sidecars(
+            root, progress=lambda n: seen.caption(f"{n:,} checked…"))
+    seen.empty()
+
+sidecars = st.session_state.get(sidecar_key)
+if sidecars is not None:
+    s1, s2 = st.columns(2)
+    s1.metric("Sidecars found", f"{len(sidecars.confirmed):,}",
+              help="Name starts with ._ AND the content is a real AppleDouble.")
+    s2.metric("Space they take", human_size(sidecars.freed_bytes))
+
+    if sidecars.unverified:
+        st.warning(
+            f"{len(sidecars.unverified)} file(s) are named like a sidecar but "
+            "are not one. They will NOT be touched — deleting on the strength "
+            "of a name is how a real file gets lost.")
+        st.dataframe(pd.DataFrame([{"path": str(p)} for p in sidecars.unverified]),
+                     width="stretch", hide_index=True)
+
+    if not sidecars.confirmed:
+        st.info("No sidecar files here.")
+    else:
+        with st.expander(f"Show the {len(sidecars.confirmed):,} files"):
+            st.dataframe(
+                pd.DataFrame([{"path": str(p)} for p in sidecars.confirmed[:500]]),
+                width="stretch", hide_index=True)
+            if len(sidecars.confirmed) > 500:
+                st.caption(f"Showing the first 500 of {len(sidecars.confirmed):,}.")
+
+        st.caption(
+            "These are **deleted**, not quarantined: there is nothing inside "
+            "worth keeping, and on this filesystem macOS recreates them the "
+            "next time the Finder touches a folder — so it is a recurring "
+            "tidy-up, not a one-off. Each file's content is re-checked "
+            "immediately before removal.")
+        sure = st.checkbox(
+            f"Delete these {len(sidecars.confirmed):,} files "
+            f"({human_size(sidecars.freed_bytes)})", key="sidecar_confirm")
+        if st.button("Delete sidecar files", type="primary", disabled=not sure):
+            removed, freed, errors = delete_sidecars(sidecars.confirmed, dry_run=False)
+            st.success(f"{removed:,} sidecar files deleted, {human_size(freed)} freed.")
+            if errors:
+                st.warning(f"{len(errors)} skipped.")
+                st.dataframe(pd.DataFrame([{"path": str(p), "reason": e}
+                                           for p, e in errors]),
+                             width="stretch", hide_index=True)
+            st.session_state.pop(sidecar_key, None)
+            st.session_state.pop(scan_key, None)
+
+
+# --- File audio illeggibili -------------------------------------------------
+
+st.divider()
+st.header("Unreadable files")
+st.caption(
+    "Tracks that no player will open — usually a download that arrived "
+    "truncated, or an error page saved with an .mp3 name. Unlike the junk "
+    "files above these were meant to be music, so they are **moved to "
+    "quarantine, not deleted**: the list is what you need in order to "
+    "fetch them again."
+)
+
+# Secondi a file col controllo in parallelo, misurati su questa libreria via
+# USB: 5,8 s per 800 file con 8 thread, contro 40,3 s in fila.
+SECONDS_PER_CHECK = 0.0073
+
+st.caption(
+    "Every file is opened with the decoder — the same one the tagging uses. "
+    f"About **{len(audio) * SECONDS_PER_CHECK / 60:.0f} min** for "
+    f"{len(audio):,} files, {CHECK_THREADS} at a time. There is no "
+    "headers-only shortcut any more: it was quick and wrong, condemning 31 "
+    "tracks here that the decoder opens without complaint. This list decides "
+    "what goes to quarantine, so a guess is not good enough."
+)
+
+integrity_key = f"integrity::{root}"
+if st.button(f"Check {len(audio):,} audio files"):
+    bar = st.progress(0.0, text="Checking…")
+    st.session_state[integrity_key] = check_integrity(
+        audio,
+        progress=lambda done, total: bar.progress(
+            done / total if total else 1.0, text=f"Checked {done:,}/{total:,}…"))
+    bar.empty()
+
+integrity = st.session_state.get(integrity_key)
+if integrity is not None:
+    i1, i2, i3 = st.columns(3)
+    i1.metric("Checked", f"{integrity.checked:,}")
+    i2.metric("Unreadable", f"{len(integrity.bad):,}",
+              delta=human_size(sum(b.size for b in integrity.bad)), delta_color="off")
+    i3.metric("Vanished", f"{len(integrity.missing):,}",
+              help="Listed by the scan but gone by the time we looked — "
+                   "moved or renamed in the meantime. Nothing to do.")
+
+    if integrity.missing:
+        with st.expander(f"{len(integrity.missing)} vanished since the scan"):
+            st.dataframe(pd.DataFrame([{"path": str(p)} for p in integrity.missing]),
+                         width="stretch", hide_index=True)
+
+    if not integrity.bad:
+        st.success("Every file opened correctly.")
+    else:
+        play_table(
+            f"bad::{root}",
+            pd.DataFrame([{"file": b.path.name, "folder": str(b.path.parent),
+                           "size": human_size(b.size), "why": b.reason,
+                           "_path": str(b.path)}
+                          for b in integrity.bad]),
+            ["file", "folder", "size", "why"],
+            {c: st.column_config.TextColumn(disabled=True)
+             for c in ("file", "folder", "size", "why")},
+            editable=False, editor_key=f"bad_editor::{root}")
+        bad_plan = build_quarantine_plan([b.path for b in integrity.bad], root)
+        bad_bytes = sum(b.size for b in integrity.bad)
+        st.caption(
+            f"Moving them to `{root / QUARANTINE_DIRNAME}` keeps the folder "
+            "structure, so you can see which album each came from and "
+            "re-download just those.")
+        ok = st.checkbox(
+            f"Move these {len(bad_plan):,} unreadable files to quarantine "
+            f"({human_size(bad_bytes)})", key="bad_confirm")
+        if st.button("Quarantine unreadable files", disabled=not ok):
+            moved, errors = apply_quarantine_plan(bad_plan, dry_run=False)
+            st.success(f"{moved:,} files moved.")
+            if errors:
+                st.warning(f"{len(errors)} could not be moved.")
+            st.session_state.pop(integrity_key, None)
+
+
