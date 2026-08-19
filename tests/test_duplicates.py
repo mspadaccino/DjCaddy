@@ -730,3 +730,31 @@ def test_duration_band_includes_the_top_but_not_the_bottom():
     assert got == ["trenta.mp3", "dodici.mp3"]
     assert [p.path.name for p in report.between(1, 45)] == [
         "lunghissimo.mp3", "trenta.mp3", "dodici.mp3", "dieci.mp3", "corto.mp3"]
+
+
+def test_a_band_starting_at_zero_reaches_the_short_files():
+    """La fascia bassa serve a trovare frammenti e anteprime.
+
+    `between` esclude l'estremo basso di proposito, cosi' "da 10 a 30" non
+    ripesca chi dura esattamente 10 minuti. A zero quell'esclusione non
+    toglie niente: i file a durata nulla o illeggibile non entrano affatto
+    fra i `tracks` (finiscono negli `unknown`), quindi 0-1 vale davvero
+    "fino a un minuto".
+    """
+    from pathlib import Path
+
+    from analysis.folder_scan import DurationReport, TrackDuration
+
+    r = DurationReport(tracks=[
+        TrackDuration(Path("/frammento.mp3"), seconds=12, size=100),
+        TrackDuration(Path("/anteprima.mp3"), seconds=60, size=200),
+        TrackDuration(Path("/brano.mp3"), seconds=240, size=300),
+        TrackDuration(Path("/megamix.mp3"), seconds=1800, size=400),
+    ])
+
+    corti = [t.path.name for t in r.between(0, 1)]
+    assert corti == ["anteprima.mp3", "frammento.mp3"]      # 60s compreso
+    assert "brano.mp3" not in corti
+
+    # e la fascia alta continua a comportarsi come prima
+    assert [t.path.name for t in r.between(10, 30)] == ["megamix.mp3"]
