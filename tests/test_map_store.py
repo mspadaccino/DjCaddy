@@ -213,3 +213,48 @@ def test_removing_something_that_is_not_there_changes_nothing(tmp_path):
     store.append([_profile(audio, 1.0)])
     assert store.remove([tmp_path / "never-seen.mp3"]) == 0
     assert len(MapStore.load(tmp_path / "map")) == 1
+
+
+def test_a_library_that_changed_disk_is_still_the_same_library(tmp_path):
+    old_root = tmp_path / "old"
+    (old_root / "house").mkdir(parents=True)
+    audio = old_root / "house" / "a.mp3"
+    audio.write_bytes(b"x")
+
+    store = MapStore.load(tmp_path / "map")
+    store.append([_profile(audio, 1.0)])
+    store.set_coords(np.array([[0.0, 0.0]]))
+
+    # Stessi file, stessa struttura, disco nuovo.
+    new_root = tmp_path / "new"
+    (new_root / "house").mkdir(parents=True)
+    moved = new_root / "house" / "a.mp3"
+    moved.write_bytes(b"x")
+    audio.unlink()
+
+    assert store.relocate(old_root, new_root) == (1, 0)
+
+    again = MapStore.load(tmp_path / "map")
+    assert again.rows[0]["path"] == str(moved)
+    assert again.rows[0]["folder"] == str(moved.parent)
+    # L'analisi non si rifà: il brano è riconosciuto al nuovo indirizzo.
+    assert again.pending([moved]) == []
+    # E il suo posto sulla mappa è rimasto dov'era.
+    assert again.projected
+    assert again.embeddings[0][0] == 1.0
+
+
+def test_relocating_stops_at_the_folder_boundary(tmp_path):
+    store = MapStore.load(tmp_path / "map")
+    for name in ("disk/a.mp3", "disk backup/b.mp3"):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+        store.append([_profile(path, 1.0)])
+
+    # "disk" non deve tirarsi dietro "disk backup".
+    moved, missing = store.relocate(tmp_path / "disk", tmp_path / "elsewhere")
+    assert (moved, missing) == (1, 1)   # spostata una riga, e là non c'è
+    kept = [r["path"] for r in MapStore.load(tmp_path / "map").rows]
+    assert str(tmp_path / "elsewhere" / "a.mp3") in kept
+    assert str(tmp_path / "disk backup" / "b.mp3") in kept

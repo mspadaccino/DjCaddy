@@ -75,6 +75,9 @@ def main() -> None:
                         help="Ricalcola la proiezione UMAP a fine job")
     parser.add_argument("--project-only", action="store_true",
                         help="Solo la proiezione, senza analizzare niente")
+    parser.add_argument("--relocate", nargs=2, metavar=("VECCHIO", "NUOVO"),
+                        help="La libreria ha cambiato posto: aggiorna i "
+                             "percorsi sulla mappa invece di rianalizzarla")
     parser.add_argument("--neighbors", type=int, default=ProjectionSettings.n_neighbors)
     parser.add_argument("--min-dist", type=float, default=ProjectionSettings.min_dist)
     parser.add_argument("--genre-threshold", type=float,
@@ -86,6 +89,22 @@ def main() -> None:
 
     projection = ProjectionSettings(n_neighbors=args.neighbors,
                                     min_dist=args.min_dist)
+    if args.relocate:
+        vecchio, nuovo = args.relocate
+        store = MapStore.load(args.store)
+        moved, missing = store.relocate(vecchio, nuovo)
+        print(f"Spostate {moved:,} righe su {len(store):,}.")
+        if missing:
+            print(f"  ATTENZIONE: {missing:,} di quelle non si trovano sotto "
+                  f"{nuovo}.\n  Se sono tutte, il percorso nuovo non è quello "
+                  "giusto: rilancia con quello vero (i percorsi sono già "
+                  "stati riscritti, quindi il VECCHIO adesso è quello che hai "
+                  "appena messo).")
+        elif moved:
+            print("  Tutte ritrovate al nuovo indirizzo: la prossima analisi "
+                  "le salta.")
+        return
+
     if args.project_only:
         reproject(args.store, projection)
         return

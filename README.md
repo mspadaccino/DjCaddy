@@ -170,7 +170,19 @@ poetry run python map_cli.py "/Volumes/Crucial X9/DJSet" --project
 
 # only recompute the projection, on a map that is already built
 poetry run python map_cli.py --project-only
+
+# the library moved to another disk: update the paths instead of
+# re-analyzing 90,000 tracks from scratch
+poetry run python map_cli.py --relocate "/Volumes/Old/DJSet" "/Volumes/New/DJSet"
 ```
+
+A track is recognised by its absolute path, so moving the library to another
+volume makes it a **different** library as far as the map is concerned —
+hence `--relocate`, which rewrites the paths and leaves the embeddings and
+the projection alone. It also takes the modification date from the file at
+its new address when the size still matches, because copying without
+preserving dates (plain `cp` does that) would otherwise make every track
+look changed and send it back to the queue.
 
 The map lives in `~/.cache/dj-library-tools/map/`: one JSON line and one
 1280-float block per track (both append-only, which is what makes the job

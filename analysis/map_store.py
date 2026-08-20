@@ -222,6 +222,61 @@ class MapStore:
         self.write_meta()
         return removed
 
+    def relocate(self, old_prefix, new_prefix) -> tuple[int, int]:
+        """La libreria ha cambiato posto: aggiorna i percorsi.
+
+        Ritorna (quante righe spostate, quante di quelle non si trovano al
+        nuovo indirizzo) — il secondo numero dice subito se il percorso
+        nuovo è quello sbagliato, invece di scoprirlo rianalizzando tutto.
+
+        Serve perché un brano sulla mappa è riconosciuto dal suo percorso
+        assoluto, e un disco nuovo ne cambia la prima parte
+        (`/Volumes/Crucial X9/…` diventa `/Volumes/Altro/…`). Senza questo,
+        una libreria spostata è una libreria SCONOSCIUTA: le righe vecchie
+        restano a indicare file che non esistono più e ogni brano viene
+        rianalizzato da capo.
+
+        Al nuovo indirizzo si riprende anche la data di modifica, se la
+        DIMENSIONE combacia. Copiare senza conservare le date è normale
+        (`cp` lo fa), e senza questo accorgimento ogni file risulterebbe
+        cambiato e verrebbe rianalizzato — cioè il contrario di quello che
+        questa funzione serve a evitare. Se invece la dimensione è diversa
+        il file non è più lo stesso, e allora è giusto che torni in coda.
+
+        Embedding e coordinate non si toccano: è lo stesso brano, è la stessa
+        analisi, è cambiato soltanto dove sta. Solo `tracks.jsonl` viene
+        riscritto — di fianco e poi rinominato, come sempre.
+        """
+        old, new = _key(old_prefix), _key(new_prefix)
+        moved = missing = 0
+        for row in self.rows:
+            path = _key(row["path"])
+            # Il confronto è sul confine di cartella: senza, "/Volumes/X9"
+            # prenderebbe dentro anche "/Volumes/X9 Backup".
+            if path != old and not path.startswith(old + os.sep):
+                continue
+            row["path"] = new + path[len(old):]
+            row["folder"] = os.path.dirname(row["path"])
+            moved += 1
+            try:
+                stat = os.stat(row["path"])
+            except OSError:
+                missing += 1
+                continue
+            if stat.st_size == row.get("size"):
+                row["mtime"] = stat.st_mtime
+        if not moved:
+            return 0, 0
+
+        self.directory.mkdir(parents=True, exist_ok=True)
+        tmp = self.rows_file.with_suffix(".jsonl.tmp")
+        tmp.write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in self.rows),
+            encoding="utf-8")
+        tmp.replace(self.rows_file)
+        self.write_meta()
+        return moved, missing
+
     def set_coords(self, coords) -> None:
         coords = np.asarray(coords, dtype=np.float32)
         if len(coords) != len(self.rows):
