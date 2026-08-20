@@ -43,7 +43,8 @@ from analysis.map_projection import ProjectionSettings
 from analysis.map_projection import available as umap_available
 from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
-from analysis.mixing import TransitionCost, along_path, magic_sort, nearest
+from analysis.mixing import (TransitionCost, along_path, closed_shape,
+                             magic_sort, nearest)
 from views.components import pick_folder, play_table
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
@@ -94,6 +95,8 @@ SKIN = {
 # sbagliate, che è peggio di un errore. Il percorso invece è il brano.
 SEED = "map::seed"
 PICKED = "map::seedpick_applied"
+LASSO_MODE = "map::lassomode"
+LASSO_KIND = "map::lassokind"
 PLAYLIST = "map::playlist"
 
 # Oltre queste voci il menu dei nomi smette di essere comodo (e di aprirsi
@@ -485,27 +488,66 @@ def render_map(store: MapStore) -> None:
     st.subheader("What to do with the selection")
 
     if lasso:
-        span = store.coords.max(axis=0) - store.coords.min(axis=0)
-        diagonal = float(np.hypot(*span)) or 1.0
-        radius_pct = st.slider(
-            "How far from the line a track can be", 0.5, 10.0, 2.0, 0.5,
-            format="%.1f%%",
-            help="As a share of the map's diagonal. Wider takes in more of "
-                 "the cluster the line crosses.")
-        ordered = along_path(store.coords, _path_points(lasso[0]),
-                             radius=diagonal * radius_pct / 100, pool=pool)
-        st.markdown(f"**{len(ordered)} track(s)** under the line you drew, in "
-                    "the order the line meets them.")
-        c1, c2 = st.columns(2)
-        if c1.button("➕ Use it as the playlist", type="primary",
-                     width="stretch", disabled=not ordered):
-            remember_playlist(frame, ordered)
-            st.rerun()
-        if c2.button("➕ Append it to the playlist", width="stretch",
-                     disabled=not ordered):
-            remember_playlist(frame, playlist + [i for i in ordered
-                                                 if i not in playlist])
-            st.rerun()
+        # Lo stesso gesto fa due domande diverse, e quale delle due si stia
+        # facendo lo dice la forma: un tratto che si richiude è un recinto
+        # ("prendi quello che c'è dentro"), uno aperto è un percorso
+        # ("prendi quello che tocco, nell'ordine in cui lo tocco"). Si
+        # indovina dalla forma e si lascia correggere: indovinare è comodo
+        # finché non sbaglia, e quando sbaglia deve bastare un clic.
+        stroke = _path_points(lasso[0])
+        guess = "everything inside" if closed_shape(stroke) else "the line itself"
+        # La forma decide da capo ogni volta che CAMBIA natura: disegnare un
+        # recinto dopo una linea torna a "quello che c'è dentro". Finché si
+        # continua a disegnare la stessa cosa, invece, una correzione a mano
+        # resta: l'ipotesi è comoda, ma l'ultima parola è di chi disegna.
+        if st.session_state.get(LASSO_KIND) != guess:
+            st.session_state[LASSO_KIND] = guess
+            st.session_state[LASSO_MODE] = guess
+        mode = st.radio(
+            "From the lasso, take", ["everything inside", "the line itself"],
+            key=LASSO_MODE, horizontal=True,
+            help="A stroke that comes back where it started is read as a "
+                 "fence and takes what it encloses; an open one is read as a "
+                 "path and takes what it passes near, in that order.")
+
+        if mode.startswith("everything"):
+            chosen = picked
+            st.markdown(f"**{len(chosen)} track(s)** inside the shape you "
+                        "drew — in no order of their own, which is what "
+                        "magic sort is for.")
+            c1, c2 = st.columns(2)
+            if c1.button("✨ Magic sort them into the playlist", type="primary",
+                         width="stretch", disabled=len(chosen) < 2):
+                with st.spinner(f"Sorting {len(chosen)} tracks…"):
+                    remember_playlist(frame, magic_sort(cost, chosen))
+                st.rerun()
+            if c2.button("➕ Append them, unsorted", width="stretch",
+                         disabled=not chosen):
+                remember_playlist(frame, playlist + [i for i in chosen
+                                                     if i not in playlist])
+                st.rerun()
+        else:
+            span = store.coords.max(axis=0) - store.coords.min(axis=0)
+            diagonal = float(np.hypot(*span)) or 1.0
+            radius_pct = st.slider(
+                "How far from the line a track can be", 0.5, 10.0, 2.0, 0.5,
+                format="%.1f%%",
+                help="As a share of the map's diagonal. Wider takes in more "
+                     "of the cluster the line crosses.")
+            ordered = along_path(store.coords, stroke,
+                                 radius=diagonal * radius_pct / 100, pool=pool)
+            st.markdown(f"**{len(ordered)} track(s)** under the line you "
+                        "drew, in the order the line meets them.")
+            c1, c2 = st.columns(2)
+            if c1.button("➕ Use it as the playlist", type="primary",
+                         width="stretch", disabled=not ordered):
+                remember_playlist(frame, ordered)
+                st.rerun()
+            if c2.button("➕ Append it to the playlist", width="stretch",
+                         disabled=not ordered):
+                remember_playlist(frame, playlist + [i for i in ordered
+                                                     if i not in playlist])
+                st.rerun()
 
     elif len(picked) > 1:
         st.markdown(f"**{len(picked)} track(s)** selected.")

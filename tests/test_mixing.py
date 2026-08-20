@@ -3,6 +3,7 @@ import numpy as np
 from analysis.mixing import (
     TransitionCost,
     along_path,
+    closed_shape,
     bpm_distance,
     camelot_distance,
     magic_sort,
@@ -114,3 +115,16 @@ def test_magic_sort_with_too_few_tracks_to_sort():
     cost = _library()
     assert magic_sort(cost, [2]) == [2]
     assert magic_sort(cost, [2, 1]) == [2, 1]
+
+
+def test_a_stroke_that_comes_back_is_a_fence():
+    circle = [(np.cos(a), np.sin(a)) for a in np.linspace(0, 2 * np.pi, 24)]
+    assert closed_shape(circle)
+    # Un cerchio lasciato aperto di poco è ancora un cerchio.
+    assert closed_shape(circle[:-3])
+
+
+def test_a_stroke_that_goes_somewhere_is_a_path():
+    assert not closed_shape([(0, 0), (1, 0), (2, 0), (3, 0)])
+    assert not closed_shape([(0, 0), (1, 1), (2, 0), (3, 1)])
+    assert not closed_shape([(0, 0), (1, 0)])       # due punti non recintano

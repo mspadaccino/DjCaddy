@@ -141,9 +141,12 @@ meaning, and that distance is exactly what a line drawn across the map uses.
   what mixes out of it, ranked by the transition cost
   `w1·distance on the map + w2·BPM gap + w3·Camelot distance`, with the three
   weights on sliders;
-- **draw a lasso** through the clusters: the tracks under the line become a
-  playlist, in the order the line meets them — a way to plan an arc (start in
-  ambient, cross deep house, peak in tech house) by drawing it;
+- **draw a lasso**, which does one of two things depending on the shape: a
+  **line** through the clusters takes the tracks it passes near, in the order
+  it meets them — a way to plan an arc (start in ambient, cross deep house,
+  peak in tech house) by drawing it — while a **loop** that comes back where
+  it started takes everything it encloses, like the box. The guess follows
+  the shape and a radio lets you overrule it;
 - **box-select a group** and let **magic sort** order it: the cheapest path
   that visits every track once (an open travelling-salesman problem, solved
   nearest-neighbour then 2-opt), so each track melts into the next;

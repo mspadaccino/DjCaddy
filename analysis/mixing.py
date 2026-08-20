@@ -229,6 +229,29 @@ def resample_path(points, step: float) -> np.ndarray:
                             np.interp(wanted, travelled, pts[:, 1])])
 
 
+def closed_shape(points, tolerance: float = 0.2) -> bool:
+    """Il tratto disegnato torna dove era partito?
+
+    Serve a capire cosa si sta chiedendo, senza doverlo dichiarare: un tratto
+    che si richiude è un RECINTO — "prendi quello che c'è dentro" — mentre
+    uno aperto è un PERCORSO — "prendi quello che tocco, nell'ordine in cui
+    lo tocco". Sono due domande diverse e lo stesso gesto le fa entrambe.
+
+    Chiuso vuol dire che la distanza fra il primo e l'ultimo punto è piccola
+    RISPETTO A QUANTO SI È GIRATO: un cerchio largo può lasciare un varco di
+    parecchi pixel e restare inequivocabilmente un cerchio.
+    """
+    pts = np.asarray(points, dtype=float)
+    if len(pts) < 3:
+        return False
+    steps = np.diff(pts, axis=0)
+    length = float(np.hypot(steps[:, 0], steps[:, 1]).sum())
+    if length <= 0:
+        return False
+    gap = float(np.hypot(*(pts[0] - pts[-1])))
+    return gap <= tolerance * length
+
+
 def along_path(coords, points, radius: float, pool=None,
                step: float | None = None) -> list[int]:
     """I brani entro `radius` dal tratto disegnato, nell'ordine del tratto.
