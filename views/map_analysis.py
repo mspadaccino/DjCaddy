@@ -134,6 +134,13 @@ def _stamp(directory: Path) -> tuple:
     return tuple(out)
 
 
+def _read_only(*columns: str) -> dict:
+    """Colonne che si guardano e basta. In una tabella con una casella da
+    spuntare tutto il resto va bloccato a mano, o si finisce a correggere i
+    BPM di un brano credendo di sceglierlo."""
+    return {name: st.column_config.Column(disabled=True) for name in columns}
+
+
 def remember_playlist(frame: pd.DataFrame, indices) -> None:
     st.session_state[PLAYLIST] = [frame.at[i, "path"] for i in indices]
 
@@ -557,6 +564,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                    "the filters are considered.")
         suggestions = nearest(cost, seed, k=20, pool=pool)
         table = pd.DataFrame([{
+            "Add": False,
             "cost": round(value, 3),
             "file": frame.at[i, "name"],
             "BPM": frame.at[i, "bpm"],
@@ -567,26 +575,31 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "Δkey": round(cost.parts(seed, i)["key"], 2),
             "genres": frame.at[i, "genres"],
             "_path": frame.at[i, "path"],
-            "_index": i,
+            "_row": i,
         } for i, value in suggestions])
         if not len(table):
             st.info("No candidate passes the filters.")
         else:
-            chosen = st.dataframe(
-                table.drop(columns=["_path", "_index"]), width="stretch",
-                hide_index=True, on_select="rerun", selection_mode="multi-row",
-                key="map::suggestions")
-            rows = chosen.selection.rows if chosen and chosen.selection else []
-            if st.button(f"➕ Add {len(rows)} to the playlist",
-                         disabled=not rows, type="primary"):
-                remember_playlist(frame, playlist + [
-                    int(table.at[r, "_index"]) for r in rows
-                    if int(table.at[r, "_index"]) not in playlist])
+            # Ascoltare e scegliere sulla STESSA riga. Prima erano due
+            # tabelle, una per spuntare e una per sentire: gli stessi venti
+            # brani scritti due volte, e la decisione presa su una riga
+            # mentre l'orecchio stava sull'altra.
+            edited = play_table(
+                "map_suggestions", table,
+                ["Add", "cost", "file", "BPM", "key", "groove", "sound",
+                 "Δbpm", "Δkey", "genres"],
+                {"Add": st.column_config.CheckboxColumn(
+                    "Add", help="Tick what you want in the playlist, then "
+                                "the button below."),
+                 **_read_only("cost", "file", "BPM", "key", "groove", "sound",
+                              "Δbpm", "Δkey", "genres")},
+                editor_key="map_sugg_editor")
+            wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
+            if st.button(f"➕ Add {len(wanted)} to the playlist",
+                         disabled=not wanted, type="primary"):
+                remember_playlist(frame, playlist + [i for i in wanted
+                                                     if i not in playlist])
                 st.rerun()
-            play_table("map_suggestions", table[["file", "BPM", "key", "_path"]],
-                       ["file", "BPM", "key"],
-                       {"file": st.column_config.TextColumn(disabled=True)},
-                       editable=False, editor_key="map_sugg_editor")
 
     with sound_tab:
         st.caption(
@@ -594,14 +607,21 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "embedding — not on the flattened map, and with no regard for "
             "tempo or key. This is 'what else sounds like this', which is a "
             "different question from 'what mixes out of this'.")
-        st.dataframe(pd.DataFrame([{
+        neighbours = pd.DataFrame([{
             "similarity": round(score, 3),
             "file": frame.at[i, "name"],
             "BPM": frame.at[i, "bpm"],
             "key": frame.at[i, "camelot"],
             "genres": frame.at[i, "genres"],
-        } for i, score in store.similar(seed, k=20, limit=len(frame))]),
-            width="stretch", hide_index=True)
+            "_path": frame.at[i, "path"],
+        } for i, score in store.similar(seed, k=20, limit=len(frame))])
+        if not len(neighbours):
+            st.info("Nothing to compare this one with yet.")
+        else:
+            play_table("map_neighbours", neighbours,
+                       ["similarity", "file", "BPM", "key", "genres"],
+                       _read_only("similarity", "file", "BPM", "key", "genres"),
+                       editable=False, editor_key="map_neighbours_editor")
 
 
 def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
@@ -836,7 +856,17 @@ job = load_map_state()
 with st.expander("Map infos", expanded=not store.placed):
     render_infos(store)
 
-render_map(store)
+# Dentro a un contenitore, e non sciolto nella pagina: il frammento che
+# aggiorna il job qui sotto ridisegna solo sé stesso, e per farlo si ricorda
+# in che posizione della pagina sta. La mappa invece emette un numero di
+# blocchi che cambia — compare il seme, compare la playlist — e ogni volta
+# che cambiava, la posizione del frammento slittava e il browser si trovava
+# un aggiornamento indirizzato a un punto che non esisteva più: pagina
+# bianca ("Bad delta path index"). Il contenitore fa sì che tutta quella
+# variabilità stia DENTRO un blocco solo, e la pagina, vista da fuori, abbia
+# sempre la stessa forma.
+with st.container():
+    render_map(store)
 
 st.divider()
 
