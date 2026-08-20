@@ -14,6 +14,9 @@ numpy = ">=1.26"
 streamlit = "^1.37"
 plotly = "^5.22"
 demucs = "^4.0"
+# La proiezione della mappa (sezione Map). Porta con sé pynndescent;
+# numba e llvmlite, che sono il grosso, arrivano già con librosa.
+umap-learn = "^0.5"
 
 # Essentia sta in un gruppo suo ma NON opzionale: `poetry install` la prende,
 # come tutto il resto. Il gruppo serve solo da via d'uscita, perche' su PyPI

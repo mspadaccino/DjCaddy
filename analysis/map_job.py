@@ -1,0 +1,160 @@
+"""Costruire la mappa come job lungo, staccato dall'interfaccia.
+
+Stessa forma del job di tagging, e per lo stesso motivo: a qualche secondo
+per brano una libreria intera sono giorni, e non possono dipendere da una
+scheda del browser aperta. Il lavoro scrive man mano nella cartella della
+mappa, quindi si può fermare quando si vuole e ripartire da lì.
+
+Lo STATO è quello del tagging, riusato tale e quale (`JobState`): le
+domande sono le stesse — a che punto è, quanti ne mancano, quanto ci
+vuole — e averne due versioni vorrebbe dire correggerle due volte.
+
+La proiezione UMAP NON fa parte del job: è un calcolo sulla libreria
+intera, dura minuti, e va rifatto una volta sola alla fine invece che a
+ogni brano.
+"""
+
+from __future__ import annotations
+
+import os
+import shlex
+import signal
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+
+from .essentia_tags import find_taggable
+from .map_profile import ProfileSettings, profile_many
+from .map_store import MapStore, default_store_dir
+from .tag_job import JobState, load_state  # noqa: F401  (riesportato per la pagina)
+
+DEFAULT_MAP_STATE_FILE = Path(__file__).resolve().parent.parent / ".wavecut_map_job.json"
+
+# Dove finisce quello che il job stampa. Una sola definizione, perché la usano
+# in due: chi lancia il job e chi ci apre sopra un terminale.
+DEFAULT_MAP_LOG = Path(tempfile.gettempdir()) / "wavecut_map_job.log"
+
+
+def build_queue(folder: Path, store: MapStore) -> list[Path]:
+    """I brani della cartella che non sono ancora sulla mappa."""
+    return store.pending(find_taggable(folder))
+
+
+def run_job(folder: Path, settings: ProfileSettings | None = None, workers: int = 1,
+            store_dir: Path | None = None, state_file: Path = DEFAULT_MAP_STATE_FILE,
+            limit: int = 0, on_progress=None) -> JobState:
+    """Profila la cartella e scrive nella mappa, un brano per volta."""
+    store = MapStore.load(store_dir or default_store_dir())
+    state = JobState(pid=os.getpid(), folder=str(folder), started_at=time.time())
+    state.save(state_file)
+
+    queue = build_queue(folder, store)
+    if limit:
+        queue = queue[:limit]
+    state.total = len(queue)
+    state.save(state_file)
+
+    for profile in profile_many(queue, settings, workers=workers):
+        state.done += 1
+        state.current = profile.path.name
+        if profile.error is None:
+            store.append([profile])
+            state.written += 1
+        else:
+            state.failed += 1
+            if len(state.errors) < 100:
+                state.errors.append({"file": str(profile.path),
+                                     "error": profile.error})
+        state.save(state_file)
+        if on_progress is not None:
+            on_progress(state)
+
+    state.finished_at = time.time()
+    state.current = ""
+    state.save(state_file)
+    return state
+
+
+def load_map_state(path: Path = DEFAULT_MAP_STATE_FILE) -> JobState | None:
+    return load_state(path)
+
+
+# --------------------------------------------------------------------------
+# Governare il job da fuori
+# --------------------------------------------------------------------------
+
+def process_state(pid: int) -> str:
+    """"running", "paused" o "gone".
+
+    Fermo non vuol dire morto: un processo che ha ricevuto SIGSTOP è ancora
+    lì con tutta la sua memoria (i modelli sono gigabyte: ricaricarli costa),
+    semplicemente non gira. `ps` lo segna con la lettera T.
+    """
+    if not pid:
+        return "gone"
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        return "gone"
+    try:
+        out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                             capture_output=True, text=True, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return "running"
+    return "paused" if out.stdout.strip().startswith("T") else "running"
+
+
+def _signal(pid: int, sig) -> bool:
+    """Manda un segnale al job. False se non c'era più nessuno da colpire.
+
+    Si colpisce il GRUPPO, non il singolo processo: l'analisi gira su più
+    figli, e fermare solo il padre li lascerebbe a macinare a vuoto. Ma solo
+    se il pid è capofila del suo gruppo — cioè se il job è stato staccato da
+    noi. Un job lanciato a mano dentro una shell sta nel gruppo di QUELLA
+    shell, e colpire il gruppo vorrebbe dire fermare anche il terminale di
+    chi l'ha lanciato.
+    """
+    try:
+        if os.getpgid(pid) == pid:
+            os.killpg(pid, sig)
+        else:
+            os.kill(pid, sig)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+def pause_job(pid: int) -> bool:
+    return _signal(pid, signal.SIGSTOP)
+
+
+def resume_job(pid: int) -> bool:
+    return _signal(pid, signal.SIGCONT)
+
+
+def stop_job(pid: int) -> bool:
+    """Ferma il job per sempre. Quello che è sulla mappa ci resta, e la volta
+    dopo si riparte da lì: è tutto il senso di scrivere man mano."""
+    return _signal(pid, signal.SIGTERM)
+
+
+def open_monitor(log: Path = DEFAULT_MAP_LOG) -> None:
+    """Apre Terminal.app su `tail -f` del log del job.
+
+    Non c'è un modo per mostrare un terminale dentro una pagina web, e non
+    serve: l'app gira in locale, il Terminale è lì. Stessa scorciatoia del
+    selettore di cartelle, che chiede al Finder invece di inventarsi un
+    browser di file.
+    """
+    command = f"tail -f {shlex.quote(str(log))}"
+    # Staccato e senza aspettare l'esito: la prima volta macOS chiede il
+    # permesso di comandare il Terminale, e quel dialogo resta lì finché non
+    # lo si guarda. Aspettarlo vorrebbe dire piantare la pagina, o dichiarare
+    # fallito un comando che partirà appena si dice di sì.
+    subprocess.Popen(
+        ["osascript",
+         "-e", f'tell application "Terminal" to do script "{command}"',
+         "-e", 'tell application "Terminal" to activate'],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True)

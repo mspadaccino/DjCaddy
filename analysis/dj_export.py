@@ -131,3 +131,21 @@ def read_title_artist(filepath: Path) -> tuple[str, str]:
     except Exception:
         pass
     return filepath.stem, ""
+
+
+def build_m3u8(tracks: list[dict]) -> str:
+    """Una playlist M3U8 con i brani nell'ordine dato.
+
+    Percorsi assoluti: la playlist esce da qui per essere aperta da un altro
+    programma sullo stesso Mac, non per essere spostata insieme ai file.
+    """
+    lines = ["#EXTM3U"]
+    for t in tracks:
+        path: Path = t["path"]
+        duration = t.get("duration") or 0
+        artist = t.get("artist") or ""
+        name = t.get("name") or path.stem
+        title = f"{artist} - {name}" if artist else name
+        lines.append(f"#EXTINF:{duration:.0f},{title}")
+        lines.append(str(path))
+    return "\n".join(lines) + "\n"

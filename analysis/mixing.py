@@ -1,0 +1,310 @@
+"""Quanto costa passare da un brano all'altro, e cosa ci si costruisce sopra.
+
+Il cuore della sezione Map: una playlist non è una lista di testo ma un
+grafo orientato pesato, dove i nodi sono i brani e l'arco A→B vale quanto
+è facile mixarli. Il costo è quello della specifica:
+
+    D(A,B) = w1·d_umap(A,B) + w2·d_bpm(A,B) + w3·d_camelot(A,B)
+
+Le tre distanze sono tutte normalizzate 0..1, altrimenti i pesi non
+sarebbero confrontabili: `w1=w2=w3` deve voler dire "contano uguale".
+
+Tutto qui dentro è puro: prende numeri, restituisce numeri. Niente audio,
+niente Essentia, niente Streamlit — si prova con array finti.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+# --------------------------------------------------------------------------
+# Ruota Camelot
+# --------------------------------------------------------------------------
+
+# Nome della tonalità → codice Camelot. Le chiavi sono (tonica, modo) con la
+# tonica normalizzata a bemolle, perché i tag del mondo reale scrivono la
+# stessa nota in tre modi diversi (F#, Gb, Fis).
+_ENHARMONIC = {
+    "C#": "Db", "D#": "Eb", "F#": "Gb", "G#": "Ab", "A#": "Bb",
+    "CIS": "Db", "DIS": "Eb", "FIS": "Gb", "GIS": "Ab", "AIS": "Bb",
+    "E#": "F", "B#": "C", "Cb": "B", "Fb": "E",
+}
+
+_MAJOR = ["B", "Gb", "Db", "Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E"]
+_MINOR = ["Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E", "B", "Gb", "Db"]
+
+CAMELOT: dict[tuple[str, str], str] = {}
+for _i, _note in enumerate(_MAJOR, start=1):
+    CAMELOT[(_note, "major")] = f"{_i}B"
+for _i, _note in enumerate(_MINOR, start=1):
+    CAMELOT[(_note, "minor")] = f"{_i}A"
+
+
+def to_camelot(key: str | None, scale: str | None = None) -> str | None:
+    """Da "F# minor", "Gbm", "11A" al codice Camelot. None se non si capisce.
+
+    Accetta già i codici Camelot perché è così che molti tag di libreria
+    portano la tonalità: chi ha già "8A" nel file non deve essere costretto
+    a farla ricalcolare.
+    """
+    if not key:
+        return None
+    text = str(key).strip()
+    if not text:
+        return None
+
+    upper = text.upper().replace(" ", "")
+    if len(upper) in (2, 3) and upper[-1] in "AB" and upper[:-1].isdigit():
+        number = int(upper[:-1])
+        if 1 <= number <= 12:
+            return f"{number}{upper[-1]}"
+
+    # "F# minor" / "Gbm" / "F#" (maggiore sottinteso)
+    parts = text.replace("-", " ").split()
+    note = parts[0]
+    rest = " ".join(parts[1:]).lower() if len(parts) > 1 else ""
+    if not rest and len(note) > 1 and note.endswith(("m", "M")):
+        # "Gbm": la m finale è il modo, non parte della nota
+        if note[-1] == "m":
+            rest, note = "minor", note[:-1]
+    mode = str(scale or rest or "major").lower()
+    mode = "minor" if mode.startswith(("min", "m")) and not mode.startswith("maj") else "major"
+
+    note = note[0].upper() + note[1:].replace("♯", "#").replace("♭", "b")
+    note = _ENHARMONIC.get(note.upper(), _ENHARMONIC.get(note, note))
+    return CAMELOT.get((note, mode))
+
+
+# Costo di una transizione sulla ruota, in funzione di quanti passi di ruota
+# separano i due codici. Passo 0 e passo 1 sono le mosse gratuite del mixaggio
+# armonico (8A→8A, 8A→9A): è la specifica a volerle a costo zero. Da lì in
+# poi il costo sale in fretta, perché due chiavi a tre passi di distanza si
+# scontrano davvero.
+_RING_COST = {0: 0.0, 1: 0.0, 2: 0.4, 3: 0.6, 4: 0.8, 5: 0.9, 6: 1.0}
+
+# Quanto si paga a cambiare lettera (maggiore↔minore) quando NON si è sullo
+# stesso numero. Sullo stesso numero è il relativo (8A→8B): gratis.
+_MODE_PENALTY = 0.2
+
+# Senza tonalità non si può né premiare né punire: mezzo costo, così un brano
+# senza chiave non scala in cima alle proposte solo perché non si sa nulla.
+UNKNOWN_KEY_COST = 0.5
+
+
+def camelot_distance(a: str | None, b: str | None) -> float:
+    """Costo 0..1 di passare dalla chiave `a` alla chiave `b`."""
+    if not a or not b:
+        return UNKNOWN_KEY_COST
+    try:
+        n1, l1 = int(a[:-1]), a[-1].upper()
+        n2, l2 = int(b[:-1]), b[-1].upper()
+    except (ValueError, IndexError):
+        return UNKNOWN_KEY_COST
+    steps = min((n1 - n2) % 12, (n2 - n1) % 12)
+    cost = _RING_COST[steps]
+    if l1 != l2 and steps != 0:
+        cost = min(1.0, cost + _MODE_PENALTY)
+    return cost
+
+
+# --------------------------------------------------------------------------
+# BPM
+# --------------------------------------------------------------------------
+
+# Oltre questo scarto il pitch fader non basta più: è la soglia dove il costo
+# arriva a metà, non dove la transizione diventa impossibile.
+BPM_TOLERANCE = 0.06
+
+
+def bpm_distance(a: float | None, b: float | None,
+                 tolerance: float = BPM_TOLERANCE) -> float:
+    """Costo 0..1 dello scarto di tempo, a ottave ripiegate.
+
+    Un brano a 128 e uno a 64 si mixano in half-time: contarli lontanissimi
+    sarebbe sbagliato in una libreria che tiene insieme hip hop e techno.
+    """
+    if not a or not b:
+        return UNKNOWN_KEY_COST
+    relative = min(abs(b * factor - a) / a for factor in (0.5, 1.0, 2.0))
+    if relative <= tolerance:
+        return 0.5 * relative / tolerance
+    return min(1.0, 0.5 + 0.5 * (relative - tolerance) / tolerance)
+
+
+# --------------------------------------------------------------------------
+# Costo della transizione
+# --------------------------------------------------------------------------
+
+class TransitionCost:
+    """La funzione D(A,B) applicata a una libreria intera.
+
+    Si costruisce una volta sui vettori della libreria e poi si interroga per
+    indice: le distanze sulla mappa si calcolano in blocco con numpy, che su
+    90.000 brani è la differenza fra millisecondi e minuti.
+    """
+
+    def __init__(self, coords, bpm, camelot,
+                 w_map: float = 1.0, w_bpm: float = 1.0, w_key: float = 1.0):
+        self.coords = np.asarray(coords, dtype=np.float32)
+        self.bpm = list(bpm)
+        self.camelot = list(camelot)
+        self.w_map, self.w_bpm, self.w_key = w_map, w_bpm, w_key
+        # Scala di riferimento della mappa: la diagonale del riquadro che
+        # contiene tutti i punti. Dividere per lei rende d_umap un 0..1
+        # confrontabile con le altre due, qualunque siano le unità che UMAP
+        # ha prodotto questa volta.
+        if len(self.coords):
+            span = self.coords.max(axis=0) - self.coords.min(axis=0)
+            self.scale = float(np.hypot(*span)) or 1.0
+        else:
+            self.scale = 1.0
+
+    def map_distances(self, index: int) -> np.ndarray:
+        """Distanza normalizzata sulla mappa da `index` a tutti gli altri."""
+        delta = self.coords - self.coords[index]
+        return np.hypot(delta[:, 0], delta[:, 1]) / self.scale
+
+    def to(self, source: int, targets) -> np.ndarray:
+        """Il costo D(source, t) per ogni t in `targets`."""
+        targets = np.asarray(list(targets), dtype=int)
+        if not len(targets):
+            return np.empty(0, dtype=np.float32)
+        on_map = self.map_distances(source)[targets]
+        tempo = np.array([bpm_distance(self.bpm[source], self.bpm[t]) for t in targets])
+        key = np.array([camelot_distance(self.camelot[source], self.camelot[t])
+                        for t in targets])
+        return (self.w_map * on_map + self.w_bpm * tempo + self.w_key * key) / \
+            max(1e-9, self.w_map + self.w_bpm + self.w_key)
+
+    def between(self, a: int, b: int) -> float:
+        return float(self.to(a, [b])[0])
+
+    def parts(self, a: int, b: int) -> dict:
+        """Le tre distanze separate: serve a mostrare PERCHÉ un brano è vicino."""
+        return {
+            "map": float(self.map_distances(a)[b]),
+            "bpm": bpm_distance(self.bpm[a], self.bpm[b]),
+            "key": camelot_distance(self.camelot[a], self.camelot[b]),
+        }
+
+
+def nearest(cost: TransitionCost, seed: int, k: int = 20,
+            pool=None) -> list[tuple[int, float]]:
+    """I `k` brani con la transizione più economica da `seed`.
+
+    `pool` limita la ricerca a un sottoinsieme (i brani che passano i filtri
+    della pagina): senza, si cerca in tutta la libreria.
+    """
+    candidates = np.arange(len(cost.bpm)) if pool is None else np.asarray(list(pool), dtype=int)
+    candidates = candidates[candidates != seed]
+    if not len(candidates):
+        return []
+    costs = cost.to(seed, candidates)
+    order = np.argsort(costs)[:k]
+    return [(int(candidates[i]), float(costs[i])) for i in order]
+
+
+# --------------------------------------------------------------------------
+# Playlist disegnata sulla mappa
+# --------------------------------------------------------------------------
+
+def resample_path(points, step: float) -> np.ndarray:
+    """Punti equidistanti lungo la spezzata `points`, passo `step`.
+
+    Il tratto che arriva dal mouse ha vertici fitti dove si è disegnato piano
+    e radi dove si è disegnato veloce: campionarlo a passo costante evita che
+    la velocità della mano decida quanti brani entrano in playlist.
+    """
+    pts = np.asarray(points, dtype=float)
+    if len(pts) < 2:
+        return pts
+    segments = np.diff(pts, axis=0)
+    lengths = np.hypot(segments[:, 0], segments[:, 1])
+    travelled = np.concatenate([[0.0], np.cumsum(lengths)])
+    total = travelled[-1]
+    if total <= 0:
+        return pts[:1]
+    wanted = np.arange(0.0, total + step, max(step, 1e-9))
+    return np.column_stack([np.interp(wanted, travelled, pts[:, 0]),
+                            np.interp(wanted, travelled, pts[:, 1])])
+
+
+def along_path(coords, points, radius: float, pool=None,
+               step: float | None = None) -> list[int]:
+    """I brani entro `radius` dal tratto disegnato, nell'ordine del tratto.
+
+    Un brano vicino a due punti del tratto entra una volta sola, al primo:
+    l'ordine di una playlist è il racconto che si è disegnato, e tornare
+    indietro a riprendere lo stesso brano lo spezzerebbe.
+    """
+    coords = np.asarray(coords, dtype=np.float32)
+    if not len(coords):
+        return []
+    samples = resample_path(points, step if step is not None else radius / 2)
+    allowed = None if pool is None else np.asarray(list(pool), dtype=int)
+
+    taken: list[int] = []
+    seen: set[int] = set()
+    for x, y in samples:
+        delta = coords - np.array([x, y], dtype=np.float32)
+        near = np.flatnonzero(np.hypot(delta[:, 0], delta[:, 1]) <= radius)
+        if allowed is not None:
+            near = np.intersect1d(near, allowed, assume_unique=False)
+        # Dentro lo stesso campione l'ordine è per vicinanza al punto: due
+        # brani presi insieme non hanno un "prima" dato dal tratto.
+        for i in sorted(near, key=lambda j: float(np.hypot(*(coords[j] - [x, y])))):
+            if int(i) not in seen:
+                seen.add(int(i))
+                taken.append(int(i))
+    return taken
+
+
+# --------------------------------------------------------------------------
+# Magic sort: il commesso viaggiatore, addomesticato
+# --------------------------------------------------------------------------
+
+def magic_sort(cost: TransitionCost, indices, start: int | None = None,
+               passes: int = 2) -> list[int]:
+    """Ordina `indices` in modo che ogni brano si fonda col successivo.
+
+    È il cammino minimo che tocca tutti i nodi una volta: TSP aperto, che è
+    NP-difficile. Si fa quello che si fa sempre — vicino più vicino per avere
+    un percorso, poi 2-opt per raddrizzarne gli incroci — perché qui i nodi
+    sono le decine di brani di una serata, non una libreria intera, e su
+    quelle dimensioni la soluzione esatta non varrebbe l'attesa.
+    """
+    nodes = [int(i) for i in indices]
+    if len(nodes) <= 2:
+        return nodes
+
+    # Matrice dei costi una volta sola: il 2-opt la interroga O(n²) volte per
+    # passata, e ricalcolare bpm/camelot ogni volta si sentirebbe.
+    matrix = np.array([cost.to(node, nodes) for node in nodes], dtype=np.float32)
+
+    begin = nodes.index(start) if start in nodes else 0
+    route = [begin]
+    left = set(range(len(nodes))) - {begin}
+    while left:
+        current = route[-1]
+        nxt = min(left, key=lambda j: matrix[current, j])
+        route.append(nxt)
+        left.discard(nxt)
+
+    def length(order: list[int]) -> float:
+        return float(sum(matrix[a, b] for a, b in zip(order, order[1:])))
+
+    # 2-opt: si rovescia il tratto fra due posizioni se accorcia il totale.
+    # Il primo nodo resta fermo — è il brano da cui l'utente vuole partire.
+    for _ in range(passes):
+        improved = False
+        best = length(route)
+        for i in range(1, len(route) - 1):
+            for j in range(i + 1, len(route)):
+                candidate = route[:i] + route[i:j + 1][::-1] + route[j + 1:]
+                value = length(candidate)
+                if value < best - 1e-6:
+                    route, best, improved = candidate, value, True
+        if not improved:
+            break
+
+    return [nodes[i] for i in route]

@@ -35,3 +35,4 @@ test_mp3/
 # Streamlit
 .streamlit/secrets.toml
 .wavecut_tag_job.json
+.wavecut_map_job.json

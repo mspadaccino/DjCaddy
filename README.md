@@ -31,8 +31,14 @@ the batch CLI and the Streamlit app — no duplicated logic.
 | `analysis/dj_export.py` | export section cues to rekordbox XML (the hub format for third-party DJ software converters) |
 | `analysis/cache.py` | per-file cache (key = path, valid by mtime+size) |
 | `analysis/engine.py` | orchestration: two-pass, cache, organize plan |
+| `analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) + multi-label genre/mood, over three 30 s windows |
+| `analysis/map_projection.py` | UMAP projection of the embeddings to the 2D map |
+| `analysis/map_store.py` | the map on disk: append-only metadata + embeddings, plus the projected X/Y |
+| `analysis/mixing.py` | Camelot wheel, transition cost, path-drawn playlists, magic sort |
+| `analysis/map_job.py` | the map build as a long, resumable background job |
 | `cli.py` | entry point 1 — batch CLI |
 | `app.py` | entry point 2 — Wavecut review app (Streamlit) |
+| `map_cli.py` | build the map in the background (long job, resumable) |
 
 **Audio loading.** Each file is loaded **once** (22050 Hz, mono); BPM/RMS are
 computed on the first 60 s of that signal, segmentation over the whole track.
@@ -105,6 +111,77 @@ overlap with other vocals while mixing) and sections with vocals get the 🎤 fl
 It is accurate but **heavy**: it downloads a model on first run and runs a neural
 network on each track. It is optional — skip it with `--no-vocals` (CLI) or by
 unchecking the box in the app; if Demucs is not installed the flag stays manual.
+
+### Streamlit app — Map
+
+The library as one picture: every track is a point, and points that sound
+alike sit together. It answers the question a folder cannot — *what do I play
+next, out of ninety thousand tracks?*
+
+**How a track becomes a point.** The Essentia Discogs-EffNet model is read at
+two places at once: the penultimate layer gives a **1280-dimension embedding**
+(the acoustic identity of the track, before it is flattened into genre names),
+and the classification heads give **several genres and moods with their
+confidence** — a track can be Minimal *and* Deep House, and both are kept.
+Only **three 30-second windows** are analyzed, at 25%, 50% and 75% of the
+track, and their results are averaged: about 8 seconds per track instead of
+half a minute, which on a whole library is the difference between hours and
+days. Before inference each window is brought to **-14 LUFS** (EBU R128) so
+that a loud master does not read as a different genre. BPM and key come from
+the file tags when they are there, and are measured otherwise; the key is
+converted to its **Camelot** code.
+
+**The map itself** is a UMAP projection of the embeddings to two dimensions —
+UMAP rather than t-SNE because the distance *between* clusters keeps its
+meaning, and that distance is exactly what a line drawn across the map uses.
+
+**What you do with it**
+
+- **click a point** (or pick a track by name) to make it the seed, and see
+  what mixes out of it, ranked by the transition cost
+  `w1·distance on the map + w2·BPM gap + w3·Camelot distance`, with the three
+  weights on sliders;
+- **draw a lasso** through the clusters: the tracks under the line become a
+  playlist, in the order the line meets them — a way to plan an arc (start in
+  ambient, cross deep house, peak in tech house) by drawing it;
+- **box-select a group** and let **magic sort** order it: the cheapest path
+  that visits every track once (an open travelling-salesman problem, solved
+  nearest-neighbour then 2-opt), so each track melts into the next;
+- export the result as **M3U8** or **rekordbox XML**.
+
+The **size of a point** carries a number you choose — BPM, groove (how
+regular the onsets are) or energy (integrated loudness) — scaled between the
+5th and 95th percentile so one outlier does not flatten everything. The
+position already says how a track sounds; the diameter is room for a quantity
+you can actually read, which is why the map stays in two dimensions: a third
+axis would cost the lasso and the box (Plotly has neither in 3D) and would
+have to be read by rotating the scene.
+
+While the background job runs, the page shows its progress **live** (a
+fragment that re-reads the job's state file every two seconds, without
+redrawing the map) and can **pause**, **resume** or **stop** it — signals go
+to the whole process group, so the parallel workers stop too — or open a
+**Terminal** on `tail -f` of its log.
+
+```bash
+# build the map for a folder, then project it (hours on a whole library,
+# resumable: stop it whenever, it picks up where it left off)
+poetry run python map_cli.py "/Volumes/Crucial X9/DJSet" --project
+
+# only recompute the projection, on a map that is already built
+poetry run python map_cli.py --project-only
+```
+
+The map lives in `~/.cache/dj-library-tools/map/`: one JSON line and one
+1280-float block per track (both append-only, which is what makes the job
+interruptible), plus the X/Y of the projection.
+
+> **On the confidence threshold.** The spec this section follows puts the
+> multi-label threshold at 0.40. Measured on these models it is too high: the
+> genre head is a softmax over 400 classes, and on an unmistakable track the
+> top genre reaches 0.404 — at 0.40 almost the whole library would come back
+> with a single label. The defaults are 0.15 for genres and 0.05 for moods
+> (the same values the tagging already uses); both are settings.
 
 ## Exporting cues to other DJ software
 

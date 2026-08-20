@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""Entry point 4 — la mappa della libreria come job lungo, fuori dall'app.
+
+Profila una cartella (embedding + etichette + tempo + tonalità) e scrive
+nella mappa, poi eventualmente ricalcola la proiezione UMAP.
+
+    poetry run python map_cli.py CARTELLA [opzioni]
+
+Esempi:
+    # tutto quello che manca, e alla fine riproietta
+    poetry run python map_cli.py "/Volumes/Crucial X9/DJSet" --project
+
+    # una prova da cinquanta brani prima di lanciarlo sul serio
+    poetry run python map_cli.py ~/Music --limit 50
+
+    # solo la proiezione, su una mappa già costruita
+    poetry run python map_cli.py --project-only
+
+Si può fermare quando si vuole: quello che è nella mappa ci resta, e la
+volta dopo riparte da lì.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+from analysis.essentia_tags import available, missing_models
+from analysis.map_job import DEFAULT_MAP_STATE_FILE, run_job
+from analysis.map_profile import ProfileSettings, default_workers
+from analysis.map_projection import ProjectionSettings, project
+from analysis.map_store import MapStore, default_store_dir
+
+
+def _human(seconds: float) -> str:
+    if seconds < 90:
+        return f"{seconds:.0f}s"
+    if seconds < 5400:
+        return f"{seconds / 60:.0f} min"
+    return f"{seconds / 3600:.1f} h"
+
+
+def _report(state) -> None:
+    fine = f" · ~{_human(state.eta_seconds)} alla fine" if state.done > 2 else ""
+    sys.stdout.write(
+        f"\r  {state.done:,}/{state.total:,} · sulla mappa {state.written:,} "
+        f"· falliti {state.failed:,}{fine} · {state.current[:40]:40s}")
+    sys.stdout.flush()
+
+
+def reproject(store_dir: Path, settings: ProjectionSettings) -> None:
+    store = MapStore.load(store_dir)
+    if not len(store):
+        print("Mappa vuota: niente da proiettare.")
+        return
+    print(f"Proietto {len(store):,} brani con UMAP…", flush=True)
+    t0 = time.time()
+    store.set_coords(project(store.embeddings, settings))
+    print(f"Fatto in {_human(time.time() - t0)}.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Costruisce la mappa acustica della libreria.")
+    parser.add_argument("folder", type=Path, nargs="?",
+                        help="Cartella da profilare (ricorsiva)")
+    parser.add_argument("--workers", type=int, default=default_workers())
+    parser.add_argument("--limit", type=int, default=0,
+                        help="Fermati dopo N brani (0 = tutti)")
+    parser.add_argument("--store", type=Path, default=default_store_dir(),
+                        help="Cartella della mappa")
+    parser.add_argument("--project", action="store_true",
+                        help="Ricalcola la proiezione UMAP a fine job")
+    parser.add_argument("--project-only", action="store_true",
+                        help="Solo la proiezione, senza analizzare niente")
+    parser.add_argument("--neighbors", type=int, default=ProjectionSettings.n_neighbors)
+    parser.add_argument("--min-dist", type=float, default=ProjectionSettings.min_dist)
+    parser.add_argument("--genre-threshold", type=float,
+                        default=ProfileSettings.genre_threshold)
+    parser.add_argument("--mood-threshold", type=float,
+                        default=ProfileSettings.mood_threshold)
+    parser.add_argument("--state-file", type=Path, default=DEFAULT_MAP_STATE_FILE)
+    args = parser.parse_args()
+
+    projection = ProjectionSettings(n_neighbors=args.neighbors,
+                                    min_dist=args.min_dist)
+    if args.project_only:
+        reproject(args.store, projection)
+        return
+
+    if args.folder is None or not args.folder.is_dir():
+        parser.error("serve una cartella (o --project-only)")
+    if not available():
+        parser.error("essentia non è importabile in questo ambiente")
+    if missing_models():
+        parser.error(f"Modelli mancanti: {', '.join(missing_models())}")
+
+    print(f"Cartella: {args.folder}")
+    print(f"Mappa: {args.store} · parallelismo {args.workers} "
+          f"· stato in {args.state_file}")
+    print("Costruisco la coda…", flush=True)
+
+    t0 = time.time()
+    state = run_job(
+        args.folder,
+        ProfileSettings(genre_threshold=args.genre_threshold,
+                        mood_threshold=args.mood_threshold),
+        workers=args.workers, store_dir=args.store,
+        state_file=args.state_file, limit=args.limit, on_progress=_report)
+
+    print(f"\n\nFinito in {_human(time.time() - t0)}.")
+    print(f"  sulla mappa {state.written:,} · falliti {state.failed:,} "
+          f"su {state.total:,}")
+    if state.errors:
+        print(f"\n  primi errori ({len(state.errors)} tenuti):")
+        for e in state.errors[:5]:
+            print(f"    {Path(e['file']).name[:60]} — {e['error'][:70]}")
+
+    if args.project:
+        reproject(args.store, projection)
+    elif state.written:
+        print("\n  La mappa ha brani nuovi senza coordinate: "
+              "`--project-only` (o il pulsante nella pagina) le calcola.")
+    sys.exit(1 if state.failed and not state.written else 0)
+
+
+if __name__ == "__main__":
+    main()

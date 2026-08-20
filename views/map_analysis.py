@@ -1,0 +1,850 @@
+"""Sezione "Map": la libreria come mappa, e le playlist come percorsi.
+
+Il problema che risolve non è trovare un brano — per quello basta il nome —
+ma trovare il PROSSIMO brano fra novantamila, che è la domanda a cui una
+cartella non sa rispondere. Ogni brano diventa un punto: vicini quelli che
+suonano vicini, secondo l'embedding della rete e non secondo l'etichetta
+che qualcuno gli ha scritto sopra.
+
+Da lì in poi si lavora sulla mappa:
+
+- si clicca un brano e si chiede cosa ci va dietro (costo di transizione:
+  distanza sulla mappa + scarto di BPM + distanza sulla ruota Camelot);
+- si DISEGNA una linea attraverso i gruppi e la si trasforma in playlist,
+  che è il modo di pianificare un arco narrativo invece di una scaletta;
+- si prende un mucchio di brani disordinati e li si fa ordinare in modo
+  che ognuno si fonda col successivo.
+
+**L'ordine della pagina** segue quanto spesso si usa una cosa, non l'ordine
+in cui le cose accadono la prima volta: la mappa e le playlist stanno in
+cima perché è lì che si passa il tempo; costruire la mappa si fa una volta
+e poi la si lascia lavorare, quindi sta in fondo, chiusa.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+import time
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+from analysis.dj_export import build_m3u8, build_rekordbox_xml, read_title_artist
+from analysis.essentia_tags import MODEL_DIR, available, find_taggable, missing_models
+from analysis.map_job import (DEFAULT_MAP_LOG, load_map_state, open_monitor,
+                              pause_job, process_state, resume_job, stop_job)
+from analysis.map_profile import ProfileSettings, default_workers, profile_many
+from analysis.map_projection import ProjectionSettings
+from analysis.map_projection import available as umap_available
+from analysis.map_projection import project
+from analysis.map_store import MapStore, default_store_dir
+from analysis.mixing import TransitionCost, along_path, magic_sort, nearest
+from views.components import pick_folder, play_table
+
+# Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
+# ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
+# una mappa da centomila punti si trascina a ogni zoom. Il campione è casuale
+# ma stabile (seme fisso), così la mappa non si rimescola a ogni rerun.
+MAX_POINTS = 20000
+
+# Quanti generi ricevono un colore proprio nella legenda. Il modello ne
+# conosce 400: colorarli tutti darebbe una legenda illeggibile e una tavolozza
+# in cui due tinte vicine non vogliono dire niente.
+COLORED_GENRES = 12
+
+# Oltre questi brani in playlist i numeri d'ordine sulla mappa diventano una
+# macchia: la linea basta a raccontare il percorso.
+NUMBERED_UP_TO = 40
+
+# Cosa può dire la DIMENSIONE del punto. La posizione la decide l'embedding e
+# non vuol dire niente di preciso — è affinità, non una grandezza. Il diametro
+# invece può portare un numero che si legge: quanto va veloce, quanto è dritto,
+# quanto spinge. Si legge senza ruotare niente, che è il motivo per cui questa
+# è la terza dimensione e non un terzo asse.
+SIZE_FIELDS = {
+    "same size": None,
+    "BPM": "bpm",
+    "groove": "danceability",
+    "energy": "lufs",
+}
+FLAT_SIZE = 7.0
+MIN_SIZE, MAX_SIZE = 4.0, 15.0
+
+PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
+           "#4dd0c4", "#c9b037", "#6f8fd6", "#d66f6f", "#7fbf3f", "#bf7fd6"]
+
+# Due fondi e due inchiostri, uno per tema. Il fondo della mappa è staccato
+# di poco da quello della pagina: quel poco basta a dire dove finisce il
+# testo e comincia il territorio, senza farne un riquadro.
+SKIN = {
+    "light": {"paper": "#ffffff", "plot": "#f4f6f9", "ink": "#1b1f27",
+              "other": "#9aa4b0", "label": "rgba(27,31,39,0.45)"},
+    "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
+             "other": "#6b7684", "label": "rgba(238,241,246,0.45)"},
+}
+
+# In sessione si tengono i PERCORSI, non le posizioni nella libreria. Una
+# posizione vale finché la mappa non cambia: basta togliere un brano e la 200
+# è un altro brano: la playlist resterebbe in piedi indicando le tracce
+# sbagliate, che è peggio di un errore. Il percorso invece è il brano.
+SEED = "map::seed"
+PICKED = "map::seedpick_applied"
+PLAYLIST = "map::playlist"
+
+# Oltre queste voci il menu dei nomi smette di essere comodo (e di aprirsi
+# in fretta): sopra, si restringe coi filtri.
+SEED_PICKER_MAX = 2000
+
+
+def _spelled(seconds: float) -> str:
+    if seconds < 90:
+        return f"{seconds:.0f}s"
+    if seconds < 5400:
+        return f"{seconds / 60:.0f} min"
+    return f"{seconds / 3600:.1f} hours"
+
+
+def _skin() -> dict:
+    """I colori del tema in uso. Il tema può non essere ancora arrivato dal
+    browser al primo giro: in quel caso si disegna chiaro."""
+    theme = getattr(getattr(st, "context", None), "theme", None)
+    return SKIN["dark" if getattr(theme, "type", None) == "dark" else "light"]
+
+
+@st.cache_resource(show_spinner="Opening the map…")
+def _open_store(directory: str, stamp: tuple) -> MapStore:
+    """La mappa in memoria. `stamp` è lo stato dei file su disco: cambia
+    quando il job aggiunge brani, e solo allora si rilegge."""
+    return MapStore.load(Path(directory))
+
+
+def _stamp(directory: Path) -> tuple:
+    out = []
+    for name in ("tracks.jsonl", "coords.npy"):
+        try:
+            stat = (directory / name).stat()
+            out.append((stat.st_mtime, stat.st_size))
+        except OSError:
+            out.append(None)
+    return tuple(out)
+
+
+def remember_playlist(frame: pd.DataFrame, indices) -> None:
+    st.session_state[PLAYLIST] = [frame.at[i, "path"] for i in indices]
+
+
+def remember_seed(frame: pd.DataFrame, index: int) -> None:
+    st.session_state[SEED] = frame.at[index, "path"]
+
+
+def read_selection() -> tuple[list[int], list]:
+    """Cosa è selezionato sul grafico: gli indici dei brani e il tratto.
+
+    Lo stato del grafico sta in sessione sotto la sua chiave. I punti dei
+    tracciati di servizio (il percorso della playlist, il cerchio del seme)
+    non portano `customdata` e vengono scartati: sono disegno, non brani.
+    """
+    state = st.session_state.get("map::chart")
+    selection = state.get("selection") if state else None
+    if not selection:
+        return [], []
+    picked = [int(p["customdata"][0]) for p in selection.get("points", [])
+              if p.get("customdata")]
+    return picked, list(selection.get("lasso") or [])
+
+
+def _path_points(shape: dict) -> list[tuple[float, float]]:
+    xs, ys = shape.get("x") or [], shape.get("y") or []
+    return list(zip(xs, ys))
+
+
+# --------------------------------------------------------------------------
+# Il disegno
+# --------------------------------------------------------------------------
+
+def marker_sizes(frame: pd.DataFrame, column: str | None):
+    """Il diametro dei punti a partire da una colonna. Un numero se sono
+    tutti uguali, una serie allineata a `frame` altrimenti.
+
+    Si scala sui percentili 5–95 e non su minimo e massimo: un brano a 200
+    BPM in mezzo a una libreria che sta a 120 schiaccerebbe tutti gli altri
+    sullo stesso diametro. Chi quel numero non ce l'ha resta al minimo —
+    meglio un punto piccolo che un punto finto medio.
+    """
+    if column is None or column not in frame:
+        return FLAT_SIZE
+    values = pd.to_numeric(frame[column], errors="coerce")
+    known = values.dropna()
+    if len(known) < 2:
+        return FLAT_SIZE
+    low, high = np.percentile(known, [5, 95])
+    if high <= low:
+        return FLAT_SIZE
+    share = ((values - low) / (high - low)).clip(0, 1).fillna(0.0)
+    return MIN_SIZE + share * (MAX_SIZE - MIN_SIZE)
+
+
+def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
+                 playlist: list[int], seed: int | None) -> go.Figure:
+    """La mappa: un tracciato per genere, più il percorso e il seme sopra.
+
+    Un tracciato per genere e non uno solo con i colori dentro, perché così
+    la legenda esiste e ci si può cliccare per spegnere un genere. L'indice
+    del brano nella libreria viaggia in `customdata`: è come si risale dal
+    punto cliccato alla riga, senza dipendere dall'ordine dei tracciati.
+    """
+    skin = _skin()
+    color_of = dict(zip(top_genres, PALETTE))
+    figure = go.Figure()
+
+    for genre in top_genres + ["other"]:
+        part = (drawn[~drawn["top_genre"].isin(top_genres)] if genre == "other"
+                else drawn[drawn["top_genre"] == genre])
+        if not len(part):
+            continue
+        figure.add_trace(go.Scattergl(
+            x=part["x"], y=part["y"], mode="markers", name=genre[:28],
+            customdata=part[["index", "name", "bpm", "camelot", "genres"]].to_numpy(),
+            marker={
+                "size": part["_size"], "opacity": 0.85,
+                "color": color_of.get(genre, skin["other"]),
+                # Un filo di bordo del colore del fondo: dove i punti si
+                # accavallano si continua a contarli invece di vedere una
+                # macchia unica.
+                "line": {"width": 0.5, "color": skin["plot"]},
+            },
+            hovertemplate="<b>%{customdata[1]}</b><br>%{customdata[2]} BPM · "
+                          "%{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+        ))
+
+    # Il nome del genere scritto in mezzo al suo gruppo: la legenda dice quale
+    # colore è cosa, questo dice dove andare a cercarlo. Mediana e non media,
+    # perché un brano isolato dall'altra parte della mappa non deve spostare
+    # l'etichetta in mezzo al nulla.
+    for genre in top_genres:
+        part = drawn[drawn["top_genre"] == genre]
+        if len(part) < 3:
+            continue
+        figure.add_annotation(
+            x=float(part["x"].median()), y=float(part["y"].median()),
+            text=genre.split(" - ")[-1][:22], showarrow=False,
+            font={"size": 11, "color": skin["label"]})
+
+    if playlist:
+        line = coords[playlist]
+        numbered = len(playlist) <= NUMBERED_UP_TO
+        figure.add_trace(go.Scattergl(
+            x=line[:, 0], y=line[:, 1], name="playlist",
+            mode="lines+markers+text" if numbered else "lines+markers",
+            text=[str(i) for i in range(1, len(playlist) + 1)] if numbered else None,
+            textposition="top center",
+            textfont={"size": 9, "color": skin["ink"]},
+            line={"color": skin["ink"], "width": 1.5},
+            marker={"size": 9, "color": skin["paper"],
+                    "line": {"width": 1.5, "color": skin["ink"]}},
+            hoverinfo="skip"))
+
+    if seed is not None and seed < len(coords):
+        figure.add_trace(go.Scattergl(
+            x=[coords[seed][0]], y=[coords[seed][1]], mode="markers",
+            name="seed", showlegend=False, hoverinfo="skip",
+            marker={"size": 20, "color": "rgba(0,0,0,0)",
+                    "line": {"width": 2, "color": skin["ink"]}}))
+
+    figure.update_layout(
+        height=640, margin={"l": 0, "r": 0, "t": 0, "b": 0},
+        paper_bgcolor=skin["paper"], plot_bgcolor=skin["plot"],
+        # `dragmode` NON si imposta qui. Streamlit lo sceglie da sé in base ai
+        # modi di selezione richiesti, e con il lazo imposto a mano spegne il
+        # clic sul singolo punto (`clickmode` torna a "event"): si potrebbe
+        # disegnare ma non scegliere un brano. Lo strumento lazo resta nella
+        # barra del grafico, a un clic di distanza.
+        showlegend=True, hovermode="closest",
+        hoverlabel={"align": "left", "font": {"size": 11}},
+        legend={"orientation": "h", "y": -0.02, "x": 0,
+                "font": {"size": 10, "color": skin["ink"]},
+                "bgcolor": "rgba(0,0,0,0)", "itemsizing": "constant"},
+        xaxis={"visible": False, "showgrid": False, "zeroline": False},
+        yaxis={"visible": False, "showgrid": False, "zeroline": False,
+               "scaleanchor": "x"},
+    )
+    return figure
+
+
+# --------------------------------------------------------------------------
+# Le tre parti della pagina
+# --------------------------------------------------------------------------
+
+def render_infos(store: MapStore) -> None:
+    """Quanto è grande la mappa, dove sta, e la proiezione."""
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Tracks analyzed", f"{len(store):,}")
+    c2.metric("Placed on the map", f"{store.placed:,}",
+              delta=(f"{len(store) - store.placed:,} waiting"
+                     if not store.projected else None),
+              delta_color="off",
+              help="A track gets its place from the projection. The ones "
+                   "analyzed since the last one wait for the next.")
+    c3.metric("Embedding", f"{store.embeddings.shape[1] if len(store) else 0}-D")
+    st.caption(
+        f"Stored in `{store.directory}` — `tracks.jsonl` (one JSON line per "
+        "track), `embeddings.f32` (1280 raw float32 per track, same order), "
+        "`coords.npy` (the X/Y of the projection). The first two are "
+        "append-only: that is what makes the build interruptible.")
+
+    if not available():
+        st.warning("`essentia` is not importable here, so no track can be "
+                   "analyzed. The map itself still opens.")
+    if missing_models():
+        st.warning(f"Model files missing from `{MODEL_DIR}` — see Tag analysis.")
+    if not umap_available():
+        st.warning("`umap-learn` is not importable here, so the projection "
+                   "cannot be recomputed. `poetry install` brings it in.")
+
+    if not len(store) or not umap_available():
+        return
+
+    st.caption("The projection is what turns 1280 dimensions into a picture. "
+               "Recompute it whenever new tracks come in — and after changing "
+               "either knob below.")
+    col_n, col_d, col_go = st.columns([2, 2, 2])
+    neighbors = col_n.slider(
+        "Neighbours", 5, 100, ProjectionSettings.n_neighbors,
+        help="How many tracks define what 'nearby' means. Low: many small "
+             "recognisable clusters. High: one continent with soft edges.")
+    min_dist = col_d.slider(
+        "Min distance", 0.0, 0.9, ProjectionSettings.min_dist, 0.05,
+        help="How tightly points may pack. Low: dense separated clumps, "
+             "easier to aim at with the mouse.")
+    col_go.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
+    if col_go.button("↻ Recompute the projection", width="stretch"):
+        with st.spinner(f"UMAP over {len(store):,} tracks…"):
+            store.set_coords(project(store.embeddings, ProjectionSettings(
+                n_neighbors=neighbors, min_dist=min_dist)))
+        _open_store.clear()
+        st.rerun()
+
+
+def render_map(store: MapStore) -> None:
+    """La mappa, la selezione e la playlist: il cuore della pagina."""
+    if not len(store):
+        st.info("The map is empty. Open **Add tracks to the map** at the "
+                "bottom of this page and point it at a folder.")
+        return
+    placed = store.placed
+    if not placed:
+        st.warning(
+            f"{len(store):,} tracks are analyzed but none has a place yet — "
+            "the projection has never been computed (or was dropped). "
+            "**Map infos** above has the button.")
+        return
+
+    # Si lavora sui brani PIAZZATI, che sono i primi `placed`. Gli altri sono
+    # arrivati dopo l'ultima proiezione — tipicamente perché un job sta
+    # lavorando proprio adesso — e aspettano la prossima: la mappa resta
+    # usabile nel frattempo, che è il punto.
+    frame = pd.DataFrame(store.rows[:placed])
+    frame["x"], frame["y"] = store.coords[:, 0], store.coords[:, 1]
+    frame["index"] = np.arange(len(frame))
+    frame["genre_list"] = frame["genres"].fillna("").str.split("; ")
+
+    genre_counts = Counter(g for tags in frame["genre_list"] for g in tags if g)
+    key_counts = Counter(k for k in frame["camelot"] if k)
+
+    with st.expander("Filters — they narrow the map *and* the suggestions"):
+        f1, f2 = st.columns([3, 2])
+        chosen_genres = f1.multiselect(
+            "Genres", [g for g, _ in genre_counts.most_common()],
+            help="A track carrying any of the chosen genres stays. Tracks are "
+                 "multi-label on purpose: 'Minimal' and 'Deep House' can both "
+                 "be true of the same track.")
+        chosen_keys = f2.multiselect("Camelot keys", sorted(key_counts))
+
+        bpm_values = frame["bpm"].dropna()
+        low, high = (float(bpm_values.min()), float(bpm_values.max())) \
+            if len(bpm_values) else (60.0, 200.0)
+        b1, b2 = st.columns([3, 2])
+        bpm_range = b1.slider("BPM", low, max(high, low + 1),
+                              (low, max(high, low + 1)))
+        search = b2.text_input("Name contains",
+                               placeholder="part of a file name")
+
+    visible = frame
+    if chosen_genres:
+        wanted = set(chosen_genres)
+        visible = visible[visible["genre_list"].map(
+            lambda tags: bool(wanted & set(tags)))]
+    if chosen_keys:
+        visible = visible[visible["camelot"].isin(chosen_keys)]
+    visible = visible[visible["bpm"].isna() |
+                      visible["bpm"].between(bpm_range[0], bpm_range[1])]
+    if search.strip():
+        visible = visible[visible["name"].str.contains(search.strip(),
+                                                       case=False, regex=False)]
+    if not len(visible):
+        st.info("No track matches these filters.")
+        return
+
+    pool = visible["index"].to_numpy()
+
+    size_by = st.radio(
+        "Point size", list(SIZE_FIELDS), horizontal=True,
+        help="What the diameter of a point says. The position already says "
+             "how a track sounds; this is room for a number you can read — "
+             "how fast, how straight, how loud. Tracks missing that number "
+             "stay at the smallest size.")
+    # La scala si calcola su TUTTI i brani filtrati, non sul campione
+    # disegnato: altrimenti il significato di "punto grande" cambierebbe a
+    # ogni ricampionamento.
+    visible = visible.assign(_size=marker_sizes(visible, SIZE_FIELDS[size_by]))
+
+    drawn = visible
+    sampled = len(drawn) > MAX_POINTS
+    if sampled:
+        drawn = drawn.sample(MAX_POINTS, random_state=0)
+
+    cost = TransitionCost(store.coords, frame["bpm"].tolist(),
+                          frame["camelot"].tolist())
+    # Da percorso a posizione: i brani spariti dalla mappa (tolti, o non più
+    # piazzati) semplicemente non si ritrovano, e cadono fuori da soli.
+    at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
+    playlist = [at_path[p] for p in st.session_state.get(PLAYLIST, [])
+                if p in at_path]
+
+    # La selezione si legge PRIMA di ridisegnare, non dal valore restituito
+    # dal grafico. Streamlit tiene lo stato della selezione in sessione, già
+    # aggiornato all'inizio del giro: leggerlo qui vuol dire che il cerchio
+    # del seme è addosso al punto appena cliccato, invece che al punto di
+    # prima fino al clic successivo.
+    picked, lasso = read_selection()
+    picked = [i for i in picked if i < placed]
+    if len(picked) == 1 and not lasso:
+        remember_seed(frame, picked[0])
+    by_name = st.session_state.get("map::seedpick")
+    if by_name is not None and by_name < placed:
+        if frame.at[by_name, "path"] != st.session_state.get(PICKED):
+            st.session_state[PICKED] = frame.at[by_name, "path"]
+            remember_seed(frame, by_name)
+    seed = at_path.get(st.session_state.get(SEED))
+
+    top_genres = [g for g, _ in genre_counts.most_common(COLORED_GENRES)]
+    st.plotly_chart(
+        build_figure(drawn, top_genres, store.coords, playlist, seed),
+        key="map::chart", on_select="rerun",
+        selection_mode=("points", "box", "lasso"),
+        config={"displaylogo": False, "scrollZoom": True})
+
+    waiting = len(store) - placed
+    if waiting:
+        st.caption(
+            f"➕ **{waiting:,} track(s)** analyzed since the last projection "
+            "are not placed yet. Recompute it in **Map infos** to bring them "
+            "in — no need to wait for the job to end.")
+
+    st.caption(
+        (f"Point size: **{size_by}** (scaled 5th–95th percentile) · "
+         if SIZE_FIELDS[size_by] else "")
+        + f"**{len(visible):,} track(s)** on the map"
+        + (f" — {MAX_POINTS:,} of them drawn, a stable random sample; the "
+           "suggestions still consider every one." if sampled else "")
+        + " · **Click** a point to make it the seed. In the toolbar above, "
+          "the **lasso** draws a path through the clusters and the **box** "
+          "grabs a group to be sorted. Scroll to zoom.")
+
+    # Il seme si sceglie cliccando un punto, ma non solo: quando la serata
+    # parte da un brano deciso prima, cercarlo per nome è più veloce che
+    # trovarne il puntino. Sopra qualche migliaio di voci l'elenco non si apre
+    # più in fretta, e allora si chiede di restringere i filtri.
+    if len(visible) <= SEED_PICKER_MAX:
+        # Una scelta di prima che i filtri (o una rimozione) hanno fatto
+        # sparire dalle opzioni va tolta, o il menu si troverebbe addosso un
+        # valore che non può mostrare.
+        if st.session_state.get("map::seedpick") not in set(pool.tolist()):
+            st.session_state.pop("map::seedpick", None)
+        st.selectbox("Seed track", options=pool.tolist(), index=None,
+                     format_func=lambda i: frame.at[i, "name"],
+                     key="map::seedpick", placeholder="…or pick one by name")
+    else:
+        st.caption(f"{len(visible):,} tracks match — too many to list by name. "
+                   "Narrow the filters to pick a seed from a menu instead of "
+                   "from the map.")
+
+    st.divider()
+    st.subheader("What to do with the selection")
+
+    if lasso:
+        span = store.coords.max(axis=0) - store.coords.min(axis=0)
+        diagonal = float(np.hypot(*span)) or 1.0
+        radius_pct = st.slider(
+            "How far from the line a track can be", 0.5, 10.0, 2.0, 0.5,
+            format="%.1f%%",
+            help="As a share of the map's diagonal. Wider takes in more of "
+                 "the cluster the line crosses.")
+        ordered = along_path(store.coords, _path_points(lasso[0]),
+                             radius=diagonal * radius_pct / 100, pool=pool)
+        st.markdown(f"**{len(ordered)} track(s)** under the line you drew, in "
+                    "the order the line meets them.")
+        c1, c2 = st.columns(2)
+        if c1.button("➕ Use it as the playlist", type="primary",
+                     width="stretch", disabled=not ordered):
+            remember_playlist(frame, ordered)
+            st.rerun()
+        if c2.button("➕ Append it to the playlist", width="stretch",
+                     disabled=not ordered):
+            remember_playlist(frame, playlist + [i for i in ordered
+                                                 if i not in playlist])
+            st.rerun()
+
+    elif len(picked) > 1:
+        st.markdown(f"**{len(picked)} track(s)** selected.")
+        st.caption(
+            "Magic sort walks all of them once, in the order that keeps every "
+            "transition cheap — the travelling-salesman path over the cost "
+            "below. It is the answer to a folder of tracks in no order.")
+        c1, c2 = st.columns(2)
+        if c1.button("✨ Magic sort them into the playlist", type="primary",
+                     width="stretch"):
+            with st.spinner(f"Sorting {len(picked)} tracks…"):
+                remember_playlist(frame, magic_sort(cost, picked))
+            st.rerun()
+        if c2.button("➕ Append them, unsorted", width="stretch"):
+            remember_playlist(frame, playlist + [i for i in picked
+                                                 if i not in playlist])
+            st.rerun()
+
+    if seed is not None and not lasso and len(picked) <= 1:
+        render_seed(frame, cost, pool, store, seed, playlist)
+    elif not lasso and not picked:
+        st.info("Nothing selected yet. Click a point on the map, or draw a "
+                "lasso through it.")
+
+    render_playlist(frame, cost, playlist)
+
+
+def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore,
+                seed: int, playlist: list[int]) -> None:
+    """Il brano scelto e cosa ci va dietro."""
+    row = frame.iloc[seed]
+    # La danceability è la regolarità degli attacchi: 1 = cassa dritta,
+    # verso lo 0 il ritmo è sincopato (breakbeat, funk, roba non lineare).
+    groove = f" · groove {row['danceability']:.2f}" \
+        if row["danceability"] is not None and not pd.isna(row["danceability"]) else ""
+    st.markdown(f"**Seed — {row['name']}**  \n"
+                f"{row['bpm'] or '?'} BPM · {row['camelot'] or '?'}{groove} · "
+                f"{row['genres']}")
+
+    w1, w2, w3 = st.columns(3)
+    cost.w_map = w1.slider("Weight — sound", 0.0, 2.0, 1.0, 0.1,
+                           help="How much the distance on the map counts: "
+                                "the acoustic affinity of the two tracks.")
+    cost.w_bpm = w2.slider("Weight — BPM", 0.0, 2.0, 1.0, 0.1,
+                           help="How much the tempo gap counts. Beyond ±6% "
+                                "the cost climbs fast.")
+    cost.w_key = w3.slider("Weight — key", 0.0, 2.0, 1.0, 0.1,
+                           help="How much harmonic distance counts. Adjacent "
+                                "or relative keys (8A→9A, 8A→8B) cost nothing.")
+
+    mix_tab, sound_tab = st.tabs(["Mixes out of it", "Sounds like it"])
+
+    with mix_tab:
+        st.caption("Ranked by the transition cost — sound, tempo and key "
+                   "together, with the weights above. Only tracks that pass "
+                   "the filters are considered.")
+        suggestions = nearest(cost, seed, k=20, pool=pool)
+        table = pd.DataFrame([{
+            "cost": round(value, 3),
+            "file": frame.at[i, "name"],
+            "BPM": frame.at[i, "bpm"],
+            "key": frame.at[i, "camelot"],
+            "groove": frame.at[i, "danceability"],
+            "sound": round(cost.parts(seed, i)["map"], 3),
+            "Δbpm": round(cost.parts(seed, i)["bpm"], 2),
+            "Δkey": round(cost.parts(seed, i)["key"], 2),
+            "genres": frame.at[i, "genres"],
+            "_path": frame.at[i, "path"],
+            "_index": i,
+        } for i, value in suggestions])
+        if not len(table):
+            st.info("No candidate passes the filters.")
+        else:
+            chosen = st.dataframe(
+                table.drop(columns=["_path", "_index"]), width="stretch",
+                hide_index=True, on_select="rerun", selection_mode="multi-row",
+                key="map::suggestions")
+            rows = chosen.selection.rows if chosen and chosen.selection else []
+            if st.button(f"➕ Add {len(rows)} to the playlist",
+                         disabled=not rows, type="primary"):
+                remember_playlist(frame, playlist + [
+                    int(table.at[r, "_index"]) for r in rows
+                    if int(table.at[r, "_index"]) not in playlist])
+                st.rerun()
+            play_table("map_suggestions", table[["file", "BPM", "key", "_path"]],
+                       ["file", "BPM", "key"],
+                       {"file": st.column_config.TextColumn(disabled=True)},
+                       editable=False, editor_key="map_sugg_editor")
+
+    with sound_tab:
+        st.caption(
+            "Pure acoustic closeness, measured in the 1280 dimensions of the "
+            "embedding — not on the flattened map, and with no regard for "
+            "tempo or key. This is 'what else sounds like this', which is a "
+            "different question from 'what mixes out of this'.")
+        st.dataframe(pd.DataFrame([{
+            "similarity": round(score, 3),
+            "file": frame.at[i, "name"],
+            "BPM": frame.at[i, "bpm"],
+            "key": frame.at[i, "camelot"],
+            "genres": frame.at[i, "genres"],
+        } for i, score in store.similar(seed, k=20, limit=len(frame))]),
+            width="stretch", hide_index=True)
+
+
+def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
+                    playlist: list[int]) -> None:
+    """La playlist come sta, e come portarsela via.
+
+    Le posizioni arrivano già risolte e già ripulite da chi ha disegnato la
+    mappa: rileggerle qui dalla sessione vorrebbe dire rileggerle grezze, e
+    puntare a brani che sulla mappa non ci sono più.
+    """
+    if not playlist:
+        return
+
+    st.divider()
+    st.subheader(f"Playlist — {len(playlist)} track(s)")
+
+    costs = [None] + [cost.between(a, b) for a, b in zip(playlist, playlist[1:])]
+    table = pd.DataFrame([{
+        "#": position + 1,
+        "file": frame.at[i, "name"],
+        "BPM": frame.at[i, "bpm"],
+        "key": frame.at[i, "camelot"],
+        "from previous": round(step, 3) if step is not None else None,
+        "genres": frame.at[i, "genres"],
+        "_path": frame.at[i, "path"],
+    } for position, (i, step) in enumerate(zip(playlist, costs))])
+
+    play_table("map_playlist", table,
+               ["#", "file", "BPM", "key", "from previous", "genres"],
+               {"file": st.column_config.TextColumn(disabled=True),
+                "from previous": st.column_config.NumberColumn(
+                    "from previous", disabled=True,
+                    help="The transition cost from the track above: 0 is "
+                         "seamless, 1 is as far as this library goes.")},
+               editable=False, editor_key="map_playlist_editor")
+
+    worst = max((c for c in costs if c is not None), default=0)
+    st.caption(f"Roughest transition: **{worst:.3f}**. Magic sort is what "
+               "brings that number down.")
+
+    p1, p2, p3, p4 = st.columns(4)
+    if p1.button("✨ Magic sort", width="stretch", disabled=len(playlist) < 3):
+        with st.spinner(f"Sorting {len(playlist)} tracks…"):
+            remember_playlist(frame, magic_sort(cost, playlist,
+                                                start=playlist[0]))
+        st.rerun()
+    if p2.button("🗑 Clear", width="stretch"):
+        st.session_state[PLAYLIST] = []
+        st.rerun()
+
+    tracks = []
+    for i in playlist:
+        path = Path(frame.at[i, "path"])
+        title, artist = read_title_artist(path)
+        tracks.append({"path": path, "name": title, "artist": artist,
+                       "bpm": frame.at[i, "bpm"],
+                       "duration": frame.at[i, "duration"],
+                       "genre": frame.at[i, "top_genre"], "cues": []})
+
+    p3.download_button("⬇ M3U8", build_m3u8(tracks), "wavecut_playlist.m3u8",
+                       "audio/x-mpegurl", width="stretch")
+    p4.download_button("⬇ rekordbox XML", build_rekordbox_xml(tracks),
+                       "wavecut_playlist.xml", "application/xml",
+                       width="stretch")
+    st.caption("M3U8 opens in most players and DJ apps; the rekordbox XML "
+               "carries the order and the BPM, and is what the third-party "
+               "converters read.")
+
+
+@st.fragment(run_every=2)
+def render_progress() -> None:
+    """L'avanzamento del job, che si aggiorna da solo ogni due secondi.
+
+    È un frammento: ridisegna sé stesso senza rieseguire la pagina. La
+    differenza non è estetica — rieseguire tutto vorrebbe dire rileggere la
+    mappa e ridisegnare ventimila punti ogni due secondi, mentre il job sta
+    già usando tutti i core che ha.
+
+    Lo stato lo scrive il job su file a ogni brano, quindi qui basta
+    rileggerlo: nessun canale fra i due processi, e funziona anche se il job
+    è stato lanciato da terminale.
+    """
+    state = load_map_state()
+    if state is None or not state.running:
+        # Finito mentre lo si guardava: adesso la pagina intera ha qualcosa
+        # da dire (brani nuovi sulla mappa), e conviene ricaricarla.
+        _open_store.clear()
+        st.rerun()
+
+    how = process_state(state.pid)
+    st.progress(state.done / max(1, state.total),
+                text=(f"⏸ paused at {state.done:,}/{state.total:,}" if how == "paused"
+                      else f"{state.done:,}/{state.total:,} · {state.current[:50]}"))
+    j1, j2, j3 = st.columns(3)
+    j1.metric("On the map", f"{state.written:,}")
+    j2.metric("Failed", f"{state.failed:,}")
+    j3.metric("Left", "—" if how == "paused" else _spelled(state.eta_seconds))
+
+    b1, b2, b3 = st.columns(3)
+    if b1.button("🖥 Terminal monitor", width="stretch",
+                 disabled=not DEFAULT_MAP_LOG.exists(),
+                 help=f"Opens Terminal on `tail -f {DEFAULT_MAP_LOG}` — what "
+                      "the job is printing, live. Closing that window does "
+                      "not touch the job. The first time, macOS asks for "
+                      "permission to control Terminal: say yes and click "
+                      "again."):
+        open_monitor()
+
+    if how == "paused":
+        if b2.button("▶ Resume", type="primary", width="stretch"):
+            resume_job(state.pid)
+            st.rerun()
+    elif b2.button("⏸ Pause", width="stretch",
+                   help="Stops the analysis where it is without losing it: "
+                        "the processes stay in memory with the models "
+                        "loaded, so resuming costs nothing."):
+        pause_job(state.pid)
+        st.rerun()
+
+    if b3.button("⏹ Stop", width="stretch",
+                 help="Ends the job. What is already on the map stays there, "
+                      "and starting again picks up from the next track."):
+        stop_job(state.pid)
+        time.sleep(0.5)
+        _open_store.clear()
+        st.rerun()
+
+    st.caption(
+        f"{'Paused' if how == 'paused' else 'Running'} as process "
+        f"{state.pid} on `{state.folder}` — closing this tab does not stop "
+        "it, and this counter keeps up on its own. The map takes the new "
+        "tracks in when the job ends.")
+
+
+def render_add(store: MapStore, state) -> None:
+    """Mettere brani sulla mappa: la parte lunga, che si fa una volta."""
+    st.caption(
+        "About 8 seconds per track on one process, 3–4 with several — three "
+        "30-second windows analyzed instead of the whole file. A whole "
+        "library is hours, which is what the background job is for: it "
+        "survives closing this tab and picks up where it left off.")
+
+    root = pick_folder("map_analysis::path", "Folder")
+    queue: list[Path] = []
+    if root is not None:
+        key = f"mapqueue::{root}"
+        if key not in st.session_state:
+            with st.spinner("Listing audio files…"):
+                st.session_state[key] = find_taggable(root)
+        found = st.session_state[key]
+        queue = store.pending(found)
+        st.success(f"**{len(found):,} track(s)** under `{root.name}` — "
+                   f"{len(queue):,} not on the map yet.")
+
+    workers = st.slider("Analyses in parallel", 1, 12, default_workers(),
+                        help="Each process holds its own copy of the models, "
+                             "about 1.3 GB. Half the cores is the sweet spot.")
+
+    if state is not None and state.running:
+        render_progress()
+        return
+
+    if state is not None and state.total:
+        (st.warning if state.failed else st.success)(
+            f"Last job: {state.written:,} added, {state.failed:,} failed out "
+            f"of {state.total:,}.")
+        if state.errors:
+            with st.expander(f"{len(state.errors)} error(s) kept"):
+                st.dataframe(pd.DataFrame(state.errors), width="stretch",
+                             hide_index=True)
+
+    if root is None:
+        return
+    if not queue:
+        st.info("Every track in this folder is already on the map.")
+        return
+
+    blocked = not available() or bool(missing_models())
+    col_job, col_now = st.columns(2)
+    if col_job.button(f"▶ Add all {len(queue):,} in the background",
+                      type="primary", width="stretch", disabled=blocked):
+        log = DEFAULT_MAP_LOG
+        cmd = [sys.executable,
+               str(Path(__file__).resolve().parent.parent / "map_cli.py"),
+               str(root), "--workers", str(workers), "--project"]
+        with open(log, "w") as out:
+            subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT,
+                             start_new_session=True,
+                             cwd=Path(__file__).resolve().parent.parent)
+        st.success(f"Started. Output in `{log}`.")
+        time.sleep(1.5)
+        st.rerun()
+
+    batch = int(col_now.number_input("Or analyze now, this many", 1,
+                                     len(queue), min(20, len(queue))))
+    if col_now.button(f"Analyze {batch} now", width="stretch", disabled=blocked):
+        bar = st.progress(0.0, text="Loading models…")
+        failures = []
+        for i, profile in enumerate(
+                profile_many(queue[:batch], ProfileSettings(),
+                             workers=workers), 1):
+            bar.progress(i / batch, text=f"{i}/{batch} · {profile.path.name[:60]}")
+            if profile.error is None:
+                store.append([profile])
+            else:
+                failures.append({"file": profile.path.name,
+                                 "error": profile.error})
+        bar.empty()
+        if failures:
+            st.warning(f"{len(failures)} track(s) could not be analyzed.")
+            st.dataframe(pd.DataFrame(failures), width="stretch",
+                         hide_index=True)
+        _open_store.clear()
+        st.rerun()
+
+
+# --------------------------------------------------------------------------
+# La pagina
+# --------------------------------------------------------------------------
+
+st.title("🗺️ Map")
+st.caption(
+    "The whole library as one picture: every track is a point, and points "
+    "that sound alike sit together. Click one to see what mixes out of it, "
+    "or draw a line across the clusters to turn a path into a playlist."
+)
+
+store_dir = default_store_dir()
+store = _open_store(str(store_dir), _stamp(store_dir))
+job = load_map_state()
+
+with st.expander("Map infos", expanded=not store.placed):
+    render_infos(store)
+
+render_map(store)
+
+st.divider()
+
+# In fondo e chiusa: si apre da sé finché la mappa è vuota (senza, non c'è
+# nient'altro da fare in questa pagina) e mentre un job sta lavorando, perché
+# allora c'è qualcosa da guardare.
+running = job is not None and job.running
+label = ("Add tracks to the map — ▶ job running"
+         if running else "Add tracks to the map")
+with st.expander(label, expanded=not len(store) or running):
+    render_add(store, job)
