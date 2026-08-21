@@ -143,25 +143,32 @@ def _shifts(source, row) -> list[str]:
     return out
 
 
-def _card_shift(source, row) -> str:
-    """Lo stesso scarto di `_shifts`, in forma corta per una scheda.
+def _card_shifts(source, row) -> dict[str, str]:
+    """Gli stessi scarti di `_shifts`, una cella per colonna della scheda.
 
-    Solo tempo e ruota: sono i due che disegnano l'arco di un set, e su una
-    scheda larga cento pixel la terza voce non entrerebbe senza abbreviarla
-    fino a farne un indovinello. Il conto intero sta nella rosa, che ha
-    spazio.
+    Scritti di seguito non ci starebbero, e abbreviarli in "+0 · -1 · +.05"
+    su una riga a sé sarebbe un rebus. Incolonnati sotto ai valori che
+    commentano diventano invece la seconda riga della stessa tabella, e le
+    unità di misura le presta la riga sopra. Se un valore manca, manca la
+    colonna: le due righe restano allineate perché le costruisce lo stesso
+    giro.
     """
     if source is None:
-        return ""
-    parts = []
+        return {}
+    out = {}
     tempo = bpm_shift(_some(source, "bpm"), _some(row, "bpm"))
     if tempo is not None:
-        parts.append(f"{round(tempo):+d} BPM")
+        out["bpm"] = f"{round(tempo):+d}"
     wheel = camelot_shift(_some(source, "camelot"), _some(row, "camelot"))
     if wheel is not None:
         steps, mode = wheel
-        parts.append(f"{steps:+d} key" if steps else ("rel" if mode else "="))
-    return " · ".join(parts)
+        out["key"] = f"{steps:+d}" if steps else ("rel" if mode else "=")
+    here, there = _some(source, "danceability"), _some(row, "danceability")
+    if here is not None and there is not None:
+        # Senza lo zero davanti: sotto una colonna di trentotto pixel "+0.05"
+        # e "+.05" dicono la stessa cosa e solo uno dei due ci sta.
+        out["dance"] = f"{there - here:+.2f}".replace("0.", ".")
+    return out
 
 
 def _label(name: str) -> str:
@@ -221,7 +228,9 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
             "keyColor": _camelot_color(camelot),
             "dance": f"{dance:.2f}" if dance is not None else "",
             "genre": _label(genre) if genre else "",
-            "shift": _card_shift(came_from, row) if row is not None else "",
+            **{f"d{key}": value for key, value
+               in (_card_shifts(came_from, row) if row is not None
+                   else {}).items()},
         })
     links = [{"a": a, "b": b} for a, b in graph.links]
 
