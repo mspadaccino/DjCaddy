@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+  svg { display: block; width: 100%; touch-action: none; user-select: none; }
+  .node { cursor: grab; }
+  .node.dragging { cursor: grabbing; }
+  .node-label {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 12px;
+    pointer-events: none;
+  }
+  .remove-chip { cursor: pointer; }
+  .remove-chip text { pointer-events: none; }
+</style>
+</head>
+<body>
+<svg id="board"></svg>
+<script>
+(function () {
+  "use strict";
+
+  var W = 1100, H = 480;
+  var RADIUS = 24;
+  var svg = document.getElementById("board");
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+
+  var state = { nodes: [], links: [], selected: null, dark: false };
+  var drag = null; // {id, moved}
+
+  function toParent(msg) {
+    window.parent.postMessage(Object.assign({}, msg), "*");
+  }
+
+  function setHeight() {
+    toParent({ type: "streamlit:setFrameHeight", height: H + 12 });
+  }
+
+  function sendValue(value) {
+    toParent({ type: "streamlit:setComponentValue", value: value, dataType: "json" });
+  }
+
+  function svgPoint(evt) {
+    var pt = svg.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    var ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    var loc = pt.matrixTransform(ctm.inverse());
+    return { x: loc.x, y: loc.y };
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function nodeById(id) {
+    for (var i = 0; i < state.nodes.length; i++) {
+      if (state.nodes[i].id === id) return state.nodes[i];
+    }
+    return null;
+  }
+
+  function el(tag, attrs) {
+    var e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  function edgePath(a, b) {
+    var ax = a.x * W, ay = a.y * H, bx = b.x * W, by = b.y * H;
+    var mx = (ax + bx) / 2, my = (ay + by) / 2;
+    var dx = bx - ax, dy = by - ay;
+    var len = Math.hypot(dx, dy) || 1;
+    // Perpendicular bow, proportional to length but capped: a flexible
+    // line, not a straight wire, without turning long links into loops.
+    var bow = Math.min(28, len * 0.14);
+    var cx = mx - (dy / len) * bow;
+    var cy = my + (dx / len) * bow;
+    return "M " + ax + " " + ay + " Q " + cx + " " + cy + " " + bx + " " + by;
+  }
+
+  function render() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var ink = state.dark ? "#eef1f6" : "#1b1f27";
+    var faint = state.dark ? "rgba(238,241,246,0.16)" : "rgba(27,31,39,0.14)";
+    var paper = state.dark ? "#0e1117" : "#ffffff";
+
+    // Dotted blackboard backdrop.
+    var defs = el("defs", {});
+    var pattern = el("pattern", { id: "dots", width: 26, height: 26, patternUnits: "userSpaceOnUse" });
+    pattern.appendChild(el("circle", { cx: 2, cy: 2, r: 1.1, fill: faint }));
+    defs.appendChild(pattern);
+    svg.appendChild(defs);
+    svg.appendChild(el("rect", { x: 0, y: 0, width: W, height: H, fill: paper }));
+    svg.appendChild(el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#dots)" }));
+
+    var edgeGroup = el("g", { stroke: ink, "stroke-opacity": 0.35, "stroke-width": 2, fill: "none" });
+    state.links.forEach(function (link) {
+      var a = nodeById(link.a), b = nodeById(link.b);
+      if (!a || !b) return;
+      edgeGroup.appendChild(el("path", { d: edgePath(a, b) }));
+    });
+    svg.appendChild(edgeGroup);
+
+    state.nodes.forEach(function (n) {
+      var cx = n.x * W, cy = n.y * H;
+      var g = el("g", { class: "node", "data-id": n.id,
+                        transform: "translate(" + cx + "," + cy + ")" });
+      var selected = n.id === state.selected;
+
+      if (selected) {
+        g.appendChild(el("circle", {
+          r: RADIUS + 7, fill: "none", stroke: ink, "stroke-width": 2,
+          "stroke-opacity": 0.55,
+        }));
+      }
+      g.appendChild(el("circle", {
+        r: RADIUS, fill: n.color, stroke: paper, "stroke-width": 2.5,
+      }));
+      var label = el("text", {
+        class: "node-label", x: 0, y: RADIUS + 16, "text-anchor": "middle",
+        fill: ink,
+      });
+      label.textContent = n.label || "";
+      g.appendChild(label);
+
+      if (selected) {
+        var chip = el("g", { class: "remove-chip",
+                             transform: "translate(" + (RADIUS - 4) + "," + (-RADIUS + 4) + ")" });
+        chip.appendChild(el("circle", { r: 9, fill: state.dark ? "#e0503b" : "#c0392b" }));
+        var x = el("text", { x: 0, y: 4, "text-anchor": "middle", fill: "#fff",
+                             "font-size": 12, "font-family": "sans-serif" });
+        x.textContent = "×";
+        chip.appendChild(x);
+        chip.addEventListener("pointerdown", function (evt) {
+          evt.stopPropagation();
+          sendValue({ type: "remove", id: n.id });
+        });
+        g.appendChild(chip);
+      }
+
+      g.addEventListener("pointerdown", function (evt) {
+        evt.stopPropagation();
+        drag = { id: n.id, moved: false, node: g };
+        g.setPointerCapture(evt.pointerId);
+        g.classList.add("dragging");
+      });
+      svg.appendChild(g);
+    });
+  }
+
+  svg.addEventListener("pointermove", function (evt) {
+    if (!drag) return;
+    var n = nodeById(drag.id);
+    if (!n) return;
+    var p = svgPoint(evt);
+    n.x = clamp(p.x / W, 0.02, 0.98);
+    n.y = clamp(p.y / H, 0.02, 0.98);
+    drag.moved = true;
+    render();
+  });
+
+  function endDrag() {
+    if (!drag) return;
+    var n = nodeById(drag.id);
+    if (n) {
+      if (drag.moved) {
+        sendValue({ type: "move", id: n.id, x: n.x, y: n.y });
+      } else {
+        sendValue({ type: "click", id: n.id });
+      }
+    }
+    drag = null;
+  }
+
+  svg.addEventListener("pointerup", endDrag);
+  svg.addEventListener("pointerleave", function () { if (drag && !drag.moved) endDrag(); });
+
+  window.addEventListener("message", function (event) {
+    var data = event.data || {};
+    if (data.type !== "streamlit:render") return;
+    var args = data.args || {};
+    state.nodes = (args.nodes || []).map(function (n) {
+      return { id: n.id, x: n.x, y: n.y, label: n.label, color: n.color };
+    });
+    state.links = args.links || [];
+    state.selected = args.selected || null;
+    state.dark = !!args.dark;
+    render();
+    setHeight();
+  });
+
+  toParent({ type: "streamlit:componentReady", apiVersion: 1 });
+  setHeight();
+  render();
+})();
+</script>
+</body>
+</html>

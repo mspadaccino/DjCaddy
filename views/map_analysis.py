@@ -46,6 +46,7 @@ from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import (TransitionCost, along_path, closed_shape,
                              magic_sort, nearest)
 from views.components import pick_folder, play_table
+from views.graph_board import render_graph_builder
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
 # ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
@@ -733,6 +734,27 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
                "converters read.")
 
 
+def render_graph_section(store: MapStore) -> None:
+    """La lavagna: costruire un percorso un brano alla volta, alla djoid.
+
+    Lavora sui brani piazzati per intero, non su quelli filtrati dalla
+    sezione sopra: la lavagna è un secondo modo di scegliere, non un'
+    estensione del primo, e i suoi filtri (per ora solo il nome, in fase di
+    ricerca dei due brani di partenza) sono suoi.
+    """
+    if not len(store) or not store.placed:
+        return
+    placed = store.placed
+    frame = pd.DataFrame(store.rows[:placed])
+    frame["index"] = np.arange(len(frame))
+    cost = TransitionCost(store.coords[:placed], frame["bpm"].tolist(),
+                          frame["camelot"].tolist())
+    at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
+    pool = frame["index"].to_numpy()
+    render_graph_builder(frame, cost, pool, at_path,
+                         set_playlist=lambda idxs: remember_playlist(frame, idxs))
+
+
 @st.fragment(run_every=2)
 def render_progress() -> None:
     """L'avanzamento del job, che si aggiorna da solo ogni due secondi.
@@ -909,6 +931,12 @@ with st.expander("Map infos", expanded=not store.placed):
 # sempre la stessa forma.
 with st.container():
     render_map(store)
+
+st.divider()
+
+with st.expander("🕸️ Graph builder — grow a set one track at a time",
+                 expanded=bool(st.session_state.get("map::graph"))):
+    render_graph_section(store)
 
 st.divider()
 
