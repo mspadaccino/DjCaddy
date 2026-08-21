@@ -258,20 +258,58 @@ def _beside(place: tuple[float, float], seed: int) -> tuple[float, float]:
 
 
 def suggestions(cost: TransitionCost, seed: int, taken, k: int = 8,
-                pool=None) -> list[tuple[int, float]]:
+                pool=None, key_of=None) -> list[tuple[int, float, list[int]]]:
     """La rosa di brani da cui scegliere il prossimo, escluso il già preso.
 
     È `nearest` con una regola in più: quello che sta già sulla lavagna non
     si ripropone. Va escluso DOPO aver cercato e non prima, o si chiederebbe
     `k` candidati e se ne otterrebbero meno — per questo si pesca largo e si
     taglia dopo.
+
+    Ogni voce è `(brano, costo, copie)`. Senza `key_of` ogni brano fa voce a
+    sé e `copie` contiene lui soltanto.
+
+    Con `key_of` — una funzione che dice, dato un brano, quale musica è — le
+    copie dello stesso pezzo diventano UNA voce. Servono due cose che una
+    senza l'altra non bastano: due copie hanno gli stessi BPM e la stessa
+    tonalità, quindi esattamente lo stesso costo, e senza raccoglierle
+    occupano la rosa in fila l'una all'altra; e se una è già sulla lavagna
+    vanno escluse tutte, o si costruisce un set con lo stesso brano due
+    volte.
+
+    Quale delle copie usare non si decide qui. Le copie restano tutte nella
+    voce, e si sceglie al momento di prenderla: differiscono per cartella,
+    per bitrate, per come è scritto il nome, e scartarle adesso vorrebbe dire
+    decidere al posto di chi le ha messe lì.
     """
-    taken = set(int(t) for t in taken)
+    taken = {int(t) for t in taken}
     if k <= 0:
         return []
     # Quanto largo: abbastanza da sopravvivere a una lavagna che ha già
-    # mangiato i primi vicini, senza chiedere l'intera libreria.
-    reach = k + len(taken)
-    found = [(i, c) for i, c in nearest(cost, seed, reach, pool)
-             if i not in taken]
-    return found[:k]
+    # mangiato i primi vicini, senza chiedere l'intera libreria. Raggruppando
+    # serve più largo ancora, perché le copie che si fondono in una voce non
+    # ne aprono una nuova.
+    reach = (2 * k if key_of else k) + len(taken)
+    blocked = {key_of(t) for t in taken} if key_of else set()
+
+    found: list[tuple[int, float, list[int]]] = []
+    voices: dict = {}
+    for track, value in nearest(cost, seed, reach, pool):
+        if track in taken:
+            continue
+        if key_of is None:
+            found.append((track, value, [track]))
+            if len(found) == k:
+                break
+            continue
+        name = key_of(track)
+        if name in blocked:
+            continue
+        if name in voices:
+            # Una copia in più di una voce già aperta: si accoda anche a rosa
+            # piena, perché è un modo di prendere quella voce, non una voce.
+            voices[name][2].append(track)
+        elif len(found) < k:
+            voices[name] = (track, value, [track])
+            found.append(voices[name])
+    return found

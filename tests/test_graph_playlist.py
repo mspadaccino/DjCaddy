@@ -138,10 +138,44 @@ def _library():
 def test_suggestions_exclude_what_is_already_on_the_board():
     cost = _library()
     found = suggestions(cost, seed=0, taken={0, 1}, k=2)
-    assert [i for i, _ in found] == [2, 3]
+    assert [i for i, _, _ in found] == [2, 3]
 
 
 def test_suggestions_respect_a_pool():
     cost = _library()
     found = suggestions(cost, seed=0, taken=set(), k=5, pool=[0, 2])
-    assert [i for i, _ in found] == [2]
+    assert [i for i, _, _ in found] == [2]
+
+
+def test_suggestions_give_every_track_its_own_voice_without_a_key():
+    cost = _library()
+    found = suggestions(cost, seed=0, taken=set(), k=3)
+    assert [copies for _, _, copies in found] == [[1], [2], [3]]
+
+
+# I brani 1 e 2 sono due copie della stessa musica in cartelle diverse: hanno
+# gli stessi BPM e la stessa tonalità, quindi lo stesso costo da qualunque
+# sorgente, ed è per questo che si presentano in fila.
+_COPIES = {0: "a", 1: "b", 2: "b", 3: "c"}
+
+
+def test_suggestions_gather_the_copies_of_one_track_into_one_voice():
+    cost = _library()
+    found = suggestions(cost, seed=0, taken=set(), k=3, key_of=_COPIES.get)
+    assert [i for i, _, _ in found] == [1, 3]
+    assert found[0][2] == [1, 2]        # la copia viaggia con la voce
+
+
+def test_suggestions_drop_every_copy_of_what_is_already_on_the_board():
+    cost = _library()
+    found = suggestions(cost, seed=0, taken={1}, k=3, key_of=_COPIES.get)
+    # La 2 è l'altra copia della 1, che sta già sulla lavagna: proporla
+    # significherebbe mettere lo stesso brano due volte nello stesso set.
+    assert [i for i, _, _ in found] == [3]
+
+
+def test_suggestions_keep_collecting_copies_once_the_roster_is_full():
+    cost = _library()
+    found = suggestions(cost, seed=0, taken=set(), k=1, key_of=_COPIES.get)
+    assert [i for i, _, _ in found] == [1]
+    assert found[0][2] == [1, 2]

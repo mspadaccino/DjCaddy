@@ -21,6 +21,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
+from analysis.duplicates import normalized_name
 from analysis.graph_playlist import GraphPlaylist, suggestions
 from analysis.mixing import TransitionCost, bpm_shift, camelot_shift
 from views.components import NOW_PLAYING, render_player
@@ -364,7 +365,9 @@ def _render_frontier(frame: pd.DataFrame, cost: TransitionCost, pool,
                f"{_some(source, 'camelot') or '?'} · {source['genres']}")
 
     taken = {at_path[p] for p in graph.tracks if p in at_path}
-    picks = suggestions(cost, source_idx, taken, k=FRONTIER_SIZE, pool=pool)
+    picks = suggestions(cost, source_idx, taken, k=FRONTIER_SIZE, pool=pool,
+                        key_of=lambda i: normalized_name(
+                            Path(frame.at[i, "path"])))
     if not picks:
         st.info("No candidate left that passes the filters.")
         return
@@ -376,23 +379,34 @@ def _render_frontier(frame: pd.DataFrame, cost: TransitionCost, pool,
         # Le colonne si chiedono sempre tutte e tre, anche per una riga
         # spaiata: altrimenti l'ultima scheda si allargherebbe a tutta la
         # pagina e sembrerebbe importante più delle altre.
-        for col, (i, value) in zip(st.columns(FRONTIER_COLUMNS), row):
+        for col, voice in zip(st.columns(FRONTIER_COLUMNS), row):
             with col.container(border=True):
-                _render_candidate(frame, i, value, color_of, other,
+                _render_candidate(frame, voice, color_of, other,
                                   graph, source_path, source)
 
-    render_player({frame.at[i, "path"] for i, _ in picks})
+    render_player({frame.at[c, "path"]
+                   for _, _, copies in picks for c in copies})
 
 
-def _render_candidate(frame: pd.DataFrame, i: int, value: float,
-                      color_of: dict[str, str], other: str,
-                      graph: GraphPlaylist, source_path: str, source) -> None:
+def _render_candidate(frame: pd.DataFrame, voice: tuple, color_of: dict[str, str],
+                      other: str, graph: GraphPlaylist, source_path: str,
+                      source) -> None:
     """Una scheda della rosa, disegnata come i nodi sulla lavagna.
 
     Stessa faccia apposta: quello che si sceglie qui è quello che comparirà
     là, e vederlo cambiare aspetto nel passaggio costringerebbe a ritrovarlo.
+
+    Una voce può essere più copie dello stesso pezzo. In quel caso la scheda
+    resta una — occuparne tre con lo stesso brano è il motivo per cui si
+    raggruppa — e porta sotto un menu per dire QUALE copia. La scelta si
+    legge prima di disegnare, perché il menu sta in fondo alla scheda ma
+    decide i numeri che stanno in cima.
     """
-    row = frame.iloc[i]
+    i, value, copies = voice
+    chosen = st.session_state.get(f"graph_copy_{i}", i)
+    if chosen not in copies:
+        chosen = i
+    row = frame.iloc[chosen]
     swatch = color_of.get(row["top_genre"], other)
     camelot = _some(row, "camelot")
     bpm, dance = _some(row, "bpm"), _some(row, "danceability")
@@ -402,7 +416,9 @@ def _render_candidate(frame: pd.DataFrame, i: int, value: float,
         f"<div style='display:flex;gap:.5em;align-items:center'>"
         f"<span style='width:1.4em;height:1.4em;border-radius:.3em;"
         f"background:{swatch};flex:none'></span>"
-        f"<b>{_label(row['name'])}</b></div>"
+        f"<b>{_label(row['name'])}</b>"
+        f"{f'<span style=\"opacity:.55\">×{len(copies)}</span>' if len(copies) > 1 else ''}"
+        f"</div>"
         f"<div style='margin:.4em 0 .1em;font-size:.8em'>"
         f"{f'{bpm:.0f} BPM · ' if bpm is not None else ''}"
         f"<span style='background:{_camelot_color(camelot)};color:#1b1f27;"
@@ -411,6 +427,13 @@ def _render_candidate(frame: pd.DataFrame, i: int, value: float,
         f"<div style='margin:0 0 .2em;font-size:.78em;opacity:.65'>"
         f"{' · '.join(_shifts(source, row))} · cost {value:.3f}</div>",
         unsafe_allow_html=True)
+
+    if len(copies) > 1:
+        # La cartella è ciò che distingue una copia dall'altra: il nome, per
+        # definizione del raggruppamento, è lo stesso.
+        st.selectbox(f"{len(copies)} copies of this — which one",
+                     copies, key=f"graph_copy_{i}",
+                     format_func=lambda c: Path(frame.at[c, "path"]).parent.name)
 
     hear, take = st.columns([1, 2])
     if hear.button("▶", key=f"graph_hear_{i}", width="stretch",
