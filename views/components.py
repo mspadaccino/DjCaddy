@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 NOW_PLAYING = "components::now_playing"
+NOW_PLAYING_FROM = "components::now_playing_from"
 
 # Formati che il browser sa riprodurre da solo, col tipo MIME da dichiarare.
 # Dichiararlo evita di affidarsi a come il browser indovina il contenuto:
@@ -78,11 +79,12 @@ def play_table(section: str, table: pd.DataFrame, column_order: list[str],
     order_key, click_key = f"order::{section}", f"click::{section}"
     st.session_state[order_key] = list(table["_path"])
 
-    def _on_play(order_key=order_key, click_key=click_key):
+    def _on_play(order_key=order_key, click_key=click_key, section=section):
         click = st.session_state.get(click_key)
         order = st.session_state.get(order_key, [])
         if click and 0 <= click.get("row", -1) < len(order):
             st.session_state[NOW_PLAYING] = order[click["row"]]
+            st.session_state[NOW_PLAYING_FROM] = section
 
     shown = table.copy()
     shown.insert(0, "Play", "▶")
@@ -94,7 +96,7 @@ def play_table(section: str, table: pd.DataFrame, column_order: list[str],
         column_order=["Play", *column_order], column_config=config,
         **({} if editable else {"disabled": column_order}),
     )
-    render_player(set(table["_path"]))
+    render_player(set(table["_path"]), section)
     return edited
 
 
@@ -159,8 +161,15 @@ export default function (component) {
   const peaks = data.peaks || []
   const total = data.duration || 0
 
-  if (!root._audio) root._audio = new Audio()
-  const audio = root._audio
+  // UN SOLO oggetto Audio per tutta la pagina, tenuto su window e non
+  // sull'elemento. Un Audio creato per un componente che poi viene
+  // rimontato resta staccato dal DOM e CONTINUA A SUONARE: cambiando riga
+  // partivano due brani insieme, tre al clic dopo, e cosi' via. Misurato:
+  // il vecchio a 124,8 s "staccato: true, suona: true" mentre il nuovo
+  // ripartiva da zero.
+  if (!window.__wavecut_audio) window.__wavecut_audio = new Audio()
+  const audio = window.__wavecut_audio
+  root._audio = audio
 
   const clock_text = (s) => {
     if (!isFinite(s)) s = 0
@@ -196,8 +205,9 @@ export default function (component) {
     clock.textContent = clock_text(audio.currentTime) + " / " + clock_text(total)
   }
 
-  if (root._url !== data.url) {
-    root._url = data.url
+  if (window.__wavecut_url !== data.url) {
+    window.__wavecut_url = data.url
+    audio.pause()
     audio.src = data.url
     // il pulsante della riga E' la richiesta di ascoltare: si parte da soli
     audio.play().catch(() => {})
@@ -277,10 +287,18 @@ def _media_url(track: Path, mime: str) -> str | None:
         return None
 
 
-def render_player(paths_here: set) -> None:
-    """Il lettore del file scelto, se appartiene a questa tabella."""
+def render_player(paths_here: set, section: str = "") -> None:
+    """Il lettore del file scelto, sotto la tabella in cui e' stato scelto.
+
+    Il confronto e' sulla SEZIONE e non solo sul percorso: lo stesso file
+    puo' comparire in due tabelle della stessa pagina, e allora si
+    disegnavano due lettori per lo stesso brano.
+    """
     current = st.session_state.get(NOW_PLAYING)
     if current is None or current not in paths_here:
+        return
+    chosen_in = st.session_state.get(NOW_PLAYING_FROM, section)
+    if section and chosen_in and chosen_in != section:
         return
     track = Path(current)
     if not track.exists():
@@ -302,7 +320,7 @@ def render_player(paths_here: set) -> None:
     if wave and url:
         peaks, seconds = wave
         _wave_player(data={"url": url, "peaks": peaks, "duration": seconds},
-                     key=f"wave::{track}", height=110)
+                     key=f"wave::{section or 'solo'}", height=110)
         return
 
     try:
