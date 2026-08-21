@@ -593,9 +593,15 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
     # verso lo 0 il ritmo è sincopato (breakbeat, funk, roba non lineare).
     groove = f" · groove {row['danceability']:.2f}" \
         if row["danceability"] is not None and not pd.isna(row["danceability"]) else ""
-    st.markdown(f"**Seed — {row['name']}**  \n"
-                f"{row['bpm'] or '?'} BPM · {row['camelot'] or '?'}{groove} · "
-                f"{row['genres']}")
+    head, act = st.columns([4, 1])
+    head.markdown(f"**Seed — {row['name']}**  \n"
+                  f"{row['bpm'] or '?'} BPM · {row['camelot'] or '?'}{groove} · "
+                  f"{row['genres']}")
+    # Un brano solo basta ad aprire la lavagna, quindi il gesto più semplice
+    # sulla mappa — cliccare un punto — deve poterla aprire.
+    if act.button("🕸️ Start the board here", width="stretch"):
+        start_board(frame.at[seed, "path"])
+        st.rerun()
 
     w1, w2, w3 = st.columns(3)
     cost.w_map = w1.slider("Weight — sound", 0.0, 2.0, 1.0, 0.1,

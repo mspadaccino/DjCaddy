@@ -94,17 +94,17 @@ def _dark() -> bool:
     return getattr(theme, "type", None) == "dark"
 
 
-def start_board(first: str, second: str) -> None:
-    """Comincia la lavagna da due brani scelti altrove — la mappa qui sopra.
+def start_board(*tracks: str) -> None:
+    """Comincia la lavagna dai brani scelti — per nome, o sulla mappa sopra.
 
     Sta qui e non nella mappa perché le chiavi di sessione della lavagna
-    sono di questo modulo: chi la avvia deve poter dire quali due brani e
-    basta, senza sapere dove finiscono scritti.
+    sono di questo modulo: chi la avvia deve poter dire quali brani e basta,
+    senza sapere dove finiscono scritti.
     """
-    _save(GraphPlaylist().start(first, second))
-    # La sorgente è il secondo: è quello appena messo, ed è da lì che si
+    _save(GraphPlaylist().start(*tracks))
+    # La sorgente è l'ultimo: è quello appena messo, ed è da lì che si
     # continua — come dopo ogni altra aggiunta.
-    st.session_state[GRAPH_SOURCE] = second
+    st.session_state[GRAPH_SOURCE] = tracks[-1]
 
 
 def _graph() -> GraphPlaylist:
@@ -369,11 +369,10 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     del disegno a lazo qui sopra.
     """
     st.caption(
-        "In stile djoid: si parte da due brani sulla lavagna, collegati da "
-        "una linea. Da lì si cresce un passo alla volta — si sceglie una "
-        "sorgente, si vede la rosa di ciò che ci mixa dietro, se ne prende "
-        "uno. Ogni nodo si trascina col mouse; il collegamento dice da dove "
-        "è arrivato il suggerimento, non è decorazione.")
+        "Put one track on the board and grow the set a step at a time: pick "
+        "a card, look at what mixes out of it, take one. Cards can be "
+        "dragged anywhere; the line between two of them records which "
+        "suggestion came from where, and is not decoration.")
 
     graph = _graph()
     dark = _dark()
@@ -528,23 +527,21 @@ def _narrowed(frame: pd.DataFrame, options: list[int], key: str) -> list[int] | 
 
 
 def _render_start(frame: pd.DataFrame, pool) -> None:
-    st.markdown("**Start the board with two tracks.** A single track says "
-               "nothing about direction — a pair does.")
+    st.markdown("**Start the board with a track.** Everything else grows off "
+               "it, one suggestion at a time.")
     options = _narrowed(frame, pool.tolist(), "graph_start_search")
     if options is None:
         return
 
-    c1, c2, c3 = st.columns([3, 3, 2])
-    first = c1.selectbox("First track", options, index=None,
+    c1, c2 = st.columns([5, 2])
+    first = c1.selectbox("Track", options, index=None,
                          format_func=lambda i: frame.at[i, "name"],
-                         key="graph_start_first")
-    second = c2.selectbox("Second track", options, index=None,
-                          format_func=lambda i: frame.at[i, "name"],
-                          key="graph_start_second")
-    c3.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
-    if c3.button("▶ Start the board", type="primary", width="stretch",
-                disabled=first is None or second is None or first == second):
-        start_board(frame.at[first, "path"], frame.at[second, "path"])
+                         key="graph_start_first",
+                         placeholder="type part of a name")
+    c2.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
+    if c2.button("▶ Start the board", type="primary", width="stretch",
+                disabled=first is None):
+        start_board(frame.at[first, "path"])
         st.rerun()
 
 

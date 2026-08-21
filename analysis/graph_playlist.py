@@ -72,22 +72,33 @@ class GraphPlaylist:
 
     # -- scrittura ---------------------------------------------------------
 
-    def start(self, first: str, second: str,
-              spread: float = 0.22) -> "GraphPlaylist":
-        """Ricomincia da capo con due brani collegati fra loro.
+    def start(self, *tracks: str, spread: float = 0.22) -> "GraphPlaylist":
+        """Ricomincia da capo con uno o più brani, in fila e collegati.
 
-        Si parte da due e non da uno perché un solo brano non esprime niente:
-        è la coppia a dire in che direzione si sta andando, ed è dalla coppia
-        che i suggerimenti prendono senso.
+        Basta un brano. Per un po' ne servivano due, con la scusa che è la
+        coppia a dire in che direzione si sta andando — ma non era vero di
+        questo codice: `suggestions` chiede la rosa a UN brano solo, e il
+        secondo non entrava nel conto. Chiedere due cose per usarne una è far
+        pagare all'utente una regola che non esiste.
 
-        I due nascono affiancati al centro, a `spread` dal mezzo in coordinate
-        normalizzate (0..1): da lì li si sposta a mano.
+        Più di uno si accetta perché la selezione arriva anche da fuori — dal
+        gesto sulla mappa, che di brani ne prende quanti gliene si indicano —
+        e vanno in fila da sinistra a destra, collegati in sequenza: l'ordine
+        in cui sono stati scelti è l'unico che si conosca.
         """
-        if first == second:
-            raise ValueError("i due brani di partenza devono essere diversi")
-        self.places = {first: (0.5 - spread, 0.5), second: (0.5 + spread, 0.5)}
-        self.links = [(first, second)]
-        self.order = [first, second]
+        chosen = list(dict.fromkeys(tracks))
+        if not chosen:
+            raise ValueError("serve almeno un brano di partenza")
+        if len(chosen) != len(tracks):
+            raise ValueError("i brani di partenza devono essere diversi")
+        if len(chosen) == 1:
+            self.places = {chosen[0]: (0.5, 0.5)}
+        else:
+            step = 2 * spread / (len(chosen) - 1)
+            self.places = {track: (0.5 - spread + step * n, 0.5)
+                           for n, track in enumerate(chosen)}
+        self.links = list(zip(chosen, chosen[1:]))
+        self.order = chosen
         return self
 
     def add(self, source: str, track: str,

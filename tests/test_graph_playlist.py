@@ -14,9 +14,34 @@ def test_start_places_two_tracks_symmetrically():
     assert ax < 0.5 < bx
 
 
+def test_start_from_a_single_track():
+    graph = GraphPlaylist().start("a")
+    assert graph.tracks == ["a"]
+    assert graph.links == []
+    assert graph.places["a"] == (0.5, 0.5)
+
+
+def test_a_lone_track_can_still_grow_and_be_read():
+    graph = GraphPlaylist().start("a").add("a", "b").add("b", "c")
+    assert graph.walk() == ["a", "b", "c"]
+
+
+def test_start_lines_up_more_than_two_left_to_right():
+    graph = GraphPlaylist().start("a", "b", "c")
+    xs = [graph.places[t][0] for t in ["a", "b", "c"]]
+    assert xs == sorted(xs)
+    assert graph.linked("a", "b") and graph.linked("b", "c")
+    assert not graph.linked("a", "c")
+
+
 def test_start_refuses_the_same_track_twice():
     with pytest.raises(ValueError):
         GraphPlaylist().start("a", "a")
+
+
+def test_start_refuses_an_empty_board():
+    with pytest.raises(ValueError):
+        GraphPlaylist().start()
 
 
 def test_add_hangs_a_track_off_its_source():
