@@ -41,7 +41,7 @@
   // Il nodo è una scheda, non un pallino: djoid mostra copertina, titolo e
   // i numeri su cui si decide un mix, e senza quei numeri il grafo va
   // riletto altrove per capirlo.
-  var CARD_W = 108, ART_H = 84, BODY_H = 50, CARD_H = ART_H + BODY_H;
+  var CARD_W = 108, ART_H = 84, BODY_H = 70, CARD_H = ART_H + BODY_H;
   var MIN_Z = 0.35, MAX_Z = 2.6;
 
   var svg = document.getElementById("board");
@@ -192,10 +192,10 @@
       d: "M 7 0 H " + (CARD_W - 7) + " A 7 7 0 0 1 " + CARD_W + " 7 V " + ART_H +
          " H 0 V 7 A 7 7 0 0 1 7 0 Z", fill: n.color }));
 
-    g.appendChild(text(fit(n.label, 16), { x: 8, y: ART_H + 16, "font-size": 10.5,
+    g.appendChild(text(fit(n.label, 15), { x: 8, y: ART_H + 15, "font-size": 10.5,
                                            "font-weight": 700, fill: skin.ink }));
 
-    var row = el("g", { transform: "translate(8," + (ART_H + 22) + ")" });
+    var row = el("g", { transform: "translate(8," + (ART_H + 21) + ")" });
     var at = 0;
     if (n.bpm) {
       var b = text(n.bpm, { x: 0, y: 10.5, "font-size": 9, fill: skin.dim });
@@ -210,10 +210,17 @@
     if (n.dance) row.appendChild(chip(at, n.dance, skin.chip, skin.ink));
     g.appendChild(row);
 
+    // Come si muove rispetto alla scheda prima di lei: è la riga che rende
+    // leggibile l'arco del set scorrendo la catena, senza aprire nulla.
+    if (n.shift) {
+      g.appendChild(text(n.shift, { x: 8, y: ART_H + 48, "font-size": 8.5,
+                                    "font-weight": 600, fill: skin.dim }));
+    }
+
     if (n.genre) {
       var genre = fit(n.genre, 19);
       var gw = Math.min(CARD_W - 16, 4.6 * genre.length + 12);
-      var pill = el("g", { transform: "translate(8," + (ART_H + 38) + ")" });
+      var pill = el("g", { transform: "translate(8," + (ART_H + 54) + ")" });
       pill.appendChild(el("rect", { x: 0, y: 0, width: gw, height: 12, rx: 6,
                                     fill: skin.chip }));
       pill.appendChild(text(genre, { x: gw / 2, y: 9, "text-anchor": "middle",

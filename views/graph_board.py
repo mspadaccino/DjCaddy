@@ -143,6 +143,27 @@ def _shifts(source, row) -> list[str]:
     return out
 
 
+def _card_shift(source, row) -> str:
+    """Lo stesso scarto di `_shifts`, in forma corta per una scheda.
+
+    Solo tempo e ruota: sono i due che disegnano l'arco di un set, e su una
+    scheda larga cento pixel la terza voce non entrerebbe senza abbreviarla
+    fino a farne un indovinello. Il conto intero sta nella rosa, che ha
+    spazio.
+    """
+    if source is None:
+        return ""
+    parts = []
+    tempo = bpm_shift(_some(source, "bpm"), _some(row, "bpm"))
+    if tempo is not None:
+        parts.append(f"{round(tempo):+d} BPM")
+    wheel = camelot_shift(_some(source, "camelot"), _some(row, "camelot"))
+    if wheel is not None:
+        steps, mode = wheel
+        parts.append(f"{steps:+d} key" if steps else ("rel" if mode else "="))
+    return " · ".join(parts)
+
+
 def _label(name: str) -> str:
     name = Path(name).stem if "/" in name or "\\" in name else name
     return name if len(name) <= 22 else name[:21] + "…"
@@ -175,10 +196,18 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     other = OTHER_COLOR["dark" if dark else "light"]
     selected = st.session_state.get(GRAPH_SOURCE)
 
+    # Ogni scheda si confronta con quella che la precede NELLA SCALETTA, non
+    # con quella da cui è stata scelta: è l'ordine in cui il set uscirà, e
+    # quindi l'unico rispetto a cui "sale" o "scende" vuol dire qualcosa.
+    walk = graph.walk()
+    before = {track: walk[n - 1] for n, track in enumerate(walk) if n}
+
     nodes = []
     for path in graph.tracks:
         idx = at_path.get(path)
         row = frame.iloc[idx] if idx is not None else None
+        previous = at_path.get(before.get(path))
+        came_from = frame.iloc[previous] if previous is not None else None
         name = row["name"] if row is not None else Path(path).stem
         genre = row["top_genre"] if row is not None else None
         camelot = _some(row, "camelot")
@@ -192,6 +221,7 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
             "keyColor": _camelot_color(camelot),
             "dance": f"{dance:.2f}" if dance is not None else "",
             "genre": _label(genre) if genre else "",
+            "shift": _card_shift(came_from, row) if row is not None else "",
         })
     links = [{"a": a, "b": b} for a, b in graph.links]
 
