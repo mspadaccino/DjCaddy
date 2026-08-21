@@ -1,15 +1,19 @@
-"""La lavagna: un brano alla volta, come fa djoid nel suo "graph mode".
+"""La lavagna: un set che cresce un brano alla volta.
 
 `analysis.graph_playlist.GraphPlaylist` tiene la logica — brani, posizioni,
-collegamenti, sublist di adiacenti. Questo modulo è lo strato sopra che sa
-di pixel: un componente Streamlit fatto a mano (SVG puro, niente build npm)
-per il trascinare i nodi, e i controlli attorno per scegliere le due tracce
-di partenza e il prossimo passo dalla rosa di suggeriti.
+collegamenti. Questo modulo è lo strato sopra.
 
-Il componente non porta la sua logica: manda solo "questo nodo si è mosso
-qui", "questo nodo è stato cliccato", "questo nodo va tolto". La scelta di
-COSA succede dopo — aggiungere al grafo, cambiare la sorgente dei
-suggerimenti — resta in Python, dove sta anche il resto della pagina Map.
+**Si comanda dalle tabelle e si guarda la lavagna.** A sinistra la catena
+com'è finora, a destra i candidati che escono dal brano su cui si sta: si
+spunta, si aggiunge, e il disegno sotto si aggiorna. Prima la rosa era una
+griglia di schede da cliccare, e non funzionava — la stessa informazione che
+in colonna si legge e si ordina, lì stava in riquadri da cento pixel, e ogni
+scelta passava per un componente disegnato a mano.
+
+Alla lavagna resta il mestiere che sa fare, che è mostrare la forma: la
+catena, i colori dei generi, gli scarti fra un brano e il precedente. Ci si
+trascinano le schede per disporle e c'è il cestino per toglierne una, ma
+niente di ciò che vi si costruisce nasce lì.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ import streamlit.components.v1 as components
 from analysis.duplicates import normalized_name
 from analysis.graph_playlist import GraphPlaylist, suggestions
 from analysis.mixing import TransitionCost, bpm_shift, camelot_shift
-from views.components import NOW_PLAYING, render_player
+from views.components import play_table
 
 _FRONTEND_DIR = Path(__file__).parent / "graph_board_frontend"
 _graph_board = components.declare_component("graph_board", path=str(_FRONTEND_DIR))
@@ -41,13 +45,6 @@ PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
            "#4dd0c4", "#c9b037", "#6f8fd6", "#d66f6f", "#7fbf3f", "#bf7fd6"]
 OTHER_COLOR = {"light": "#9aa4b0", "dark": "#6b7684"}
 
-# Caldo sale, freddo scende. Doppioni di `skinOf` nel frontend della lavagna,
-# come la tavolozza qui sopra: il componente non può leggere da qui, e questi
-# due colori devono dire la stessa cosa nei due posti o le due letture si
-# smentiscono. Cambiarne uno vuol dire cambiare anche l'altro.
-WAY_COLOR = {"light": {1: "#a8600f", -1: "#25689e"},
-             "dark": {1: "#e0a260", -1: "#7fb4e0"}}
-
 GRAPH_STATE = "map::graph"
 GRAPH_SOURCE = "map::graph_source"
 GRAPH_KEYS = "map::graph_keys"
@@ -61,10 +58,8 @@ GRAPH_EVENT = "map::graph_event"
 # si cerca prima, si sceglie dopo.
 START_PICKER_MAX = 2000
 
-# La rosa sta su tre colonne, come in djoid: nove candidati sono abbastanza
-# da avere una scelta vera e pochi abbastanza da guardarli tutti in una volta
-# senza scorrere.
-FRONTIER_COLUMNS = 3
+# Quanti candidati proporre a ogni passo. Nove bastano a una scelta vera e
+# stanno in una tabella senza doverla scorrere.
 FRONTIER_SIZE = 9
 
 
@@ -133,38 +128,14 @@ def _some(row, column: str):
     return value if pd.notna(value) and value != "" else None
 
 
-def _shifts(source, row) -> list[tuple[str, int]]:
-    """Come cambia il brano rispetto a quello da cui lo si sta scegliendo.
+def _read_only(*columns: str) -> dict:
+    """Colonne che si guardano e basta.
 
-    Per esteso, perché nella rosa si legge con attenzione invece di scorrere:
-    qui si sta valutando una scelta, sulla lavagna si segue un arco.
-
-    Il costo dice quanto due brani sono lontani; questi dicono da che parte,
-    e sono la cosa che il costo non può dire perché non ha segno. Restano
-    fuori dall'ordinamento apposta: un set sale, tiene e lascia cadere, e
-    ordinare per direzione vorrebbe dire scegliere quale al posto del DJ.
+    Gemella di quella in `views.map_analysis`, e duplicata per la stessa
+    ragione della tavolozza: quel modulo importa questo, e importarlo di
+    rimando chiuderebbe il giro. È una riga.
     """
-    gaps = _gaps(source, row)
-    out = []
-    if "bpm" in gaps:
-        out.append((f"{gaps['bpm']:+d} BPM", _way(gaps["bpm"])))
-    if "key" in gaps:
-        # Zero passi con la lettera cambiata non è "niente": è il relativo
-        # maggiore o minore, che è una mossa e va detta.
-        steps, mode = gaps["key"]
-        out.append((f"{steps:+d} wheel", _way(steps)) if steps
-                   else (("relative", 0) if mode else ("same key", 0)))
-    if "dance" in gaps:
-        out.append((f"{gaps['dance']:+.2f} dance", _way(gaps["dance"])))
-    return out
-
-
-def _tinted(moves: list[tuple[str, int]]) -> str:
-    """Gli scarti come HTML, ognuno col colore del proprio verso."""
-    tint = WAY_COLOR["dark" if _dark() else "light"]
-    return " · ".join(
-        f"<span style='color:{tint[way]}'>{text}</span>" if way else text
-        for text, way in moves)
+    return {name: st.column_config.Column(disabled=True) for name in columns}
 
 
 def _render_filters(frame: pd.DataFrame, pool) -> "np.ndarray | list":
@@ -394,6 +365,8 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     before = {track: walk[n - 1] for n, track in enumerate(walk) if n}
     span = _drive_span(frame)
 
+    _render_tables(frame, cost, pool, at_path, graph, walk, before)
+
     nodes = []
     for path in graph.tracks:
         idx = at_path.get(path)
@@ -438,11 +411,10 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
                 st.session_state[GRAPH_SOURCE] = graph.tracks[-1] if graph.tracks else None
             st.rerun(scope="fragment")
 
-    st.caption("**Drag** a card to move it · **click** a card to branch new "
-               "suggestions from it · the **bin** under the selected card "
-               "removes it and reconnects its neighbours · **scroll** to "
-               "zoom, drag the background to pan, drag inside the **minimap** "
-               "to move the view · **⛶** goes full screen.")
+    st.caption("**Drag** a card to arrange it · the **bin** under the "
+               "selected card removes it and reconnects its neighbours · "
+               "**scroll** to zoom, drag the background to pan, drag inside "
+               "the **minimap** to move the view · **⛶** goes full screen.")
 
     c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
     if c1.button("↺ Restart the board", width="stretch"):
@@ -462,8 +434,140 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
         st.rerun()
     c4.caption(f"{len(graph)} track(s) on the board.")
 
-    _render_frontier(frame, cost, pool, at_path, graph)
     _render_by_hand(frame, pool, at_path, graph)
+
+
+def _spelled(row, source) -> dict:
+    """Le colonne comuni alle due tabelle: quelle che stanno sulle schede.
+
+    Le stesse voci e con gli stessi nomi da una parte e dall'altra, perché il
+    brano che si guarda a destra è quello che comparirà a sinistra, e
+    cambiargli le colonne nel passaggio costringerebbe a ritrovarlo.
+    """
+    bpm, dance = _some(row, "bpm"), _some(row, "danceability")
+    gaps = _gaps(source, row)
+    steps = gaps.get("key")
+    return {
+        "file": row["name"],
+        "BPM": round(bpm) if bpm is not None else None,
+        "key": _some(row, "camelot") or "",
+        "groove": round(dance, 2) if dance is not None else None,
+        "Δbpm": gaps.get("bpm"),
+        "Δkey": (steps[0] if steps[0] else ("rel" if steps[1] else "="))
+        if steps is not None else None,
+        "Δgroove": gaps.get("dance"),
+        "genres": row["genres"],
+    }
+
+
+def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
+                   at_path: dict[str, int], graph: GraphPlaylist,
+                   walk: list[str], before: dict[str, str]) -> None:
+    """La catena a sinistra, i candidati a destra, e il grafo che ne segue.
+
+    Le tabelle sono il comando e la lavagna è il quadro. Il contrario — la
+    rosa disegnata come schede da cliccare — costringeva a scegliere fra
+    riquadri di cento pixel dove la stessa informazione, in colonna, si legge
+    e si ordina; e ogni scelta passava per un componente disegnato a mano,
+    con tutto quello che comporta un gesto che deve sopravvivere a un giro di
+    pagina.
+    """
+    chain, roster = st.columns(2)
+
+    with chain:
+        st.markdown(f"**The chain — {len(walk)} track(s)**")
+        table = pd.DataFrame([
+            {"#": n + 1,
+             **_spelled(frame.iloc[at_path[path]],
+                        frame.iloc[at_path[before[path]]]
+                        if path in before and before[path] in at_path else None),
+             "_path": path}
+            for n, path in enumerate(walk) if path in at_path])
+        play_table("graph_chain", table,
+                   ["#", "file", "BPM", "key", "groove",
+                    "Δbpm", "Δkey", "Δgroove", "genres"],
+                   _read_only("#", "file", "BPM", "key", "groove",
+                              "Δbpm", "Δkey", "Δgroove", "genres"),
+                   editable=False, editor_key="graph_chain_editor")
+        # La sorgente di default è l'ultimo arrivato, che è da dove si
+        # continua nove volte su dieci; cambiarla serve a ramificare.
+        # La chiave porta dentro la lunghezza della catena: finché non
+        # cambia, la scelta fatta a mano resta; appena cresce, il menu è un
+        # altro menu e riparte dal fondo — che è dove si è appena arrivati.
+        # Riscrivere il valore di un widget già creato Streamlit lo vieta, e
+        # cancellarne la chiave a metà pagina lasciava il menu a indicare un
+        # brano diverso da quello su cui la rosa stava lavorando.
+        here = st.selectbox(
+            "Branch from", walk, index=len(walk) - 1,
+            format_func=lambda p: frame.at[at_path[p], "name"]
+            if p in at_path else Path(p).stem,
+            key=f"graph_branch_from::{len(walk)}")
+        if st.button("🗑 Remove it from the chain", width="stretch",
+                     disabled=len(walk) < 2):
+            graph.remove(here)
+            _save(graph)
+            st.session_state[GRAPH_SOURCE] = graph.tracks[-1] if graph.tracks else None
+            st.rerun(scope="fragment")
+
+    st.session_state[GRAPH_SOURCE] = here
+    with roster:
+        _render_roster(frame, cost, pool, at_path, graph, here)
+
+
+def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
+                   at_path: dict[str, int], graph: GraphPlaylist,
+                   source_path: str) -> None:
+    """I candidati che escono dal brano scelto, da spuntare e aggiungere."""
+    source_idx = at_path.get(source_path)
+    if source_idx is None:
+        return
+    source = frame.iloc[source_idx]
+    st.markdown(f"**Mixes out of — {_label(source['name'])}**")
+
+    taken = {at_path[p] for p in graph.tracks if p in at_path}
+    picks = suggestions(cost, source_idx, taken, k=FRONTIER_SIZE, pool=pool,
+                        key_of=lambda i: normalized_name(
+                            Path(frame.at[i, "path"])))
+    if not picks:
+        st.info("No candidate left that passes the filters.")
+        return
+
+    table = pd.DataFrame([
+        {"Add": False, "cost": round(value, 3),
+         **_spelled(frame.iloc[i], source),
+         # Le copie dello stesso pezzo restano una voce sola. Il numero dice
+         # quante ce ne sono: si aggiunge la più economica, e se ne serve
+         # un'altra precisa c'è "Add a track by name" qui sotto.
+         "copies": len(copies) if len(copies) > 1 else None,
+         "_path": frame.at[i, "path"], "_row": i}
+        for i, value, copies in picks])
+
+    edited = play_table(
+        "graph_roster", table,
+        ["Add", "cost", "file", "BPM", "key", "groove",
+         "Δbpm", "Δkey", "Δgroove", "copies", "genres"],
+        {"Add": st.column_config.CheckboxColumn(
+            "Add", help="Tick what you want next, then the button below."),
+         **_read_only("cost", "file", "BPM", "key", "groove",
+                      "Δbpm", "Δkey", "Δgroove", "copies", "genres")},
+        # Come per il menu: cambiata la sorgente o cresciuta la catena, le
+        # righe sotto sono altre e le spunte di prima indicherebbero brani
+        # che nessuno ha scelto.
+        editor_key=f"graph_roster_editor::{source_path}::{len(graph)}")
+
+    wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
+    if st.button(f"➕ Add {len(wanted)} to the chain", type="primary",
+                 width="stretch", disabled=not wanted):
+        # In fila uno dietro l'altro: spuntarne tre vuol dire "poi questi
+        # tre", e attaccarli tutti alla stessa sorgente farebbe tre rami
+        # invece di un seguito.
+        previous = source_path
+        for i in wanted:
+            graph.add(previous, frame.at[i, "path"])
+            previous = frame.at[i, "path"]
+        _save(graph)
+        st.session_state[GRAPH_SOURCE] = previous
+        st.rerun(scope="fragment")
 
 
 def _render_by_hand(frame: pd.DataFrame, pool, at_path: dict[str, int],
@@ -562,104 +666,4 @@ def _render_start(frame: pd.DataFrame, pool, chosen: list[int]) -> None:
     if c2.button("▶ Start the board", type="primary", width="stretch",
                 disabled=first is None):
         start_board(frame.at[first, "path"])
-        st.rerun(scope="fragment")
-
-
-def _render_frontier(frame: pd.DataFrame, cost: TransitionCost, pool,
-                     at_path: dict[str, int], graph: GraphPlaylist) -> None:
-    source_path = st.session_state.get(GRAPH_SOURCE)
-    if source_path is None or source_path not in graph:
-        st.info("Click a track on the board to see what mixes out of it.")
-        return
-    source_idx = at_path.get(source_path)
-    if source_idx is None:
-        return
-
-    source = frame.iloc[source_idx]
-    bpm = _some(source, "bpm")
-    st.markdown(f"**Branching from — {source['name']}**  \n"
-               f"{f'{bpm:.0f}' if bpm is not None else '?'} BPM · "
-               f"{_some(source, 'camelot') or '?'} · {source['genres']}")
-
-    taken = {at_path[p] for p in graph.tracks if p in at_path}
-    picks = suggestions(cost, source_idx, taken, k=FRONTIER_SIZE, pool=pool,
-                        key_of=lambda i: normalized_name(
-                            Path(frame.at[i, "path"])))
-    if not picks:
-        st.info("No candidate left that passes the filters.")
-        return
-
-    color_of = _color_map(frame)
-    other = OTHER_COLOR["dark" if _dark() else "light"]
-    for start in range(0, len(picks), FRONTIER_COLUMNS):
-        row = picks[start:start + FRONTIER_COLUMNS]
-        # Le colonne si chiedono sempre tutte e tre, anche per una riga
-        # spaiata: altrimenti l'ultima scheda si allargherebbe a tutta la
-        # pagina e sembrerebbe importante più delle altre.
-        for col, voice in zip(st.columns(FRONTIER_COLUMNS), row):
-            with col.container(border=True):
-                _render_candidate(frame, voice, color_of, other,
-                                  graph, source_path, source)
-
-    render_player({frame.at[c, "path"]
-                   for _, _, copies in picks for c in copies})
-
-
-def _render_candidate(frame: pd.DataFrame, voice: tuple, color_of: dict[str, str],
-                      other: str, graph: GraphPlaylist, source_path: str,
-                      source) -> None:
-    """Una scheda della rosa, disegnata come i nodi sulla lavagna.
-
-    Stessa faccia apposta: quello che si sceglie qui è quello che comparirà
-    là, e vederlo cambiare aspetto nel passaggio costringerebbe a ritrovarlo.
-
-    Una voce può essere più copie dello stesso pezzo. In quel caso la scheda
-    resta una — occuparne tre con lo stesso brano è il motivo per cui si
-    raggruppa — e porta sotto un menu per dire QUALE copia. La scelta si
-    legge prima di disegnare, perché il menu sta in fondo alla scheda ma
-    decide i numeri che stanno in cima.
-    """
-    i, value, copies = voice
-    chosen = st.session_state.get(f"graph_copy_{i}", i)
-    if chosen not in copies:
-        chosen = i
-    row = frame.iloc[chosen]
-    swatch = color_of.get(row["top_genre"], other)
-    camelot = _some(row, "camelot")
-    bpm, dance = _some(row, "bpm"), _some(row, "danceability")
-    # Due righe e non una: sopra che brano è, sotto come si muove rispetto a
-    # dove sei. Mescolate fra parentesi si leggono male entrambe.
-    st.markdown(
-        f"<div style='display:flex;gap:.5em;align-items:center'>"
-        f"<span style='width:1.4em;height:1.4em;border-radius:.3em;"
-        f"background:{swatch};flex:none'></span>"
-        f"<b>{_label(row['name'])}</b>"
-        f"{f'<span style=\"opacity:.55\">×{len(copies)}</span>' if len(copies) > 1 else ''}"
-        f"</div>"
-        f"<div style='margin:.4em 0 .1em;font-size:.8em'>"
-        f"{f'{bpm:.0f} BPM · ' if bpm is not None else ''}"
-        f"<span style='background:{_camelot_color(camelot)};color:#1b1f27;"
-        f"padding:.1em .4em;border-radius:.3em'>{camelot or '?'}</span>"
-        f"{f' · {dance:.2f} dance' if dance is not None else ''}</div>"
-        f"<div style='margin:0 0 .2em;font-size:.78em;opacity:.8'>"
-        f"{_tinted(_shifts(source, row))}"
-        f"<span style='opacity:.6'> · cost {value:.3f}</span></div>",
-        unsafe_allow_html=True)
-
-    if len(copies) > 1:
-        # La cartella è ciò che distingue una copia dall'altra: il nome, per
-        # definizione del raggruppamento, è lo stesso.
-        st.selectbox(f"{len(copies)} copies of this — which one",
-                     copies, key=f"graph_copy_{i}",
-                     format_func=lambda c: Path(frame.at[c, "path"]).parent.name)
-
-    hear, take = st.columns([1, 2])
-    if hear.button("▶", key=f"graph_hear_{i}", width="stretch",
-                   help="Hear it before you commit to it."):
-        st.session_state[NOW_PLAYING] = row["path"]
-        st.rerun(scope="fragment")
-    if take.button("➕ Add", key=f"graph_pick_{i}", width="stretch"):
-        graph.add(source_path, row["path"])
-        _save(graph)
-        st.session_state[GRAPH_SOURCE] = row["path"]
         st.rerun(scope="fragment")
