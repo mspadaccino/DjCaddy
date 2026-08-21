@@ -54,8 +54,12 @@
   var pan = null;    // trascinamento dello sfondo
   var scene = null, edgeGroup = null;
 
+  // `isStreamlitMessage` non è decorazione: Streamlit scarta senza guardare
+  // ogni messaggio che non ce l'ha. Senza, il riquadro resta alto zero e non
+  // gli arriva mai il primo render, perché non è mai risultato pronto.
   function toParent(msg) {
-    window.parent.postMessage(Object.assign({}, msg), "*");
+    window.parent.postMessage(
+      Object.assign({ isStreamlitMessage: true }, msg), "*");
   }
 
   function setHeight() {
