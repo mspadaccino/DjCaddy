@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+  svg { display: block; width: 100%; user-select: none; }
+  .slice { cursor: pointer; }
+  .slice text { pointer-events: none; }
+  .wheel-text {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<svg id="wheel"></svg>
+<script>
+(function () {
+  "use strict";
+
+  var SIZE = 260, MID = SIZE / 2;
+  // Due anelli concentrici: fuori il maggiore (B), dentro il minore (A). È
+  // la disposizione dei lettori per DJ, e conta che resti quella: chi la
+  // conosce cerca il relativo di 8A guardando dentro allo stesso spicchio.
+  var RINGS = { B: [92, 122], A: [58, 90] };
+
+  var svg = document.getElementById("wheel");
+  svg.setAttribute("viewBox", "0 0 " + SIZE + " " + SIZE);
+
+  var state = { selected: [], colors: {}, dark: false };
+
+  function toParent(msg) {
+    window.parent.postMessage(
+      Object.assign({ isStreamlitMessage: true }, msg), "*");
+  }
+
+  function el(tag, attrs) {
+    var e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  function at(radius, angle) {
+    return [MID + radius * Math.cos(angle), MID + radius * Math.sin(angle)];
+  }
+
+  // Lo spicchio di corona fra due raggi e due angoli. Si disegna il bordo
+  // esterno in senso orario e quello interno al contrario, così la figura si
+  // chiude su sé stessa invece di lasciare un buco.
+  function slice(rIn, rOut, a0, a1) {
+    var o0 = at(rOut, a0), o1 = at(rOut, a1);
+    var i1 = at(rIn, a1), i0 = at(rIn, a0);
+    return "M " + o0 + " A " + rOut + " " + rOut + " 0 0 1 " + o1 +
+           " L " + i1 + " A " + rIn + " " + rIn + " 0 0 0 " + i0 + " Z";
+  }
+
+  function render() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var ink = state.dark ? "#eef1f6" : "#1b1f27";
+    var chosen = {};
+    state.selected.forEach(function (code) { chosen[code] = true; });
+    // Con niente di scelto non si sta filtrando niente: si accendono tutti,
+    // perché una ruota tutta spenta direbbe "nessuna tonalità passa", che è
+    // il contrario di quello che succede.
+    var idle = state.selected.length === 0;
+
+    ["B", "A"].forEach(function (mode) {
+      var ring = RINGS[mode];
+      for (var n = 1; n <= 12; n++) {
+        var code = n + mode;
+        // Il numero 1 in cima e poi in senso orario, come sui lettori.
+        var mid = (n - 1) * Math.PI / 6 - Math.PI / 2;
+        var a0 = mid - Math.PI / 12 + 0.012;
+        var a1 = mid + Math.PI / 12 - 0.012;
+        var on = idle || chosen[code];
+
+        var g = el("g", { class: "slice", "data-code": code });
+        g.appendChild(el("path", {
+          d: slice(ring[0], ring[1], a0, a1),
+          fill: state.colors[code] || "#c7ccd4",
+          "fill-opacity": on ? 1 : 0.18,
+          stroke: chosen[code] ? ink : "none",
+          "stroke-width": 1.5,
+        }));
+        var seat = at((ring[0] + ring[1]) / 2, mid);
+        var label = el("text", {
+          class: "wheel-text", x: seat[0], y: seat[1] + 3.5,
+          "text-anchor": "middle", "font-size": 9.5,
+          "font-weight": chosen[code] ? 700 : 500,
+          fill: on ? "#1b1f27" : ink, "fill-opacity": on ? 1 : 0.45,
+        });
+        label.textContent = code;
+        g.appendChild(label);
+        g.addEventListener("click", function (code) {
+          return function () {
+            toParent({ type: "streamlit:setComponentValue", dataType: "json",
+                       value: { code: code, at: Date.now() } });
+          };
+        }(code));
+        svg.appendChild(g);
+      }
+    });
+
+    var caption = el("text", {
+      class: "wheel-text", x: MID, y: MID + 3, "text-anchor": "middle",
+      "font-size": 10, fill: ink, "fill-opacity": 0.55,
+    });
+    caption.textContent = idle ? "all keys" : state.selected.length + " chosen";
+    svg.appendChild(caption);
+  }
+
+  window.addEventListener("message", function (event) {
+    var data = event.data || {};
+    if (data.type !== "streamlit:render") return;
+    var args = data.args || {};
+    state.selected = args.selected || [];
+    state.colors = args.colors || {};
+    state.dark = !!args.dark;
+    render();
+    toParent({ type: "streamlit:setFrameHeight", height: SIZE + 8 });
+  });
+
+  toParent({ type: "streamlit:componentReady", apiVersion: 1 });
+  toParent({ type: "streamlit:setFrameHeight", height: SIZE + 8 });
+  render();
+})();
+</script>
+</body>
+</html>

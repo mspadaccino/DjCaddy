@@ -15,8 +15,10 @@ suggerimenti — resta in Python, dove sta anche il resto della pagina Map.
 from __future__ import annotations
 
 import colorsys
+from collections import Counter
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -29,6 +31,9 @@ from views.components import NOW_PLAYING, render_player
 _FRONTEND_DIR = Path(__file__).parent / "graph_board_frontend"
 _graph_board = components.declare_component("graph_board", path=str(_FRONTEND_DIR))
 
+_WHEEL_DIR = Path(__file__).parent / "camelot_wheel_frontend"
+_camelot_wheel = components.declare_component("camelot_wheel", path=str(_WHEEL_DIR))
+
 # Tavolozza duplicata da `views.map_analysis` apposta: importarla da lì
 # creerebbe un giro (quel modulo importa questa sezione), e sono dodici
 # colori — il doppione costa meno del giro.
@@ -38,6 +43,8 @@ OTHER_COLOR = {"light": "#9aa4b0", "dark": "#6b7684"}
 
 GRAPH_STATE = "map::graph"
 GRAPH_SOURCE = "map::graph_source"
+GRAPH_KEYS = "map::graph_keys"
+GRAPH_KEYS_EVENT = "map::graph_keys_event"
 # L'ultimo gesto già eseguito. Vedi `sendValue` nel frontend: il componente
 # ridà lo stesso valore a ogni rerun, e senza ricordarsene un click sulla
 # lavagna si rieseguirebbe all'infinito.
@@ -144,6 +151,105 @@ def _shifts(source, row) -> list[str]:
     return out
 
 
+def _render_filters(frame: pd.DataFrame, pool) -> "np.ndarray | list":
+    """I filtri della lavagna, e i brani che li passano.
+
+    Sono suoi e non quelli della mappa qui sopra: la lavagna è un secondo
+    modo di scegliere, non un'estensione del primo. Restringono la rosa e i
+    due brani di partenza — cioè tutto quello che la lavagna propone — ma
+    non toccano i brani che ci sono già finiti sopra: filtrare via un nodo
+    già posato spezzerebbe una scaletta che qualcuno ha costruito.
+    """
+    keys = st.session_state.get(GRAPH_KEYS) or []
+    kept = frame.loc[list(pool)] if len(pool) != len(frame) else frame
+
+    # Scegliere una tonalità sulla ruota rilancia la pagina, e un pannello
+    # che torna al suo stato di riposo si richiuderebbe sotto le dita al
+    # primo click. Resta aperto finché la ruota è stata toccata almeno una
+    # volta, anche dopo aver tolto l'ultima tonalità — chi sta filtrando non
+    # ha finito solo perché ha svuotato la scelta.
+    touched = GRAPH_KEYS_EVENT in st.session_state
+    with st.expander(f"Filters — they narrow the roster"
+                     f"{f' · {len(keys)} key(s)' if keys else ''}",
+                     expanded=bool(keys or touched)):
+        wheel, rest = st.columns([2, 3])
+
+        with wheel:
+            st.caption("Pick the keys you want to land on. Nothing picked "
+                       "means every key is welcome.")
+            event = _camelot_wheel(
+                selected=keys, colors=_CAMELOT_COLORS, dark=_dark(),
+                key="graph_wheel", default=None)
+            if event and event.get("at") != st.session_state.get(GRAPH_KEYS_EVENT):
+                st.session_state[GRAPH_KEYS_EVENT] = event.get("at")
+                code = event.get("code")
+                st.session_state[GRAPH_KEYS] = (
+                    [k for k in keys if k != code] if code in keys
+                    else keys + [code])
+                st.rerun()
+
+        with rest:
+            genres = Counter(g for tags in
+                             frame["genres"].fillna("").str.split("; ")
+                             for g in tags if g)
+            chosen = st.multiselect(
+                "Genres", [g for g, _ in genres.most_common()],
+                key="graph_genres",
+                help="A track carrying any of the chosen genres stays.")
+            tempo = _range_of(frame, "bpm", 60.0, 200.0)
+            bpm = st.slider("BPM", tempo[0], tempo[1], tempo, key="graph_bpm")
+            swing = _range_of(frame, "danceability", 0.0, 1.0)
+            dance = st.slider("Danceability", swing[0], swing[1], swing,
+                              step=0.01, key="graph_dance",
+                              help="Regularity of the onsets: low is loose, "
+                                   "high is a straight kick.")
+            if st.button("↺ Reset the filters", width="stretch"):
+                _reset_filters()
+                st.rerun()
+
+        if chosen:
+            wanted = set(chosen)
+            kept = kept[kept["genres"].fillna("").str.split("; ").map(
+                lambda tags: bool(wanted & set(tags)))]
+        if keys:
+            kept = kept[kept["camelot"].isin(keys)]
+        # Un brano senza BPM o senza danceability non viene escluso da un
+        # intervallo su quel valore: non sappiamo dove cade, e farlo sparire
+        # sarebbe rispondere "no" a una domanda che non è stata posta.
+        kept = kept[kept["bpm"].isna() | kept["bpm"].between(*bpm)]
+        kept = kept[kept["danceability"].isna()
+                    | kept["danceability"].between(*dance)]
+        st.caption(f"**{len(kept):,}** of {len(frame):,} tracks pass — "
+                   "the roster and the two starting tracks come from these.")
+
+    return kept.index.to_numpy()
+
+
+def _range_of(frame: pd.DataFrame, column: str,
+              fallback_low: float, fallback_high: float) -> tuple[float, float]:
+    """Gli estremi veri di una colonna, per non offrire una corsa vuota.
+
+    Uno slider 0..200 su una libreria che sta fra 110 e 130 è quasi tutto
+    corsa morta. I due estremi devono comunque restare diversi fra loro,
+    anche quando la colonna è vuota o porta un valore solo: uno slider che
+    parte e finisce nello stesso punto non si disegna.
+    """
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    if not len(values):
+        return (fallback_low, fallback_high)
+    low, high = float(values.min()), float(values.max())
+    return (low, high) if high > low else (low, low + 1.0)
+
+
+def _reset_filters() -> None:
+    for key in (GRAPH_KEYS, "graph_genres", "graph_bpm", "graph_dance"):
+        st.session_state.pop(key, None)
+
+
+_CAMELOT_COLORS = {f"{n}{mode}": _camelot_color(f"{n}{mode}")
+                   for n in range(1, 13) for mode in "AB"}
+
+
 def _drive_span(frame: pd.DataFrame) -> tuple[float, float]:
     """Fra quali due valori di danceability tendere la scala del colore.
 
@@ -233,6 +339,7 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
 
     graph = _graph()
     dark = _dark()
+    pool = _render_filters(frame, pool)
 
     if not len(graph):
         _render_start(frame, pool)
