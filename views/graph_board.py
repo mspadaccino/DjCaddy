@@ -143,7 +143,41 @@ def _shifts(source, row) -> list[str]:
     return out
 
 
-def _card_shifts(source, row) -> dict[str, str]:
+def _drive_span(frame: pd.DataFrame) -> tuple[float, float]:
+    """Fra quali due valori di danceability tendere la scala del colore.
+
+    Non fra 0 e 1: la misura è la regolarità degli attacchi, e in una
+    libreria vera si stringe attorno al mezzo — nella mia, metà dei brani
+    sta fra 0.54 e 0.66. Tesa su 0..1 la scala dipingerebbe tutte le schede
+    dello stesso grigio. Si tara sui decili di QUESTA libreria, come il lazo
+    si tara sulla diagonale della mappa invece che su un raggio assoluto.
+    """
+    values = pd.to_numeric(frame["danceability"], errors="coerce").dropna()
+    if len(values) < 20:
+        return (0.0, 1.0)
+    low, high = float(values.quantile(0.1)), float(values.quantile(0.9))
+    return (low, high) if high > low else (0.0, 1.0)
+
+
+def _drive(value, span: tuple[float, float]) -> float | None:
+    """Dove cade questo brano nella scala, da 0 a 1. Fuori scala si appiattisce
+    agli estremi: un valore raro non deve allargare la scala per tutti."""
+    if value is None:
+        return None
+    low, high = span
+    return min(1.0, max(0.0, (value - low) / (high - low)))
+
+
+def _way(value) -> int:
+    """Il verso di uno scarto: +1 sale, -1 scende, 0 sta fermo.
+
+    I confronti si convertono a mano: questi numeri arrivano dal frame, cioè
+    da numpy, e sottrarre due suoi booleani è un errore invece che 1 o 0.
+    """
+    return int(value > 0) - int(value < 0)
+
+
+def _card_shifts(source, row) -> dict[str, tuple[str, int]]:
     """Gli stessi scarti di `_shifts`, una cella per colonna della scheda.
 
     Scritti di seguito non ci starebbero, e abbreviarli in "+0 · -1 · +.05"
@@ -158,16 +192,20 @@ def _card_shifts(source, row) -> dict[str, str]:
     out = {}
     tempo = bpm_shift(_some(source, "bpm"), _some(row, "bpm"))
     if tempo is not None:
-        out["bpm"] = f"{round(tempo):+d}"
+        out["bpm"] = (f"{round(tempo):+d}", _way(round(tempo)))
     wheel = camelot_shift(_some(source, "camelot"), _some(row, "camelot"))
     if wheel is not None:
         steps, mode = wheel
-        out["key"] = f"{steps:+d}" if steps else ("rel" if mode else "=")
+        # Il relativo maggiore o minore non sale né scende: cambia colore al
+        # brano restando dov'è, e tingerlo di verso direbbe una cosa falsa.
+        out["key"] = ((f"{steps:+d}", _way(steps)) if steps
+                      else (("rel", 0) if mode else ("=", 0)))
     here, there = _some(source, "danceability"), _some(row, "danceability")
     if here is not None and there is not None:
         # Senza lo zero davanti: sotto una colonna di trentotto pixel "+0.05"
         # e "+.05" dicono la stessa cosa e solo uno dei due ci sta.
-        out["dance"] = f"{there - here:+.2f}".replace("0.", ".")
+        gap = round(there - here, 2)
+        out["dance"] = (f"{gap:+.2f}".replace("0.", "."), _way(gap))
     return out
 
 
@@ -208,6 +246,7 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     # quindi l'unico rispetto a cui "sale" o "scende" vuol dire qualcosa.
     walk = graph.walk()
     before = {track: walk[n - 1] for n, track in enumerate(walk) if n}
+    span = _drive_span(frame)
 
     nodes = []
     for path in graph.tracks:
@@ -227,10 +266,9 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
             "camelot": camelot or "",
             "keyColor": _camelot_color(camelot),
             "dance": f"{dance:.2f}" if dance is not None else "",
+            "drive": _drive(dance, span),
             "genre": _label(genre) if genre else "",
-            **{f"d{key}": value for key, value
-               in (_card_shifts(came_from, row) if row is not None
-                   else {}).items()},
+            "shift": _card_shifts(came_from, row) if row is not None else {},
         })
     links = [{"a": a, "b": b} for a, b in graph.links]
 

@@ -203,12 +203,15 @@
     var shifts = el("g", { transform: "translate(8," + (ART_H + 46) + ")" });
     var at = 0;
 
-    function column(cell, width, shift) {
+    var shift = n.shift || {};
+
+    function column(cell, width, moved) {
       cell.setAttribute("transform", "translate(" + at + ",0)");
       values.appendChild(cell);
-      if (shift) {
-        shifts.appendChild(text(shift, { x: at, y: 0, "font-size": 8.5,
-                                         "font-weight": 600, fill: skin.dim }));
+      if (moved) {
+        shifts.appendChild(text(moved[0], {
+          x: at, y: 0, "font-size": 8.5, "font-weight": 600,
+          fill: wayInk(moved[1], skin) }));
       }
       at += width + 4;
     }
@@ -217,15 +220,15 @@
       var tempo = el("g", {});
       tempo.appendChild(text(n.bpm, { x: 0, y: 10.5, "font-size": 9,
                                       fill: skin.dim }));
-      column(tempo, 7 * String(n.bpm).length + 2, n.dbpm);
+      column(tempo, 7 * String(n.bpm).length + 2, shift.bpm);
     }
     if (n.camelot) {
       var k = chip(n.camelot, n.keyColor, "#1b1f27");
-      column(k, Number(k.dataset.width), n.dkey);
+      column(k, Number(k.dataset.width), shift.key);
     }
     if (n.dance) {
-      var d = chip(n.dance, skin.chip, skin.ink);
-      column(d, Number(d.dataset.width), n.ddance);
+      var d = chip(n.dance, driveFill(n.drive, skin), skin.ink);
+      column(d, Number(d.dataset.width), shift.dance);
     }
     g.appendChild(values);
     g.appendChild(shifts);
@@ -280,10 +283,31 @@
     return state.dark
       ? { ink: "#eef1f6", dim: "rgba(238,241,246,0.55)", paper: "#0e1117",
           card: "#1b1f27", chip: "rgba(238,241,246,0.10)",
-          faint: "rgba(238,241,246,0.16)", danger: "#e0503b" }
+          faint: "rgba(238,241,246,0.16)", danger: "#e0503b",
+          // Caldo sale, freddo scende. Non verde e rosso: salire non è
+          // giusto e scendere non è un errore — un set fa entrambe le cose.
+          rise: "#e0a260", fall: "#7fb4e0",
+          tone: [238, 241, 246], top: 0.26 }
       : { ink: "#1b1f27", dim: "rgba(27,31,39,0.55)", paper: "#ffffff",
           card: "#f4f6f9", chip: "rgba(27,31,39,0.07)",
-          faint: "rgba(27,31,39,0.14)", danger: "#c0392b" };
+          faint: "rgba(27,31,39,0.14)", danger: "#c0392b",
+          rise: "#a8600f", fall: "#25689e",
+          tone: [27, 31, 39], top: 0.34 };
+  }
+
+  // La danceability tinge il suo chip invece di stare in un grigio fisso:
+  // scorrendo la catena si vede dove il ritmo si irrigidisce senza leggere
+  // i decimali. Senza tinta propria, però — il colore lo dà l'inchiostro del
+  // tema, più o meno carico: due chip vicini con due tinte diverse
+  // litigherebbero con la ruota Camelot, che di tinte vive.
+  function driveFill(drive, skin) {
+    if (drive === null || drive === undefined) return skin.chip;
+    var alpha = 0.06 + (skin.top - 0.06) * drive;
+    return "rgba(" + skin.tone.join(",") + "," + alpha.toFixed(3) + ")";
+  }
+
+  function wayInk(way, skin) {
+    return way > 0 ? skin.rise : (way < 0 ? skin.fall : skin.dim);
   }
 
   function render() {
