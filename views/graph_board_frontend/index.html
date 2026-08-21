@@ -4,31 +4,55 @@
 <meta charset="utf-8" />
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+  #wrap { position: relative; }
   svg { display: block; width: 100%; touch-action: none; user-select: none; }
+  #wrap.panning svg { cursor: grabbing; }
   .node { cursor: grab; }
   .node.dragging { cursor: grabbing; }
-  .node-label {
+  .card-text {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 12px;
     pointer-events: none;
   }
-  .remove-chip { cursor: pointer; }
-  .remove-chip text { pointer-events: none; }
+  .trash { cursor: pointer; }
+  #zoom {
+    position: absolute; left: 10px; bottom: 10px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  #zoom button {
+    width: 26px; height: 26px; padding: 0; line-height: 1;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
 </style>
 </head>
 <body>
-<svg id="board"></svg>
+<div id="wrap">
+  <svg id="board"></svg>
+  <div id="zoom">
+    <button id="zin" title="Zoom in">+</button>
+    <button id="zout" title="Zoom out">−</button>
+    <button id="zfit" title="Fit the board">⤢</button>
+  </div>
+</div>
 <script>
 (function () {
   "use strict";
 
-  var W = 1100, H = 480;
-  var RADIUS = 24;
+  var W = 1100, H = 520;
+  // Il nodo è una scheda, non un pallino: djoid mostra copertina, titolo e
+  // i numeri su cui si decide un mix, e senza quei numeri il grafo va
+  // riletto altrove per capirlo.
+  var CARD_W = 108, ART_H = 84, BODY_H = 50, CARD_H = ART_H + BODY_H;
+  var MIN_Z = 0.35, MAX_Z = 2.6;
+
   var svg = document.getElementById("board");
+  var wrap = document.getElementById("wrap");
   svg.setAttribute("viewBox", "0 0 " + W + " " + H);
 
   var state = { nodes: [], links: [], selected: null, dark: false };
-  var drag = null; // {id, moved}
+  var view = { z: 1, tx: 0, ty: 0 };
+  var drag = null;   // trascinamento di un nodo
+  var pan = null;    // trascinamento dello sfondo
+  var scene = null, edgeGroup = null;
 
   function toParent(msg) {
     window.parent.postMessage(Object.assign({}, msg), "*");
@@ -38,7 +62,14 @@
     toParent({ type: "streamlit:setFrameHeight", height: H + 12 });
   }
 
+  // Ogni evento porta l'istante in cui è successo. Streamlit ridà a Python
+  // l'ultimo valore del componente a OGNI rerun, non solo quando cambia: un
+  // click senza un modo di riconoscerlo come già visto verrebbe rieseguito
+  // per sempre, perché la risposta a un click è un rerun. Il momento serve
+  // e non un contatore, perché il riquadro può essere ricreato da capo e un
+  // contatore ripartirebbe da zero.
   function sendValue(value) {
+    value.at = Date.now();
     toParent({ type: "streamlit:setComponentValue", value: value, dataType: "json" });
   }
 
@@ -47,8 +78,14 @@
     pt.x = evt.clientX; pt.y = evt.clientY;
     var ctm = svg.getScreenCTM();
     if (!ctm) return { x: 0, y: 0 };
-    var loc = pt.matrixTransform(ctm.inverse());
-    return { x: loc.x, y: loc.y };
+    return pt.matrixTransform(ctm.inverse());
+  }
+
+  // Il punto sotto il mouse in coordinate della scena, cioè al netto di
+  // zoom e spostamento: è lì che stanno i nodi.
+  function scenePoint(evt) {
+    var p = svgPoint(evt);
+    return { x: (p.x - view.tx) / view.z, y: (p.y - view.ty) / view.z };
   }
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -66,124 +103,299 @@
     return e;
   }
 
+  function text(str, attrs) {
+    var t = el("text", Object.assign({ class: "card-text" }, attrs));
+    t.textContent = str == null ? "" : String(str);
+    return t;
+  }
+
+  // -- geometria ---------------------------------------------------------
+
+  // Le posizioni salvate sono il CENTRO della scheda: la scheda si disegna
+  // attorno, e gli agganci stanno sui fianchi all'altezza in cui finisce la
+  // copertina, come in djoid.
+  function corner(n) {
+    return { x: n.x * W - CARD_W / 2, y: n.y * H - CARD_H / 2 };
+  }
+
+  function anchors(n) {
+    var c = corner(n);
+    return { left: { x: c.x, y: c.y + ART_H }, right: { x: c.x + CARD_W, y: c.y + ART_H } };
+  }
+
+  // Curva orizzontale fra il fianco destro di chi sta a sinistra e il
+  // fianco sinistro dell'altro. I punti di controllo sono orizzontali, non
+  // perpendicolari: è quello che rende la linea "morbida" invece di
+  // gonfiarla in un arco quando i due nodi sono su altezze diverse.
   function edgePath(a, b) {
-    var ax = a.x * W, ay = a.y * H, bx = b.x * W, by = b.y * H;
-    var mx = (ax + bx) / 2, my = (ay + by) / 2;
-    var dx = bx - ax, dy = by - ay;
-    var len = Math.hypot(dx, dy) || 1;
-    // Perpendicular bow, proportional to length but capped: a flexible
-    // line, not a straight wire, without turning long links into loops.
-    var bow = Math.min(28, len * 0.14);
-    var cx = mx - (dy / len) * bow;
-    var cy = my + (dx / len) * bow;
-    return "M " + ax + " " + ay + " Q " + cx + " " + cy + " " + bx + " " + by;
+    var left = a, right = b;
+    if (corner(a).x > corner(b).x) { left = b; right = a; }
+    var s = anchors(left).right, e = anchors(right).left;
+    var bend = Math.max(30, Math.abs(e.x - s.x) * 0.45);
+    return "M " + s.x + " " + s.y +
+           " C " + (s.x + bend) + " " + s.y + ", " +
+                   (e.x - bend) + " " + e.y + ", " + e.x + " " + e.y;
+  }
+
+  function applyView() {
+    if (scene) {
+      scene.setAttribute("transform",
+        "translate(" + view.tx + "," + view.ty + ") scale(" + view.z + ")");
+    }
+  }
+
+  // -- disegno -----------------------------------------------------------
+
+  // Il nome arriva già accorciato, ma su una misura di caratteri, e la
+  // scheda ha una larghezza in pixel: quanto ci sta lo sa solo chi la
+  // disegna, o il titolo esce dal riquadro.
+  function fit(str, most) {
+    str = String(str == null ? "" : str);
+    return str.length <= most ? str : str.slice(0, most - 1) + "…";
+  }
+
+  function chip(x, label, fill, ink) {
+    var g = el("g", { transform: "translate(" + x + ",0)" });
+    var w = 7 * String(label).length + 10;
+    g.appendChild(el("rect", { x: 0, y: 0, width: w, height: 14, rx: 4, fill: fill }));
+    g.appendChild(text(label, { x: w / 2, y: 10.5, "text-anchor": "middle",
+                                "font-size": 9, "font-weight": 600, fill: ink }));
+    g.dataset.width = w;
+    return g;
+  }
+
+  function drawCard(n, sel, skin) {
+    var c = corner(n);
+    var g = el("g", { class: "node", "data-id": n.id });
+    // Il selezionato si stacca dagli altri ingrandendosi e alzandosi, non
+    // con un anello attorno: è così che si distingue a colpo d'occhio in
+    // una fila di schede tutte uguali.
+    var lift = sel ? "translate(" + (c.x + CARD_W / 2) + "," + (c.y + CARD_H / 2 - 8) + ") " +
+                     "scale(1.12) translate(" + (-CARD_W / 2) + "," + (-CARD_H / 2) + ")"
+                   : "translate(" + c.x + "," + c.y + ")";
+    g.setAttribute("transform", lift);
+
+    if (sel) {
+      g.appendChild(el("rect", { x: -3, y: -3, width: CARD_W + 6, height: CARD_H + 6,
+                                 rx: 9, fill: "none", stroke: skin.ink,
+                                 "stroke-opacity": 0.85, "stroke-width": 1.5 }));
+    }
+    g.appendChild(el("rect", { x: 0, y: 0, width: CARD_W, height: CARD_H, rx: 7,
+                               fill: skin.card }));
+    // Niente copertine nella libreria: al posto dell'artwork il blocco di
+    // colore del genere, che è la stessa codifica della mappa qui sopra.
+    g.appendChild(el("path", {
+      d: "M 7 0 H " + (CARD_W - 7) + " A 7 7 0 0 1 " + CARD_W + " 7 V " + ART_H +
+         " H 0 V 7 A 7 7 0 0 1 7 0 Z", fill: n.color }));
+
+    g.appendChild(text(fit(n.label, 16), { x: 8, y: ART_H + 16, "font-size": 10.5,
+                                           "font-weight": 700, fill: skin.ink }));
+
+    var row = el("g", { transform: "translate(8," + (ART_H + 22) + ")" });
+    var at = 0;
+    if (n.bpm) {
+      var b = text(n.bpm, { x: 0, y: 10.5, "font-size": 9, fill: skin.dim });
+      row.appendChild(b);
+      at += 7 * String(n.bpm).length + 6;
+    }
+    if (n.camelot) {
+      var k = chip(at, n.camelot, n.keyColor, "#1b1f27");
+      row.appendChild(k);
+      at += Number(k.dataset.width) + 4;
+    }
+    if (n.dance) row.appendChild(chip(at, n.dance, skin.chip, skin.ink));
+    g.appendChild(row);
+
+    if (n.genre) {
+      var genre = fit(n.genre, 19);
+      var gw = Math.min(CARD_W - 16, 4.6 * genre.length + 12);
+      var pill = el("g", { transform: "translate(8," + (ART_H + 38) + ")" });
+      pill.appendChild(el("rect", { x: 0, y: 0, width: gw, height: 12, rx: 6,
+                                    fill: skin.chip }));
+      pill.appendChild(text(genre, { x: gw / 2, y: 9, "text-anchor": "middle",
+                                     "font-size": 8, fill: skin.dim }));
+      g.appendChild(pill);
+    }
+
+    [anchors(n).left, anchors(n).right].forEach(function (a) {
+      var local = sel
+        ? { x: (a.x - c.x - CARD_W / 2) / 1.12 + CARD_W / 2,
+            y: (a.y - c.y - CARD_H / 2) / 1.12 + CARD_H / 2 }
+        : { x: a.x - c.x, y: a.y - c.y };
+      g.appendChild(el("circle", { cx: local.x, cy: local.y, r: 3,
+                                   fill: skin.paper, stroke: skin.ink,
+                                   "stroke-opacity": 0.6, "stroke-width": 1.2 }));
+    });
+
+    if (sel) {
+      var trash = el("g", { class: "trash",
+                            transform: "translate(" + (CARD_W / 2) + "," + (CARD_H + 16) + ")" });
+      trash.appendChild(el("circle", { r: 10, fill: skin.card, stroke: skin.ink,
+                                       "stroke-opacity": 0.35 }));
+      trash.appendChild(el("path", {
+        d: "M -4 -3 H 4 M -3 -3 V 4 H 3 V -3 M -1.5 -3 V -5 H 1.5 V -3",
+        fill: "none", stroke: skin.danger, "stroke-width": 1.3,
+        "stroke-linecap": "round", "stroke-linejoin": "round" }));
+      trash.addEventListener("pointerdown", function (evt) {
+        evt.stopPropagation();
+        sendValue({ type: "remove", id: n.id });
+      });
+      g.appendChild(trash);
+    }
+
+    g.addEventListener("pointerdown", function (evt) {
+      evt.stopPropagation();
+      drag = { id: n.id, moved: false, group: g };
+      g.setPointerCapture(evt.pointerId);
+      g.classList.add("dragging");
+    });
+    return g;
+  }
+
+  function skinOf() {
+    return state.dark
+      ? { ink: "#eef1f6", dim: "rgba(238,241,246,0.55)", paper: "#0e1117",
+          card: "#1b1f27", chip: "rgba(238,241,246,0.10)",
+          faint: "rgba(238,241,246,0.16)", danger: "#e0503b" }
+      : { ink: "#1b1f27", dim: "rgba(27,31,39,0.55)", paper: "#ffffff",
+          card: "#f4f6f9", chip: "rgba(27,31,39,0.07)",
+          faint: "rgba(27,31,39,0.14)", danger: "#c0392b" };
   }
 
   function render() {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var skin = skinOf();
 
-    var ink = state.dark ? "#eef1f6" : "#1b1f27";
-    var faint = state.dark ? "rgba(238,241,246,0.16)" : "rgba(27,31,39,0.14)";
-    var paper = state.dark ? "#0e1117" : "#ffffff";
-
-    // Dotted blackboard backdrop.
     var defs = el("defs", {});
-    var pattern = el("pattern", { id: "dots", width: 26, height: 26, patternUnits: "userSpaceOnUse" });
-    pattern.appendChild(el("circle", { cx: 2, cy: 2, r: 1.1, fill: faint }));
+    var pattern = el("pattern", { id: "dots", width: 26, height: 26,
+                                  patternUnits: "userSpaceOnUse" });
+    pattern.appendChild(el("circle", { cx: 2, cy: 2, r: 1.1, fill: skin.faint }));
     defs.appendChild(pattern);
     svg.appendChild(defs);
-    svg.appendChild(el("rect", { x: 0, y: 0, width: W, height: H, fill: paper }));
-    svg.appendChild(el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#dots)" }));
+    svg.appendChild(el("rect", { x: 0, y: 0, width: W, height: H, fill: skin.paper }));
 
-    var edgeGroup = el("g", { stroke: ink, "stroke-opacity": 0.35, "stroke-width": 2, fill: "none" });
+    scene = el("g", {});
+    // I puntini stanno DENTRO la scena e ne debordano: spostandola si trova
+    // ancora fondo, invece di scoprire il bianco fuori dal riquadro.
+    scene.appendChild(el("rect", { x: -2 * W, y: -2 * H, width: 5 * W, height: 5 * H,
+                                   fill: "url(#dots)" }));
+
+    edgeGroup = el("g", { stroke: skin.ink, "stroke-opacity": 0.35,
+                          "stroke-width": 1.6, fill: "none" });
     state.links.forEach(function (link) {
       var a = nodeById(link.a), b = nodeById(link.b);
       if (!a || !b) return;
-      edgeGroup.appendChild(el("path", { d: edgePath(a, b) }));
+      edgeGroup.appendChild(el("path", { d: edgePath(a, b), "data-a": link.a,
+                                         "data-b": link.b }));
     });
-    svg.appendChild(edgeGroup);
+    scene.appendChild(edgeGroup);
 
+    // Il selezionato per ultimo, così sta sopra ai vicini che sfiora.
     state.nodes.forEach(function (n) {
-      var cx = n.x * W, cy = n.y * H;
-      var g = el("g", { class: "node", "data-id": n.id,
-                        transform: "translate(" + cx + "," + cy + ")" });
-      var selected = n.id === state.selected;
+      if (n.id !== state.selected) scene.appendChild(drawCard(n, false, skin));
+    });
+    var sel = nodeById(state.selected);
+    if (sel) scene.appendChild(drawCard(sel, true, skin));
 
-      if (selected) {
-        g.appendChild(el("circle", {
-          r: RADIUS + 7, fill: "none", stroke: ink, "stroke-width": 2,
-          "stroke-opacity": 0.55,
-        }));
+    svg.appendChild(scene);
+    applyView();
+  }
+
+  // Durante il trascinamento si ridisegna solo quel che si muove: rifare
+  // l'intera scena a ogni pixel significa ricostruire dieci elementi per
+  // scheda, e sotto il dito si sente.
+  function redrawDragged() {
+    var n = nodeById(drag.id);
+    var c = corner(n);
+    var sel = n.id === state.selected;
+    drag.group.setAttribute("transform", sel
+      ? "translate(" + (c.x + CARD_W / 2) + "," + (c.y + CARD_H / 2 - 8) + ") " +
+        "scale(1.12) translate(" + (-CARD_W / 2) + "," + (-CARD_H / 2) + ")"
+      : "translate(" + c.x + "," + c.y + ")");
+    Array.prototype.forEach.call(edgeGroup.childNodes, function (path) {
+      var a = path.getAttribute("data-a"), b = path.getAttribute("data-b");
+      if (a === n.id || b === n.id) {
+        path.setAttribute("d", edgePath(nodeById(a), nodeById(b)));
       }
-      g.appendChild(el("circle", {
-        r: RADIUS, fill: n.color, stroke: paper, "stroke-width": 2.5,
-      }));
-      var label = el("text", {
-        class: "node-label", x: 0, y: RADIUS + 16, "text-anchor": "middle",
-        fill: ink,
-      });
-      label.textContent = n.label || "";
-      g.appendChild(label);
-
-      if (selected) {
-        var chip = el("g", { class: "remove-chip",
-                             transform: "translate(" + (RADIUS - 4) + "," + (-RADIUS + 4) + ")" });
-        chip.appendChild(el("circle", { r: 9, fill: state.dark ? "#e0503b" : "#c0392b" }));
-        var x = el("text", { x: 0, y: 4, "text-anchor": "middle", fill: "#fff",
-                             "font-size": 12, "font-family": "sans-serif" });
-        x.textContent = "×";
-        chip.appendChild(x);
-        chip.addEventListener("pointerdown", function (evt) {
-          evt.stopPropagation();
-          sendValue({ type: "remove", id: n.id });
-        });
-        g.appendChild(chip);
-      }
-
-      g.addEventListener("pointerdown", function (evt) {
-        evt.stopPropagation();
-        drag = { id: n.id, moved: false, node: g };
-        g.setPointerCapture(evt.pointerId);
-        g.classList.add("dragging");
-      });
-      svg.appendChild(g);
     });
   }
 
+  // -- mouse -------------------------------------------------------------
+
+  svg.addEventListener("pointerdown", function (evt) {
+    if (drag) return;
+    pan = { x: evt.clientX, y: evt.clientY, tx: view.tx, ty: view.ty };
+    wrap.classList.add("panning");
+    svg.setPointerCapture(evt.pointerId);
+  });
+
   svg.addEventListener("pointermove", function (evt) {
-    if (!drag) return;
-    var n = nodeById(drag.id);
-    if (!n) return;
-    var p = svgPoint(evt);
-    n.x = clamp(p.x / W, 0.02, 0.98);
-    n.y = clamp(p.y / H, 0.02, 0.98);
-    drag.moved = true;
-    render();
+    if (drag) {
+      var n = nodeById(drag.id);
+      if (!n) return;
+      var p = scenePoint(evt);
+      n.x = clamp(p.x / W, 0.02, 0.98);
+      n.y = clamp(p.y / H, 0.02, 0.98);
+      drag.moved = true;
+      redrawDragged();
+    } else if (pan) {
+      view.tx = pan.tx + (evt.clientX - pan.x);
+      view.ty = pan.ty + (evt.clientY - pan.y);
+      applyView();
+    }
   });
 
   function endDrag() {
+    wrap.classList.remove("panning");
+    pan = null;
     if (!drag) return;
     var n = nodeById(drag.id);
+    drag.group.classList.remove("dragging");
     if (n) {
-      if (drag.moved) {
-        sendValue({ type: "move", id: n.id, x: n.x, y: n.y });
-      } else {
-        sendValue({ type: "click", id: n.id });
-      }
+      // Premere e rilasciare senza spostare è una scelta, non uno
+      // spostamento da zero pixel: sono i due gesti dello stesso tasto.
+      if (drag.moved) sendValue({ type: "move", id: n.id, x: n.x, y: n.y });
+      else sendValue({ type: "click", id: n.id });
     }
     drag = null;
   }
 
   svg.addEventListener("pointerup", endDrag);
-  svg.addEventListener("pointerleave", function () { if (drag && !drag.moved) endDrag(); });
+  svg.addEventListener("pointercancel", endDrag);
+
+  function zoomAt(factor, cx, cy) {
+    var next = clamp(view.z * factor, MIN_Z, MAX_Z);
+    var k = next / view.z;
+    // Il punto sotto il cursore resta dov'è: si ingrandisce quello che si
+    // sta guardando, non il centro della lavagna.
+    view.tx = cx - (cx - view.tx) * k;
+    view.ty = cy - (cy - view.ty) * k;
+    view.z = next;
+    applyView();
+  }
+
+  svg.addEventListener("wheel", function (evt) {
+    evt.preventDefault();
+    var p = svgPoint(evt);
+    zoomAt(evt.deltaY < 0 ? 1.12 : 1 / 1.12, p.x, p.y);
+  }, { passive: false });
+
+  document.getElementById("zin").addEventListener("click", function () {
+    zoomAt(1.25, W / 2, H / 2);
+  });
+  document.getElementById("zout").addEventListener("click", function () {
+    zoomAt(1 / 1.25, W / 2, H / 2);
+  });
+  document.getElementById("zfit").addEventListener("click", function () {
+    view = { z: 1, tx: 0, ty: 0 };
+    applyView();
+  });
 
   window.addEventListener("message", function (event) {
     var data = event.data || {};
     if (data.type !== "streamlit:render") return;
     var args = data.args || {};
-    state.nodes = (args.nodes || []).map(function (n) {
-      return { id: n.id, x: n.x, y: n.y, label: n.label, color: n.color };
-    });
+    state.nodes = args.nodes || [];
     state.links = args.links || [];
     state.selected = args.selected || null;
     state.dark = !!args.dark;

@@ -14,6 +14,7 @@ suggerimenti — resta in Python, dove sta anche il resto della pagina Map.
 
 from __future__ import annotations
 
+import colorsys
 from pathlib import Path
 
 import pandas as pd
@@ -22,6 +23,7 @@ import streamlit.components.v1 as components
 
 from analysis.graph_playlist import GraphPlaylist, suggestions
 from analysis.mixing import TransitionCost
+from views.components import NOW_PLAYING, render_player
 
 _FRONTEND_DIR = Path(__file__).parent / "graph_board_frontend"
 _graph_board = components.declare_component("graph_board", path=str(_FRONTEND_DIR))
@@ -35,10 +37,41 @@ OTHER_COLOR = {"light": "#9aa4b0", "dark": "#6b7684"}
 
 GRAPH_STATE = "map::graph"
 GRAPH_SOURCE = "map::graph_source"
+# L'ultimo gesto già eseguito. Vedi `sendValue` nel frontend: il componente
+# ridà lo stesso valore a ogni rerun, e senza ricordarsene un click sulla
+# lavagna si rieseguirebbe all'infinito.
+GRAPH_EVENT = "map::graph_event"
 
 # Sopra questa quantità di brani il menu per nome non si apre più in fretta:
 # si cerca prima, si sceglie dopo.
 START_PICKER_MAX = 2000
+
+# La rosa sta su tre colonne, come in djoid: nove candidati sono abbastanza
+# da avere una scelta vera e pochi abbastanza da guardarli tutti in una volta
+# senza scorrere.
+FRONTIER_COLUMNS = 3
+FRONTIER_SIZE = 9
+
+
+def _camelot_color(camelot: str | None) -> str:
+    """Il colore della ruota Camelot per una tonalità.
+
+    È la stessa codifica dei lettori per DJ (e di djoid): il numero dà la
+    tinta, la lettera dice se maggiore o minore. Serve perché due tonalità
+    che si mixano stanno vicine sulla ruota, e vicine sulla ruota vuol dire
+    tinte vicine — la compatibilità si vede senza leggere la sigla.
+    """
+    text = (camelot or "").strip().upper()
+    if len(text) < 2 or not text[:-1].isdigit():
+        return "#c7ccd4"
+    number = int(text[:-1])
+    if not 1 <= number <= 12:
+        return "#c7ccd4"
+    major = text[-1] == "B"
+    hue = ((190 - 30 * number) % 360) / 360
+    r, g, b = colorsys.hls_to_rgb(hue, 0.72 if major else 0.62,
+                                  0.65 if major else 0.55)
+    return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
 
 
 def _dark() -> bool:
@@ -57,6 +90,19 @@ def _save(graph: GraphPlaylist) -> None:
 def _color_map(frame: pd.DataFrame) -> dict[str, str]:
     top = frame["top_genre"].value_counts().head(len(PALETTE)).index.tolist()
     return dict(zip(top, PALETTE))
+
+
+def _some(row, column: str):
+    """Il valore, o `None` se manca davvero.
+
+    Serve perché un campo vuoto arriva qui come NaN, e NaN è vero: scritto
+    su una scheda con `or` diventa la parola "nan" sotto al titolo, che
+    sembra un dato invece che l'assenza di un dato.
+    """
+    if row is None:
+        return None
+    value = row[column]
+    return value if pd.notna(value) and value != "" else None
 
 
 def _label(name: str) -> str:
@@ -94,19 +140,28 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     nodes = []
     for path in graph.tracks:
         idx = at_path.get(path)
-        name = frame.at[idx, "name"] if idx is not None else Path(path).stem
-        genre = frame.at[idx, "top_genre"] if idx is not None else None
+        row = frame.iloc[idx] if idx is not None else None
+        name = row["name"] if row is not None else Path(path).stem
+        genre = row["top_genre"] if row is not None else None
+        camelot = _some(row, "camelot")
+        bpm, dance = _some(row, "bpm"), _some(row, "danceability")
         x, y = graph.places[path]
         nodes.append({
             "id": path, "x": x, "y": y, "label": _label(name),
             "color": color_of.get(genre, other),
+            "bpm": f"{bpm:.0f}" if bpm is not None else "",
+            "camelot": camelot or "",
+            "keyColor": _camelot_color(camelot),
+            "dance": f"{dance:.2f}" if dance is not None else "",
+            "genre": _label(genre) if genre else "",
         })
     links = [{"a": a, "b": b} for a, b in graph.links]
 
     event = _graph_board(nodes=nodes, links=links, selected=selected,
                          dark=dark, key="graph_board_widget", default=None)
 
-    if event:
+    if event and event.get("at") != st.session_state.get(GRAPH_EVENT):
+        st.session_state[GRAPH_EVENT] = event.get("at")
         kind = event.get("type")
         node_id = event.get("id")
         if kind == "move" and node_id in graph:
@@ -122,20 +177,26 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
                 st.session_state[GRAPH_SOURCE] = graph.tracks[-1] if graph.tracks else None
             st.rerun()
 
-    st.caption("**Drag** a node to move it · **click** a node to branch new "
-               "suggestions from it · the **×** on the selected node removes "
-               "it and reconnects its neighbours.")
+    st.caption("**Drag** a card to move it · **click** a card to branch new "
+               "suggestions from it · the **bin** under the selected card "
+               "removes it and reconnects its neighbours · **scroll** to "
+               "zoom, drag the background to pan.")
 
-    c1, c2, c3 = st.columns([2, 2, 3])
+    c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
     if c1.button("↺ Restart the board", width="stretch"):
         st.session_state[GRAPH_STATE] = None
         st.session_state[GRAPH_SOURCE] = None
         st.rerun()
-    if c2.button("➡️ Send to playlist", type="primary", width="stretch"):
+    if c2.button("⇥ Straighten", width="stretch",
+                 help="Line the cards up in the order the playlist will read."):
+        graph.straighten()
+        _save(graph)
+        st.rerun()
+    if c3.button("➡️ Send to playlist", type="primary", width="stretch"):
         order = [at_path[p] for p in graph.walk() if p in at_path]
         set_playlist(order)
         st.rerun()
-    c3.caption(f"{len(graph)} track(s) on the board.")
+    c4.caption(f"{len(graph)} track(s) on the board.")
 
     _render_frontier(frame, cost, pool, at_path, graph)
 
@@ -185,25 +246,63 @@ def _render_frontier(frame: pd.DataFrame, cost: TransitionCost, pool,
         return
 
     row = frame.iloc[source_idx]
+    bpm = _some(row, "bpm")
     st.markdown(f"**Branching from — {row['name']}**  \n"
-               f"{row['bpm'] or '?'} BPM · {row['camelot'] or '?'} · "
-               f"{row['genres']}")
+               f"{f'{bpm:.0f}' if bpm is not None else '?'} BPM · "
+               f"{_some(row, 'camelot') or '?'} · {row['genres']}")
 
     taken = {at_path[p] for p in graph.tracks if p in at_path}
-    picks = suggestions(cost, source_idx, taken, k=6, pool=pool)
+    picks = suggestions(cost, source_idx, taken, k=FRONTIER_SIZE, pool=pool)
     if not picks:
         st.info("No candidate left that passes the filters.")
         return
 
-    cols = st.columns(len(picks))
-    for col, (i, value) in zip(cols, picks):
-        with col:
-            st.markdown(f"**{frame.at[i, 'name'][:26]}**")
-            st.caption(f"{frame.at[i, 'bpm'] or '?'} BPM · "
-                      f"{frame.at[i, 'camelot'] or '?'} · cost {value:.3f}")
-            if st.button("➕ Add", key=f"graph_pick_{i}", width="stretch"):
-                new_path = frame.at[i, "path"]
-                graph.add(source_path, new_path)
-                _save(graph)
-                st.session_state[GRAPH_SOURCE] = new_path
-                st.rerun()
+    color_of = _color_map(frame)
+    other = OTHER_COLOR["dark" if _dark() else "light"]
+    for start in range(0, len(picks), FRONTIER_COLUMNS):
+        row = picks[start:start + FRONTIER_COLUMNS]
+        # Le colonne si chiedono sempre tutte e tre, anche per una riga
+        # spaiata: altrimenti l'ultima scheda si allargherebbe a tutta la
+        # pagina e sembrerebbe importante più delle altre.
+        for col, (i, value) in zip(st.columns(FRONTIER_COLUMNS), row):
+            with col.container(border=True):
+                _render_candidate(frame, i, value, color_of, other,
+                                  graph, source_path)
+
+    render_player({frame.at[i, "path"] for i, _ in picks})
+
+
+def _render_candidate(frame: pd.DataFrame, i: int, value: float,
+                      color_of: dict[str, str], other: str,
+                      graph: GraphPlaylist, source_path: str) -> None:
+    """Una scheda della rosa, disegnata come i nodi sulla lavagna.
+
+    Stessa faccia apposta: quello che si sceglie qui è quello che comparirà
+    là, e vederlo cambiare aspetto nel passaggio costringerebbe a ritrovarlo.
+    """
+    row = frame.iloc[i]
+    swatch = color_of.get(row["top_genre"], other)
+    camelot = _some(row, "camelot")
+    bpm = _some(row, "bpm")
+    st.markdown(
+        f"<div style='display:flex;gap:.5em;align-items:center'>"
+        f"<span style='width:1.4em;height:1.4em;border-radius:.3em;"
+        f"background:{swatch};flex:none'></span>"
+        f"<b>{_label(row['name'])}</b></div>"
+        f"<div style='margin:.4em 0 .2em;font-size:.8em'>"
+        f"{f'{bpm:.0f} BPM · ' if bpm is not None else ''}"
+        f"<span style='background:{_camelot_color(camelot)};color:#1b1f27;"
+        f"padding:.1em .4em;border-radius:.3em'>{camelot or '?'}</span>"
+        f" · cost {value:.3f}</div>",
+        unsafe_allow_html=True)
+
+    hear, take = st.columns([1, 2])
+    if hear.button("▶", key=f"graph_hear_{i}", width="stretch",
+                   help="Hear it before you commit to it."):
+        st.session_state[NOW_PLAYING] = row["path"]
+        st.rerun()
+    if take.button("➕ Add", key=f"graph_pick_{i}", width="stretch"):
+        graph.add(source_path, row["path"])
+        _save(graph)
+        st.session_state[GRAPH_SOURCE] = row["path"]
+        st.rerun()

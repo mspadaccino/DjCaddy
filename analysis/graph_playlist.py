@@ -127,6 +127,32 @@ class GraphPlaylist:
             self.places[track] = (float(x), float(y))
         return self
 
+    def straighten(self, per_row: int = 6) -> "GraphPlaylist":
+        """Rimette i brani in fila nell'ordine in cui si leggono.
+
+        Trascinando si finisce con una lavagna che dice il vero sui
+        collegamenti e il falso sulla sequenza: due brani vicini d'occhio
+        possono stare a due rami di distanza. Questo la riallinea all'ordine
+        di `walk`, che è quello con cui la scaletta uscirà davvero.
+
+        Le righe si alternano di verso, come si scrive un solco: così il
+        brano che chiude una riga resta accanto a quello che apre la
+        successiva, invece di attraversare tutta la lavagna per raggiungerlo.
+        """
+        walk = self.walk()
+        if not walk:
+            return self
+        rows = max(1, -(-len(walk) // per_row))
+        for n, track in enumerate(walk):
+            row, seat = divmod(n, per_row)
+            wide = min(per_row, len(walk) - row * per_row)
+            if row % 2:
+                seat = wide - 1 - seat
+            x = 0.5 if wide == 1 else 0.08 + 0.84 * seat / (wide - 1)
+            y = 0.5 if rows == 1 else 0.15 + 0.7 * row / (rows - 1)
+            self.places[track] = (x, y)
+        return self
+
     def remove(self, track: str) -> "GraphPlaylist":
         """Toglie un brano e ricuce il percorso.
 

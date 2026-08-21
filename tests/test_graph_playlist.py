@@ -106,6 +106,30 @@ def test_from_state_of_nothing_is_an_empty_board():
     assert GraphPlaylist.from_state(None).tracks == []
 
 
+def test_straighten_puts_a_chain_left_to_right_in_reading_order():
+    graph = GraphPlaylist().start("a", "b").add("b", "c").add("c", "d")
+    graph.move("a", 0.9, 0.9)
+    graph.straighten()
+    xs = [graph.places[t][0] for t in ["a", "b", "c", "d"]]
+    assert xs == sorted(xs)
+    assert len({graph.places[t][1] for t in graph.tracks}) == 1
+
+
+def test_straighten_alternates_the_direction_of_each_row():
+    graph = GraphPlaylist().start("a", "b")
+    for previous, track in zip("bcd", "cde"):
+        graph.add(previous, track)
+    graph.straighten(per_row=2)
+    # Riga 1 va a destra, riga 2 torna indietro: "b" e "c" restano vicini.
+    assert graph.places["a"][0] < graph.places["b"][0]
+    assert graph.places["d"][0] < graph.places["c"][0]
+    assert graph.places["a"][1] < graph.places["c"][1]
+
+
+def test_straighten_of_an_empty_board_does_nothing():
+    assert GraphPlaylist().straighten().places == {}
+
+
 def _library():
     coords = np.array([[0, 0], [1, 0], [2, 0], [10, 0]], dtype=np.float32)
     return TransitionCost(coords, [128, 128, 128, 128], ["8A", "8A", "8A", "8A"])
