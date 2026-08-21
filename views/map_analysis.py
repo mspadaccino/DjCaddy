@@ -46,7 +46,7 @@ from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import (TransitionCost, along_path, closed_shape,
                              magic_sort, nearest)
 from views.components import pick_folder, play_table
-from views.graph_board import render_graph_builder
+from views.graph_board import render_graph_builder, start_board
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
 # ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
@@ -556,15 +556,24 @@ def render_map(store: MapStore) -> None:
             "Magic sort walks all of them once, in the order that keeps every "
             "transition cheap — the travelling-salesman path over the cost "
             "below. It is the answer to a folder of tracks in no order.")
-        c1, c2 = st.columns(2)
-        if c1.button("✨ Magic sort them into the playlist", type="primary",
-                     width="stretch"):
+        # Due è esattamente da quanti parte la lavagna, quindi due selezionati
+        # sono già la sua coppia di partenza: sceglierli qui sulla mappa è più
+        # diretto che ritrovarli per nome in un menu di ventimila voci.
+        pair = len(picked) == 2
+        columns = st.columns(3 if pair else 2)
+        if columns[0].button("✨ Magic sort them into the playlist",
+                             type="primary", width="stretch"):
             with st.spinner(f"Sorting {len(picked)} tracks…"):
                 remember_playlist(frame, magic_sort(cost, picked))
             st.rerun()
-        if c2.button("➕ Append them, unsorted", width="stretch"):
+        if columns[1].button("➕ Append them, unsorted", width="stretch"):
             remember_playlist(frame, playlist + [i for i in picked
                                                  if i not in playlist])
+            st.rerun()
+        if pair and columns[2].button("🕸️ Start the board with these two",
+                                      width="stretch"):
+            start_board(frame.at[picked[0], "path"],
+                        frame.at[picked[1], "path"])
             st.rerun()
 
     if seed is not None and not lasso and len(picked) <= 1:

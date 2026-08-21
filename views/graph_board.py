@@ -79,6 +79,19 @@ def _dark() -> bool:
     return getattr(theme, "type", None) == "dark"
 
 
+def start_board(first: str, second: str) -> None:
+    """Comincia la lavagna da due brani scelti altrove — la mappa qui sopra.
+
+    Sta qui e non nella mappa perché le chiavi di sessione della lavagna
+    sono di questo modulo: chi la avvia deve poter dire quali due brani e
+    basta, senza sapere dove finiscono scritti.
+    """
+    _save(GraphPlaylist().start(first, second))
+    # La sorgente è il secondo: è quello appena messo, ed è da lì che si
+    # continua — come dopo ogni altra aggiunta.
+    st.session_state[GRAPH_SOURCE] = second
+
+
 def _graph() -> GraphPlaylist:
     return GraphPlaylist.from_state(st.session_state.get(GRAPH_STATE))
 
@@ -228,10 +241,7 @@ def _render_start(frame: pd.DataFrame, pool) -> None:
     c3.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
     if c3.button("▶ Start the board", type="primary", width="stretch",
                 disabled=first is None or second is None or first == second):
-        graph = GraphPlaylist().start(frame.at[first, "path"],
-                                      frame.at[second, "path"])
-        _save(graph)
-        st.session_state[GRAPH_SOURCE] = frame.at[second, "path"]
+        start_board(frame.at[first, "path"], frame.at[second, "path"])
         st.rerun()
 
 
