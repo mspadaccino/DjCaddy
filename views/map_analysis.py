@@ -104,6 +104,15 @@ PLAYLIST = "map::playlist"
 # in fretta): sopra, si restringe coi filtri.
 SEED_PICKER_MAX = 2000
 
+# Quanti candidati proporre attorno a un brano. Venti è la partenza: bastano a
+# scegliere senza dover scorrere. Il tetto non è una soglia tecnica — cento
+# righe si disegnano in un lampo — ma il punto oltre il quale una lista smette
+# di essere una rosa e torna a essere la libreria, che è ciò da cui si stava
+# scappando.
+SUGGESTION_DEFAULT = 20
+SUGGESTION_MAX = 100
+SUGGESTION_STEP = 5
+
 
 def _spelled(seconds: float) -> str:
     if seconds < 90:
@@ -656,13 +665,25 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                            help="How much harmonic distance counts. Adjacent "
                                 "or relative keys (8A→9A, 8A→8B) cost nothing.")
 
+    # Quanti candidati elencare. Uno solo per entrambe le schede: è la stessa
+    # domanda — quanti me ne fai vedere — posta su due criteri diversi, e due
+    # manopole scollegate darebbero due liste lunghe diverse senza motivo.
+    # Il tetto è la libreria stessa, perché su una mappa appena nata chiedere
+    # venti vicini a chi ne ha tre non ha senso.
+    room = min(SUGGESTION_MAX, max(1, len(frame) - 1))
+    shown = st.slider("How many to list", SUGGESTION_STEP, room,
+                      min(SUGGESTION_DEFAULT, room), SUGGESTION_STEP,
+                      key="map_suggestion_count",
+                      help="Applies to both tabs below.") \
+        if room > SUGGESTION_STEP else room
+
     mix_tab, sound_tab = st.tabs(["Mixes out of it", "Sounds like it"])
 
     with mix_tab:
         st.caption("Ranked by the transition cost — sound, tempo and key "
                    "together, with the weights above. Only tracks that pass "
                    "the filters are considered.")
-        suggestions = nearest(cost, seed, k=20, pool=pool)
+        suggestions = nearest(cost, seed, k=shown, pool=pool)
         table = pd.DataFrame([{
             "Add": False,
             "cost": round(value, 3),
@@ -718,7 +739,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "key": frame.at[i, "camelot"],
             "genres": frame.at[i, "genres"],
             "_path": frame.at[i, "path"],
-        } for i, score in store.similar(seed, k=20, limit=len(frame))])
+        } for i, score in store.similar(seed, k=shown, limit=len(frame))])
         if not len(neighbours):
             st.info("Nothing to compare this one with yet.")
         else:
