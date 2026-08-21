@@ -360,7 +360,8 @@ def _label(name: str) -> str:
 
 
 def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
-                         at_path: dict[str, int], set_playlist) -> None:
+                         at_path: dict[str, int], chosen: list[int],
+                         set_playlist) -> None:
     """La sezione lavagna: parte da due brani, poi cresce un passo alla volta.
 
     `set_playlist` prende una lista di indici (nello stesso `frame`) e la
@@ -379,7 +380,7 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     pool = _render_filters(frame, pool)
 
     if not len(graph):
-        _render_start(frame, pool)
+        _render_start(frame, pool, chosen)
         return
 
     color_of = _color_map(frame)
@@ -526,9 +527,26 @@ def _narrowed(frame: pd.DataFrame, options: list[int], key: str) -> list[int] | 
     return found
 
 
-def _render_start(frame: pd.DataFrame, pool) -> None:
+def _render_start(frame: pd.DataFrame, pool, chosen: list[int]) -> None:
     st.markdown("**Start the board with a track.** Everything else grows off "
                "it, one suggestion at a time.")
+
+    # Quello che è selezionato sulla mappa viene per primo: è già stato
+    # scelto, e ricercarlo per nome in un menu sarebbe farlo scegliere due
+    # volte. La ricerca resta sotto, per quando la mappa non c'entra.
+    if chosen:
+        names = ", ".join(_label(frame.at[i, "name"]) for i in chosen[:3])
+        if len(chosen) > 3:
+            names += f", and {len(chosen) - 3} more"
+        picked, rest = st.columns([5, 2])
+        picked.markdown(f"Selected on the map: **{names}**")
+        rest.markdown("<div style='height:.2em'></div>", unsafe_allow_html=True)
+        if rest.button("▶ Start from the selection", type="primary",
+                       width="stretch"):
+            start_board(*[frame.at[i, "path"] for i in chosen])
+            st.rerun()
+        st.caption("…or pick a different one by name:")
+
     options = _narrowed(frame, pool.tolist(), "graph_start_search")
     if options is None:
         return

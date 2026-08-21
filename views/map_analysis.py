@@ -753,13 +753,29 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
                "converters read.")
 
 
+def graph_seeds(at_path: dict[str, int]) -> list[int]:
+    """I brani selezionati sulla mappa, come candidati ad aprire la lavagna.
+
+    La lavagna sta in fondo alla pagina e chiusa: senza portarle la selezione
+    qui sopra, sceglierne il primo brano vuol dire cercarlo per nome davanti a
+    una figura che lo sta già mostrando.
+
+    Il seme viaggia come percorso e non come posizione — vale per lui la
+    stessa ragione del resto della sessione — quindi va ritradotto qui.
+    """
+    picked, _ = read_selection()
+    if picked:
+        return picked
+    seed = at_path.get(st.session_state.get(SEED))
+    return [] if seed is None else [seed]
+
+
 def render_graph_section(store: MapStore) -> None:
-    """La lavagna: costruire un percorso un brano alla volta, alla djoid.
+    """La lavagna: costruire un percorso un brano alla volta.
 
     Lavora sui brani piazzati per intero, non su quelli filtrati dalla
     sezione sopra: la lavagna è un secondo modo di scegliere, non un'
-    estensione del primo, e i suoi filtri (per ora solo il nome, in fase di
-    ricerca dei due brani di partenza) sono suoi.
+    estensione del primo, e i suoi filtri sono suoi.
     """
     if not len(store) or not store.placed:
         return
@@ -770,7 +786,8 @@ def render_graph_section(store: MapStore) -> None:
                           frame["camelot"].tolist())
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
     pool = frame["index"].to_numpy()
-    render_graph_builder(frame, cost, pool, at_path,
+    chosen = [i for i in graph_seeds(at_path) if i < placed]
+    render_graph_builder(frame, cost, pool, at_path, chosen,
                          set_playlist=lambda idxs: remember_playlist(frame, idxs))
 
 
@@ -953,8 +970,18 @@ with st.container():
 
 st.divider()
 
-with st.expander("🕸️ Graph builder — grow a set one track at a time",
-                 expanded=bool(st.session_state.get("map::graph"))):
+# La lavagna sta chiusa e in fondo: se c'è una selezione sulla mappa e nessuna
+# lavagna ancora, si apre da sé e lo dice nel titolo. Altrimenti selezionare un
+# punto qui sopra non produce niente di visibile là sotto, e il collegamento
+# fra le due sezioni resta un segreto.
+_running_board = bool(st.session_state.get("map::graph"))
+_waiting = [] if _running_board else graph_seeds(
+    {row["path"]: i for i, row in enumerate(store.rows[:store.placed])})
+with st.expander(
+        "🕸️ Graph builder — grow a set one track at a time"
+        + (f" · start from the {len(_waiting)} track(s) selected above"
+           if _waiting else ""),
+        expanded=_running_board or bool(_waiting)):
     render_graph_section(store)
 
 st.divider()

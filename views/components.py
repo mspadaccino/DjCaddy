@@ -108,7 +108,7 @@ WAVE_RATE = 1000
 _PLAYER_HTML = """
 <div class="wp">
   <button class="pp" type="button" aria-label="Play or pause">&#9654;</button>
-  <canvas class="wave"></canvas>
+  <div class="wavebox"><canvas class="wave"></canvas></div>
   <span class="clock">0:00</span>
 </div>
 """
@@ -127,7 +127,13 @@ _PLAYER_CSS = """
   color: var(--st-background-color, #fff);
   font-size: 0.9rem; line-height: 1;
 }
-.wp canvas { flex: 1 1 auto; height: 84px; cursor: pointer; display: block; }
+/* La larghezza la decide QUESTO riquadro, mai il canvas. Il canvas senza
+   width in CSS userebbe come misura intrinseca il proprio attributo width,
+   che il disegno imposta a clientWidth * devicePixelRatio: su uno schermo
+   Retina ogni passata raddoppiava la larghezza (misurato: 637, 1274, 2548,
+   5096, 10192) e l'onda si allargava a destra fino a esplodere. */
+.wp .wavebox { flex: 1 1 0; min-width: 0; }
+.wp canvas { display: block; width: 100%; height: 84px; cursor: pointer; }
 .wp .clock {
   /* nowrap piu' una larghezza minima: senza, "5:33 / 7:23" andava a capo e
      si leggeva solo meta' del tempo. */
@@ -169,8 +175,10 @@ export default function (component) {
     const ratio = window.devicePixelRatio || 1
     const width = canvas.clientWidth, height = canvas.clientHeight
     if (!width || !height) return
-    canvas.width = width * ratio
-    canvas.height = height * ratio
+    // solo se cambiano davvero: assegnarli azzera il disegno a ogni frame
+    const pixel_w = Math.round(width * ratio), pixel_h = Math.round(height * ratio)
+    if (canvas.width !== pixel_w) canvas.width = pixel_w
+    if (canvas.height !== pixel_h) canvas.height = pixel_h
     const ctx = canvas.getContext("2d")
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     ctx.clearRect(0, 0, width, height)
@@ -207,7 +215,9 @@ export default function (component) {
   }
   if (root._watching !== true) {
     root._watching = true
-    new ResizeObserver(draw).observe(canvas)
+    // si osserva il riquadro, non il canvas: osservare cio' che il disegno
+    // ridimensiona e' il modo piu' diretto di rientrare all'infinito.
+    new ResizeObserver(draw).observe(root.querySelector(".wavebox"))
   }
   button.innerHTML = audio.paused ? "&#9654;" : "&#10073;&#10073;"
   draw()
