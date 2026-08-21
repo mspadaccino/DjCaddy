@@ -64,6 +64,7 @@
   var drag = null;    // trascinamento di un nodo
   var pan = null;     // trascinamento dello sfondo
   var roaming = false; // trascinamento dentro la mappina
+  var pending = null;  // un render arrivato a gesto in corso
   var scene = null, edgeGroup = null, minimap = null, skin = null;
 
   // `isStreamlitMessage` non è decorazione: Streamlit scarta senza guardare
@@ -484,16 +485,25 @@
     wrap.classList.remove("panning");
     pan = null;
     roaming = false;
-    if (!drag) return;
-    var n = nodeById(drag.id);
-    drag.group.classList.remove("dragging");
-    if (n) {
-      // Premere e rilasciare senza spostare è una scelta, non uno
-      // spostamento da zero pixel: sono i due gesti dello stesso tasto.
-      if (drag.moved) sendValue({ type: "move", id: n.id, x: n.x, y: n.y });
-      else sendValue({ type: "click", id: n.id });
+    var spoke = false;
+    if (drag) {
+      var n = nodeById(drag.id);
+      drag.group.classList.remove("dragging");
+      if (n) {
+        // Premere e rilasciare senza spostare è una scelta, non uno
+        // spostamento da zero pixel: sono i due gesti dello stesso tasto.
+        if (drag.moved) sendValue({ type: "move", id: n.id, x: n.x, y: n.y });
+        else sendValue({ type: "click", id: n.id });
+        spoke = true;
+      }
+      drag = null;
     }
-    drag = null;
+    // Se abbiamo appena parlato, Python risponderà con un render aggiornato:
+    // quello messo da parte è più vecchio del gesto e rimetterebbe la scheda
+    // dov'era. Dopo un gesto muto — spostare la vista — nessuno risponde, e
+    // allora quel render è l'unica notizia che abbiamo.
+    if (pending && !spoke) accept(pending);
+    pending = null;
   }
 
   svg.addEventListener("pointerup", endDrag);
@@ -534,9 +544,7 @@
     else if (wrap.requestFullscreen) wrap.requestFullscreen();
   });
 
-  window.addEventListener("message", function (event) {
-    var data = event.data || {};
-    if (data.type !== "streamlit:render") return;
+  function accept(data) {
     var args = data.args || {};
     state.nodes = args.nodes || [];
     state.links = args.links || [];
@@ -544,6 +552,18 @@
     state.dark = !!args.dark;
     render();
     setHeight();
+  }
+
+  window.addEventListener("message", function (event) {
+    var data = event.data || {};
+    if (data.type !== "streamlit:render") return;
+    // Col dito ancora giù non si ricostruisce niente. Streamlit rimanda le
+    // sue proprietà a ogni giro di pagina, e un giro qualsiasi — l'aggiunta
+    // di una scheda, un filtro — può capitare a metà di un trascinamento:
+    // rifare la scena butta via il gesto in corso e la scheda torna dov'era.
+    // Si mette da parte e si decide alla fine.
+    if (drag || pan || roaming) { pending = data; return; }
+    accept(data);
   });
 
   // Restringendo la finestra cambia la larghezza della colonna, quindi anche

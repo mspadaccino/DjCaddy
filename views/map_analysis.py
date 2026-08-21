@@ -833,8 +833,15 @@ def graph_seeds(at_path: dict[str, int]) -> list[int]:
     return [] if seed is None else [seed]
 
 
+@st.fragment
 def render_graph_section(store: MapStore) -> None:
     """La lavagna: costruire un percorso un brano alla volta.
+
+    È un frammento perché ogni gesto sulla lavagna — spostare una scheda,
+    prenderne una dalla rosa — fa ripartire lo script, e ripartire per intero
+    vuol dire ridisegnare la mappa da ventimila punti per aver mosso una
+    scheda di dieci pixel. Da frammento si ridisegna solo questa sezione, e il
+    gesto smette di aspettare la mappa.
 
     Lavora sui brani piazzati per intero, non su quelli filtrati dalla
     sezione sopra: la lavagna è un secondo modo di scegliere, non un'

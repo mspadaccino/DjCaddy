@@ -115,8 +115,9 @@ class GraphPlaylist:
         if track == source:
             raise ValueError("un brano non si collega a sé stesso")
         if track not in self.places:
-            self.places[track] = place or _beside(self.places[source],
-                                                  len(self.order))
+            self.places[track] = place or _beside(
+                self.places[source], len(self.order),
+                tuple(self.places.values()))
             self.order.append(track)
         self.connect(source, track)
         return self
@@ -249,23 +250,88 @@ class GraphPlaylist:
         return cls(places=places, links=links, order=order)
 
 
-def _beside(place: tuple[float, float], seed: int) -> tuple[float, float]:
+# Quanto occupa una scheda sulla lavagna, in coordinate normalizzate. Le due
+# misure sono molto diverse perché la lavagna è larga circa il doppio di
+# quanto è alta, e la scheda è più alta che larga: in verticale "una scheda"
+# vale tre volte quello che vale in orizzontale. Un raggio unico per le due
+# direzioni — che è quello che c'era — le faceva sovrapporre sempre, perché
+# bastava a scostarle di fianco ma era metà di quanto serve sopra e sotto.
+CARD_SPAN = (0.11, 0.33)
+
+# Quanti posti provare prima di arrendersi e posare comunque. Tre giri di
+# otto: oltre, il raggio è cresciuto tanto da uscire dalla lavagna e si
+# starebbe solo scegliendo quale bordo affollare.
+_PLACE_TRIES = 24
+
+
+def _on_board(x: float, y: float) -> tuple[float, float]:
+    """Il posto più vicino in cui la scheda ci sta tutta.
+
+    Le coordinate sono il CENTRO della scheda, quindi i bordi vanno tenuti a
+    mezza scheda di distanza: schiacciare la y a zero, come si faceva, mette
+    metà scheda fuori dal bordo di sopra.
+    """
+    half = (CARD_SPAN[0] / 2, CARD_SPAN[1] / 2)
+    return (min(1 - half[0], max(half[0], x)),
+            min(1 - half[1], max(half[1], y)))
+
+
+def _beside(place: tuple[float, float], seed: int,
+            taken: tuple[tuple[float, float], ...] = ()) -> tuple[float, float]:
     """Un posto libero accanto a `place` per un brano appena scelto.
 
     Non è una disposizione: è un punto di partenza decente, che il DJ
-    sposterà. Gli arrivi si dispongono in giro attorno all'origine, a passo
-    d'angolo fisso, così due scelte di fila non finiscono l'una sull'altra.
-    L'angolo viene dal numero d'ordine e non dal caso: rifare gli stessi
-    passi rifà lo stesso disegno, e una lavagna che si rimescola da sé a
-    ogni rerun è inutilizzabile.
-    """
-    from math import cos, pi, sin
+    sposterà. Ma deve essere davvero libero, e scostarsi dalla sorgente non
+    basta a garantirlo: la catena torna su sé stessa, e il posto "accanto"
+    può essere occupato da un brano scelto tre passi fa. Quindi si prova un
+    giro di posti e si prende il primo che non tocca nessuno, allargando il
+    raggio a ogni giro completo.
 
-    angle = seed * 2.399963  # l'angolo aureo in radianti: riempie senza allineare
-    radius = 0.13 + 0.015 * (seed % 5)
-    x = place[0] + radius * cos(angle)
-    y = place[1] + radius * sin(angle)
-    return (min(0.96, max(0.04, x)), min(0.96, max(0.04, y)))
+    Il giro è un'ellisse e non un cerchio: deve stare largo quanto la scheda,
+    e la scheda non è quadrata.
+
+    L'angolo viene dal numero d'ordine e non dal caso: rifare gli stessi
+    passi rifà lo stesso disegno, e una lavagna che si rimescola da sé a ogni
+    rerun è inutilizzabile.
+    """
+    from math import cos, sin
+
+    spot = place
+    for attempt in range(_PLACE_TRIES):
+        step = seed + attempt
+        angle = step * 2.399963  # angolo aureo: riempie senza allineare
+        grow = 1.0 + 0.12 * (step % 4) + 0.5 * (attempt // 8)
+        spot = _on_board(place[0] + CARD_SPAN[0] * grow * cos(angle),
+                         place[1] + CARD_SPAN[1] * grow * sin(angle))
+        if all(abs(spot[0] - x) >= CARD_SPAN[0]
+               or abs(spot[1] - y) >= CARD_SPAN[1] for x, y in taken):
+            return spot
+    # Attorno alla sorgente non c'è più posto. Si cerca allora sulla lavagna
+    # intera, a griglia, il primo posto che non tocca nessuno: sta lontano da
+    # chi l'ha chiamato, ma il collegamento dice comunque da dove viene, e una
+    # scheda lontana si vede — una sovrapposta no.
+    free = _free_cell(taken)
+    if free is not None:
+        return free
+    # Lavagna piena davvero: si posa comunque, e a rimettere ordine ci pensa
+    # `straighten` — meglio una scheda sovrapposta che una scelta rifiutata.
+    return spot
+
+
+def _free_cell(taken) -> tuple[float, float] | None:
+    """Il primo posto della griglia che non tocca nessuna scheda, o `None`."""
+    first = _on_board(0.0, 0.0)
+    last = _on_board(1.0, 1.0)
+    cols = int((last[0] - first[0]) / CARD_SPAN[0]) + 1
+    rows = int((last[1] - first[1]) / CARD_SPAN[1]) + 1
+    for row in range(rows):
+        for col in range(cols):
+            spot = (first[0] + col * CARD_SPAN[0],
+                    first[1] + row * CARD_SPAN[1])
+            if all(abs(spot[0] - x) >= CARD_SPAN[0]
+                   or abs(spot[1] - y) >= CARD_SPAN[1] for x, y in taken):
+                return spot
+    return None
 
 
 def suggestions(cost: TransitionCost, seed: int, taken, k: int = 8,

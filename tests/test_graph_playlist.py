@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from analysis.graph_playlist import GraphPlaylist, suggestions
+from analysis.graph_playlist import CARD_SPAN, GraphPlaylist, suggestions
 from analysis.mixing import TransitionCost
 
 
@@ -129,6 +129,29 @@ def test_from_state_drops_a_link_pointing_nowhere():
 
 def test_from_state_of_nothing_is_an_empty_board():
     assert GraphPlaylist.from_state(None).tracks == []
+
+
+def test_new_tracks_land_clear_of_the_ones_already_there():
+    # Le schede sono piu' alte che larghe su una lavagna piu' larga che alta:
+    # due posti distinti in coordinate normalizzate possono comunque
+    # sovrapporsi, ed e' quello che succedeva quando il raggio era unico.
+    #
+    # Tredici e' quanto ne tiene la lavagna senza che nessuna ne tocchi
+    # un'altra; da quattordici in su si comincia a impilare, ed e' giusto
+    # cosi': il foglio e' quello, e a rimettere in fila c'e' `straighten`.
+    graph = GraphPlaylist().start("t0")
+    for n in range(1, 13):
+        graph.add(f"t{n - 1}", f"t{n}")
+    places = list(graph.places.values())
+    touching = [(a, b) for i, a in enumerate(places) for b in places[i + 1:]
+                if abs(a[0] - b[0]) < CARD_SPAN[0]
+                and abs(a[1] - b[1]) < CARD_SPAN[1]]
+    assert touching == []
+    # E ci stanno tutte per intero: le coordinate sono il centro, quindi
+    # mezza scheda dev'esserci da ogni lato o il bordo la taglia.
+    assert all(CARD_SPAN[0] / 2 <= x <= 1 - CARD_SPAN[0] / 2
+               and CARD_SPAN[1] / 2 <= y <= 1 - CARD_SPAN[1] / 2
+               for x, y in places)
 
 
 def test_straighten_puts_a_chain_left_to_right_in_reading_order():

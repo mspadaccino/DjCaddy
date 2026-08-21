@@ -202,7 +202,7 @@ def _render_filters(frame: pd.DataFrame, pool) -> "np.ndarray | list":
                 st.session_state[GRAPH_KEYS] = (
                     [k for k in keys if k != code] if code in keys
                     else keys + [code])
-                st.rerun()
+                st.rerun(scope="fragment")
 
         with rest:
             genres = Counter(g for tags in
@@ -221,7 +221,7 @@ def _render_filters(frame: pd.DataFrame, pool) -> "np.ndarray | list":
                                    "high is a straight kick.")
             if st.button("↺ Reset the filters", width="stretch"):
                 _reset_filters()
-                st.rerun()
+                st.rerun(scope="fragment")
 
         if chosen:
             wanted = set(chosen)
@@ -430,13 +430,13 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
             _save(graph)
         elif kind == "click" and node_id in graph:
             st.session_state[GRAPH_SOURCE] = node_id
-            st.rerun()
+            st.rerun(scope="fragment")
         elif kind == "remove" and node_id in graph:
             graph.remove(node_id)
             _save(graph)
             if st.session_state.get(GRAPH_SOURCE) == node_id:
                 st.session_state[GRAPH_SOURCE] = graph.tracks[-1] if graph.tracks else None
-            st.rerun()
+            st.rerun(scope="fragment")
 
     st.caption("**Drag** a card to move it · **click** a card to branch new "
                "suggestions from it · the **bin** under the selected card "
@@ -448,15 +448,17 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     if c1.button("↺ Restart the board", width="stretch"):
         st.session_state[GRAPH_STATE] = None
         st.session_state[GRAPH_SOURCE] = None
-        st.rerun()
+        st.rerun(scope="fragment")
     if c2.button("⇥ Straighten", width="stretch",
                  help="Line the cards up in the order the playlist will read."):
         graph.straighten()
         _save(graph)
-        st.rerun()
+        st.rerun(scope="fragment")
     if c3.button("➡️ Send to playlist", type="primary", width="stretch"):
         order = [at_path[p] for p in graph.walk() if p in at_path]
         set_playlist(order)
+        # L'unico che esce dalla sezione: la playlist si disegna fuori, e un
+        # rerun del solo frammento la lascerebbe indietro di una mossa.
         st.rerun()
     c4.caption(f"{len(graph)} track(s) on the board.")
 
@@ -498,7 +500,7 @@ def _render_by_hand(frame: pd.DataFrame, pool, at_path: dict[str, int],
             graph.add(source_path, frame.at[chosen, "path"])
             _save(graph)
             st.session_state[GRAPH_SOURCE] = frame.at[chosen, "path"]
-            st.rerun()
+            st.rerun(scope="fragment")
 
 
 def _narrowed(frame: pd.DataFrame, options: list[int], key: str) -> list[int] | None:
@@ -544,7 +546,7 @@ def _render_start(frame: pd.DataFrame, pool, chosen: list[int]) -> None:
         if rest.button("▶ Start from the selection", type="primary",
                        width="stretch"):
             start_board(*[frame.at[i, "path"] for i in chosen])
-            st.rerun()
+            st.rerun(scope="fragment")
         st.caption("…or pick a different one by name:")
 
     options = _narrowed(frame, pool.tolist(), "graph_start_search")
@@ -560,7 +562,7 @@ def _render_start(frame: pd.DataFrame, pool, chosen: list[int]) -> None:
     if c2.button("▶ Start the board", type="primary", width="stretch",
                 disabled=first is None):
         start_board(frame.at[first, "path"])
-        st.rerun()
+        st.rerun(scope="fragment")
 
 
 def _render_frontier(frame: pd.DataFrame, cost: TransitionCost, pool,
@@ -655,9 +657,9 @@ def _render_candidate(frame: pd.DataFrame, voice: tuple, color_of: dict[str, str
     if hear.button("▶", key=f"graph_hear_{i}", width="stretch",
                    help="Hear it before you commit to it."):
         st.session_state[NOW_PLAYING] = row["path"]
-        st.rerun()
+        st.rerun(scope="fragment")
     if take.button("➕ Add", key=f"graph_pick_{i}", width="stretch"):
         graph.add(source_path, row["path"])
         _save(graph)
         st.session_state[GRAPH_SOURCE] = row["path"]
-        st.rerun()
+        st.rerun(scope="fragment")
