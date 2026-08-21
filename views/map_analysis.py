@@ -622,9 +622,13 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "BPM": frame.at[i, "bpm"],
             "key": frame.at[i, "camelot"],
             "groove": frame.at[i, "danceability"],
+            # Le tre parti del costo, non tre scarti: dicono QUANTO due brani
+            # sono lontani su ciascun asse, da 0 a 1, non da che parte. Il
+            # nome "Δ" prometteva un segno che qui non c'è — e da quando la
+            # lavagna mostra scarti veri, prometterlo confondeva le due cose.
             "sound": round(cost.parts(seed, i)["map"], 3),
-            "Δbpm": round(cost.parts(seed, i)["bpm"], 2),
-            "Δkey": round(cost.parts(seed, i)["key"], 2),
+            "bpm cost": round(cost.parts(seed, i)["bpm"], 2),
+            "key cost": round(cost.parts(seed, i)["key"], 2),
             "genres": frame.at[i, "genres"],
             "_path": frame.at[i, "path"],
             "_row": i,
@@ -639,12 +643,12 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             edited = play_table(
                 "map_suggestions", table,
                 ["Add", "cost", "file", "BPM", "key", "groove", "sound",
-                 "Δbpm", "Δkey", "genres"],
+                 "bpm cost", "key cost", "genres"],
                 {"Add": st.column_config.CheckboxColumn(
                     "Add", help="Tick what you want in the playlist, then "
                                 "the button below."),
                  **_read_only("cost", "file", "BPM", "key", "groove", "sound",
-                              "Δbpm", "Δkey", "genres")},
+                              "bpm cost", "key cost", "genres")},
                 editor_key="map_sugg_editor")
             wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
             if st.button(f"➕ Add {len(wanted)} to the playlist",

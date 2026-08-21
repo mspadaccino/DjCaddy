@@ -41,6 +41,13 @@ PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
            "#4dd0c4", "#c9b037", "#6f8fd6", "#d66f6f", "#7fbf3f", "#bf7fd6"]
 OTHER_COLOR = {"light": "#9aa4b0", "dark": "#6b7684"}
 
+# Caldo sale, freddo scende. Doppioni di `skinOf` nel frontend della lavagna,
+# come la tavolozza qui sopra: il componente non può leggere da qui, e questi
+# due colori devono dire la stessa cosa nei due posti o le due letture si
+# smentiscono. Cambiarne uno vuol dire cambiare anche l'altro.
+WAY_COLOR = {"light": {1: "#a8600f", -1: "#25689e"},
+             "dark": {1: "#e0a260", -1: "#7fb4e0"}}
+
 GRAPH_STATE = "map::graph"
 GRAPH_SOURCE = "map::graph_source"
 GRAPH_KEYS = "map::graph_keys"
@@ -126,29 +133,38 @@ def _some(row, column: str):
     return value if pd.notna(value) and value != "" else None
 
 
-def _shifts(source, row) -> list[str]:
+def _shifts(source, row) -> list[tuple[str, int]]:
     """Come cambia il brano rispetto a quello da cui lo si sta scegliendo.
+
+    Per esteso, perché nella rosa si legge con attenzione invece di scorrere:
+    qui si sta valutando una scelta, sulla lavagna si segue un arco.
 
     Il costo dice quanto due brani sono lontani; questi dicono da che parte,
     e sono la cosa che il costo non può dire perché non ha segno. Restano
     fuori dall'ordinamento apposta: un set sale, tiene e lascia cadere, e
     ordinare per direzione vorrebbe dire scegliere quale al posto del DJ.
     """
+    gaps = _gaps(source, row)
     out = []
-    tempo = bpm_shift(_some(source, "bpm"), _some(row, "bpm"))
-    if tempo is not None:
-        out.append(f"{round(tempo):+d} BPM")
-    wheel = camelot_shift(_some(source, "camelot"), _some(row, "camelot"))
-    if wheel is not None:
-        steps, mode = wheel
+    if "bpm" in gaps:
+        out.append((f"{gaps['bpm']:+d} BPM", _way(gaps["bpm"])))
+    if "key" in gaps:
         # Zero passi con la lettera cambiata non è "niente": è il relativo
         # maggiore o minore, che è una mossa e va detta.
-        out.append(f"{steps:+d} wheel" if steps
-                   else ("relative" if mode else "same key"))
-    here, there = _some(source, "danceability"), _some(row, "danceability")
-    if here is not None and there is not None:
-        out.append(f"{there - here:+.2f} dance")
+        steps, mode = gaps["key"]
+        out.append((f"{steps:+d} wheel", _way(steps)) if steps
+                   else (("relative", 0) if mode else ("same key", 0)))
+    if "dance" in gaps:
+        out.append((f"{gaps['dance']:+.2f} dance", _way(gaps["dance"])))
     return out
+
+
+def _tinted(moves: list[tuple[str, int]]) -> str:
+    """Gli scarti come HTML, ognuno col colore del proprio verso."""
+    tint = WAY_COLOR["dark" if _dark() else "light"]
+    return " · ".join(
+        f"<span style='color:{tint[way]}'>{text}</span>" if way else text
+        for text, way in moves)
 
 
 def _render_filters(frame: pd.DataFrame, pool) -> "np.ndarray | list":
@@ -284,8 +300,33 @@ def _way(value) -> int:
     return int(value > 0) - int(value < 0)
 
 
+def _gaps(source, row) -> dict:
+    """Di quanto si muove `row` rispetto a `source`, misura per misura.
+
+    Solo i numeri, senza deciderne la forma: la lavagna e la rosa li scrivono
+    in due modi diversi — larghezze diverse, letture diverse — ma non devono
+    calcolarli due volte, o prima o poi diranno due cose diverse.
+
+    Una misura che manca da una delle due parti non compare affatto: non c'è
+    scarto fra un numero e il nulla.
+    """
+    if source is None:
+        return {}
+    out = {}
+    tempo = bpm_shift(_some(source, "bpm"), _some(row, "bpm"))
+    if tempo is not None:
+        out["bpm"] = round(tempo)
+    wheel = camelot_shift(_some(source, "camelot"), _some(row, "camelot"))
+    if wheel is not None:
+        out["key"] = wheel
+    here, there = _some(source, "danceability"), _some(row, "danceability")
+    if here is not None and there is not None:
+        out["dance"] = round(there - here, 2)
+    return out
+
+
 def _card_shifts(source, row) -> dict[str, tuple[str, int]]:
-    """Gli stessi scarti di `_shifts`, una cella per colonna della scheda.
+    """Gli scarti in forma corta, una cella per colonna della scheda.
 
     Scritti di seguito non ci starebbero, e abbreviarli in "+0 · -1 · +.05"
     su una riga a sé sarebbe un rebus. Incolonnati sotto ai valori che
@@ -294,25 +335,22 @@ def _card_shifts(source, row) -> dict[str, tuple[str, int]]:
     colonna: le due righe restano allineate perché le costruisce lo stesso
     giro.
     """
-    if source is None:
-        return {}
+    gaps = _gaps(source, row)
     out = {}
-    tempo = bpm_shift(_some(source, "bpm"), _some(row, "bpm"))
-    if tempo is not None:
-        out["bpm"] = (f"{round(tempo):+d}", _way(round(tempo)))
-    wheel = camelot_shift(_some(source, "camelot"), _some(row, "camelot"))
-    if wheel is not None:
-        steps, mode = wheel
-        # Il relativo maggiore o minore non sale né scende: cambia colore al
-        # brano restando dov'è, e tingerlo di verso direbbe una cosa falsa.
+    if "bpm" in gaps:
+        out["bpm"] = (f"{gaps['bpm']:+d}", _way(gaps["bpm"]))
+    if "key" in gaps:
+        # Zero passi con la lettera cambiata è il relativo maggiore o minore:
+        # non sale né scende, cambia colore al brano restando dov'è, e dargli
+        # un verso direbbe una cosa falsa.
+        steps, mode = gaps["key"]
         out["key"] = ((f"{steps:+d}", _way(steps)) if steps
                       else (("rel", 0) if mode else ("=", 0)))
-    here, there = _some(source, "danceability"), _some(row, "danceability")
-    if here is not None and there is not None:
+    if "dance" in gaps:
         # Senza lo zero davanti: sotto una colonna di trentotto pixel "+0.05"
         # e "+.05" dicono la stessa cosa e solo uno dei due ci sta.
-        gap = round(there - here, 2)
-        out["dance"] = (f"{gap:+.2f}".replace("0.", "."), _way(gap))
+        out["dance"] = (f"{gaps['dance']:+.2f}".replace("0.", "."),
+                        _way(gaps["dance"]))
     return out
 
 
@@ -422,24 +460,78 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     c4.caption(f"{len(graph)} track(s) on the board.")
 
     _render_frontier(frame, cost, pool, at_path, graph)
+    _render_by_hand(frame, pool, at_path, graph)
+
+
+def _render_by_hand(frame: pd.DataFrame, pool, at_path: dict[str, int],
+                    graph: GraphPlaylist) -> None:
+    """Attaccare un brano scelto per nome, fuori dalla rosa.
+
+    La rosa risponde a "cosa ci mixa dietro"; questo risponde a "voglio
+    QUESTO". Sono due domande diverse e la seconda capita davvero: un brano
+    che si è deciso di suonare esiste prima del grafo, e senza questa via
+    andrebbe cercato spostando la sorgente finché la rosa non lo tira fuori
+    — cioè piegando lo strumento invece di usarlo.
+
+    Il collegamento resta quello di sempre: nasce attaccato alla sorgente,
+    perché anche una scelta a mano viene DA qualche parte nella scaletta.
+    """
+    source_path = st.session_state.get(GRAPH_SOURCE)
+    if source_path is None or source_path not in graph:
+        return
+    here = {at_path[p] for p in graph.tracks if p in at_path}
+    options = [i for i in pool.tolist() if i not in here]
+    if not options:
+        return
+
+    with st.expander("Add a track by name — outside the roster"):
+        options = _narrowed(frame, options, "graph_by_hand_search")
+        if options is None:
+            return
+        chosen = st.selectbox(
+            "Track", options, index=None, key="graph_by_hand",
+            format_func=lambda i: frame.at[i, "name"],
+            placeholder="type part of a name")
+        if st.button("➕ Attach it to the current source", type="primary",
+                     disabled=chosen is None):
+            graph.add(source_path, frame.at[chosen, "path"])
+            _save(graph)
+            st.session_state[GRAPH_SOURCE] = frame.at[chosen, "path"]
+            st.rerun()
+
+
+def _narrowed(frame: pd.DataFrame, options: list[int], key: str) -> list[int] | None:
+    """Le voci fra cui scegliere per nome, o `None` se sono ancora troppe.
+
+    Sopra qualche migliaio il menu dei nomi smette di aprirsi in fretta: si
+    cerca prima e si sceglie dopo. Vale ovunque si scelga un brano scrivendo
+    il nome, e su una libreria vera scatta sempre — quindi la ricerca non è
+    un ripiego, è la via normale.
+    """
+    if len(options) <= START_PICKER_MAX:
+        return options
+    search = st.text_input("Name contains", key=key,
+                           placeholder="too many tracks — search by name first")
+    if not search.strip():
+        st.caption("Type part of a name to search the library.")
+        return None
+    wanted = search.strip().lower()
+    found = [i for i in options if wanted in frame.at[i, "name"].lower()]
+    if len(found) > START_PICKER_MAX:
+        st.caption(f"{len(found):,} match — narrow the search further.")
+        return None
+    if not found:
+        st.caption("Nothing matches that.")
+        return None
+    return found
 
 
 def _render_start(frame: pd.DataFrame, pool) -> None:
     st.markdown("**Start the board with two tracks.** A single track says "
                "nothing about direction — a pair does.")
-    options = pool.tolist()
-    if len(options) > START_PICKER_MAX:
-        search = st.text_input("Name contains", key="graph_start_search",
-                               placeholder="too many tracks — search by name first")
-        options = [i for i in options
-                  if search.strip().lower() in frame.at[i, "name"].lower()] \
-            if search.strip() else []
-        if len(options) > START_PICKER_MAX:
-            st.caption(f"{len(options):,} match — narrow the search further.")
-            return
-        if not options:
-            st.caption("Type part of a name to search the library.")
-            return
+    options = _narrowed(frame, pool.tolist(), "graph_start_search")
+    if options is None:
+        return
 
     c1, c2, c3 = st.columns([3, 3, 2])
     first = c1.selectbox("First track", options, index=None,
@@ -531,8 +623,9 @@ def _render_candidate(frame: pd.DataFrame, voice: tuple, color_of: dict[str, str
         f"<span style='background:{_camelot_color(camelot)};color:#1b1f27;"
         f"padding:.1em .4em;border-radius:.3em'>{camelot or '?'}</span>"
         f"{f' · {dance:.2f} dance' if dance is not None else ''}</div>"
-        f"<div style='margin:0 0 .2em;font-size:.78em;opacity:.65'>"
-        f"{' · '.join(_shifts(source, row))} · cost {value:.3f}</div>",
+        f"<div style='margin:0 0 .2em;font-size:.78em;opacity:.8'>"
+        f"{_tinted(_shifts(source, row))}"
+        f"<span style='opacity:.6'> · cost {value:.3f}</span></div>",
         unsafe_allow_html=True)
 
     if len(copies) > 1:
