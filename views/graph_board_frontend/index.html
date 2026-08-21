@@ -22,6 +22,10 @@
     width: 26px; height: 26px; padding: 0; line-height: 1;
     border-radius: 6px; cursor: pointer; font-size: 13px;
   }
+  /* A tutto schermo il riquadro non è più alto quanto la sua proporzione ma
+     quanto lo schermo, e la lavagna ci si adagia dentro senza deformarsi. */
+  #wrap:fullscreen { display: flex; align-items: center; justify-content: center; }
+  #wrap:fullscreen svg { width: 100vw; height: 100vh; }
 </style>
 </head>
 <body>
@@ -31,6 +35,7 @@
     <button id="zin" title="Zoom in">+</button>
     <button id="zout" title="Zoom out">−</button>
     <button id="zfit" title="Fit the board">⤢</button>
+    <button id="zfull" title="Full screen">⛶</button>
   </div>
 </div>
 <script>
@@ -48,11 +53,18 @@
   var wrap = document.getElementById("wrap");
   svg.setAttribute("viewBox", "0 0 " + W + " " + H);
 
+  // La mappina in basso a destra: dove sta ogni scheda su tutta la lavagna, e
+  // il rettangolo di quanto se ne sta guardando. Serve appena si zooma, che è
+  // il momento in cui si perde il resto di vista.
+  var MAP_W = 170, MAP_H = 88;
+  var MAP_X = W - MAP_W - 12, MAP_Y = H - MAP_H - 12;
+
   var state = { nodes: [], links: [], selected: null, dark: false };
   var view = { z: 1, tx: 0, ty: 0 };
-  var drag = null;   // trascinamento di un nodo
-  var pan = null;    // trascinamento dello sfondo
-  var scene = null, edgeGroup = null;
+  var drag = null;    // trascinamento di un nodo
+  var pan = null;     // trascinamento dello sfondo
+  var roaming = false; // trascinamento dentro la mappina
+  var scene = null, edgeGroup = null, minimap = null, skin = null;
 
   // `isStreamlitMessage` non è decorazione: Streamlit scarta senza guardare
   // ogni messaggio che non ce l'ha. Senza, il riquadro resta alto zero e non
@@ -62,8 +74,15 @@
       Object.assign({ isStreamlitMessage: true }, msg), "*");
   }
 
+  // L'altezza da chiedere è quella che il disegno occupa DAVVERO, non quella
+  // del viewBox. L'SVG è largo quanto la colonna e tiene la sua proporzione,
+  // quindi sotto i millecento pixel è più basso di 520 — chiederne 520 lascia
+  // una fascia vuota sotto la lavagna, che su una pagina stretta è la maggior
+  // parte del riquadro. Si misura dopo che il browser ha impaginato.
   function setHeight() {
-    toParent({ type: "streamlit:setFrameHeight", height: H + 12 });
+    if (document.fullscreenElement) return;   // lì l'altezza è lo schermo
+    var drawn = Math.round(svg.getBoundingClientRect().height);
+    toParent({ type: "streamlit:setFrameHeight", height: (drawn || H) + 12 });
   }
 
   // Ogni evento porta l'istante in cui è successo. Streamlit ridà a Python
@@ -146,6 +165,45 @@
       scene.setAttribute("transform",
         "translate(" + view.tx + "," + view.ty + ") scale(" + view.z + ")");
     }
+    drawMinimap();
+  }
+
+  // Quale porzione della lavagna sta nel riquadro, in frazioni di lavagna.
+  function seen() {
+    return { x0: -view.tx / (view.z * W), x1: (W - view.tx) / (view.z * W),
+             y0: -view.ty / (view.z * H), y1: (H - view.ty) / (view.z * H) };
+  }
+
+  function centreOn(nx, ny) {
+    view.tx = W / 2 - view.z * nx * W;
+    view.ty = H / 2 - view.z * ny * H;
+    applyView();
+  }
+
+  function drawMinimap() {
+    if (!minimap || !skin) return;
+    while (minimap.firstChild) minimap.removeChild(minimap.firstChild);
+    minimap.appendChild(el("rect", {
+      x: MAP_X, y: MAP_Y, width: MAP_W, height: MAP_H, rx: 6,
+      fill: skin.card, "fill-opacity": 0.94,
+      stroke: skin.ink, "stroke-opacity": 0.25 }));
+
+    var box = seen();
+    var x0 = clamp(box.x0, 0, 1), x1 = clamp(box.x1, 0, 1);
+    var y0 = clamp(box.y0, 0, 1), y1 = clamp(box.y1, 0, 1);
+    minimap.appendChild(el("rect", {
+      x: MAP_X + x0 * MAP_W, y: MAP_Y + y0 * MAP_H,
+      width: Math.max(3, (x1 - x0) * MAP_W),
+      height: Math.max(3, (y1 - y0) * MAP_H),
+      fill: skin.ink, "fill-opacity": 0.08,
+      stroke: skin.ink, "stroke-opacity": 0.5, rx: 2 }));
+
+    state.nodes.forEach(function (n) {
+      minimap.appendChild(el("rect", {
+        x: MAP_X + n.x * MAP_W - 3, y: MAP_Y + n.y * MAP_H - 2.5,
+        width: 6, height: 5, rx: 1.5, fill: n.color,
+        "fill-opacity": n.id === state.selected ? 1 : 0.7 }));
+    });
   }
 
   // -- disegno -----------------------------------------------------------
@@ -312,7 +370,10 @@
 
   function render() {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    var skin = skinOf();
+    skin = skinOf();
+    // A tutto schermo il riquadro deborda dalla lavagna: senza un fondo suo
+    // resterebbe il bianco del browser attorno.
+    wrap.style.background = skin.paper;
 
     var defs = el("defs", {});
     var pattern = el("pattern", { id: "dots", width: 26, height: 26,
@@ -346,6 +407,11 @@
     if (sel) scene.appendChild(drawCard(sel, true, skin));
 
     svg.appendChild(scene);
+
+    // Fuori dalla scena: la mappina non si sposta né si ingrandisce con
+    // quello che racconta.
+    minimap = el("g", { id: "minimap" });
+    svg.appendChild(minimap);
     applyView();
   }
 
@@ -370,14 +436,35 @@
 
   // -- mouse -------------------------------------------------------------
 
+  function inMinimap(evt) {
+    var p = svgPoint(evt);
+    return p.x >= MAP_X && p.x <= MAP_X + MAP_W
+        && p.y >= MAP_Y && p.y <= MAP_Y + MAP_H;
+  }
+
+  function roamTo(evt) {
+    var p = svgPoint(evt);
+    centreOn(clamp((p.x - MAP_X) / MAP_W, 0, 1),
+             clamp((p.y - MAP_Y) / MAP_H, 0, 1));
+  }
+
   svg.addEventListener("pointerdown", function (evt) {
     if (drag) return;
+    // Premere sulla mappina porta lo sguardo lì invece di trascinare la
+    // lavagna sotto: è una cartina, non una parte del foglio.
+    if (inMinimap(evt)) {
+      roaming = true;
+      svg.setPointerCapture(evt.pointerId);
+      roamTo(evt);
+      return;
+    }
     pan = { x: evt.clientX, y: evt.clientY, tx: view.tx, ty: view.ty };
     wrap.classList.add("panning");
     svg.setPointerCapture(evt.pointerId);
   });
 
   svg.addEventListener("pointermove", function (evt) {
+    if (roaming) { roamTo(evt); return; }
     if (drag) {
       var n = nodeById(drag.id);
       if (!n) return;
@@ -396,6 +483,7 @@
   function endDrag() {
     wrap.classList.remove("panning");
     pan = null;
+    roaming = false;
     if (!drag) return;
     var n = nodeById(drag.id);
     drag.group.classList.remove("dragging");
@@ -438,6 +526,13 @@
     view = { z: 1, tx: 0, ty: 0 };
     applyView();
   });
+  document.getElementById("zfull").addEventListener("click", function () {
+    // Streamlit concede `fullscreen` al riquadro, quindi si chiede a tutto
+    // schermo il contenitore e non il documento: lo sfondo e la mappina
+    // devono venire con la lavagna.
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if (wrap.requestFullscreen) wrap.requestFullscreen();
+  });
 
   window.addEventListener("message", function (event) {
     var data = event.data || {};
@@ -447,6 +542,19 @@
     state.links = args.links || [];
     state.selected = args.selected || null;
     state.dark = !!args.dark;
+    render();
+    setHeight();
+  });
+
+  // Restringendo la finestra cambia la larghezza della colonna, quindi anche
+  // l'altezza del disegno: senza riascoltarla il riquadro resterebbe alto
+  // quanto era al primo giro.
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { setHeight(); }).observe(svg);
+  }
+  document.addEventListener("fullscreenchange", function () {
+    // Tornando dallo schermo intero il disegno ritrova la sua larghezza, e
+    // il riquadro deve ritrovare la sua altezza.
     render();
     setHeight();
   });

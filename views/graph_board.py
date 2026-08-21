@@ -441,7 +441,8 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     st.caption("**Drag** a card to move it · **click** a card to branch new "
                "suggestions from it · the **bin** under the selected card "
                "removes it and reconnects its neighbours · **scroll** to "
-               "zoom, drag the background to pan.")
+               "zoom, drag the background to pan, drag inside the **minimap** "
+               "to move the view · **⛶** goes full screen.")
 
     c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
     if c1.button("↺ Restart the board", width="stretch"):
