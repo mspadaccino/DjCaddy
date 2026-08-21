@@ -485,8 +485,60 @@ def render_map(store: MapStore) -> None:
                    "Narrow the filters to pick a seed from a menu instead of "
                    "from the map.")
 
+
     st.divider()
-    st.subheader("What to do with the selection")
+
+    # La sezione sta in un blocco a scomparsa suo, separata dalla lavagna:
+    # sono due modi diversi di costruire un set e mescolarli in una colonna
+    # sola voleva dire non vedere mai per intero ne' l'uno ne' l'altro. Si
+    # apre da se' quando c'e' qualcosa da farci — una selezione o una
+    # playlist gia' iniziata — perche' chiusa e vuota non direbbe nulla.
+    _has_choice = bool(lasso or len(picked) or seed is not None)
+    with st.expander(
+            "✨ Magic Playlist — turn a selection into an ordered set"
+            + (f" · {len(playlist)} track(s) so far" if playlist else ""),
+            expanded=_has_choice or bool(playlist)):
+        render_magic_playlist(frame, cost, pool, store, seed, picked,
+                              lasso, playlist)
+
+
+def selection_rows(frame: pd.DataFrame, indices) -> pd.DataFrame:
+    """Le righe da mostrare per i brani selezionati, nell'ordine dato.
+
+    L'ordine e' quello che arriva e non si tocca: da un lasso aperto e'
+    l'ordine in cui la linea incontra i brani, che e' gia' la scaletta.
+    """
+    return pd.DataFrame([{
+        "#": position + 1,
+        "file": frame.at[i, "name"],
+        "BPM": frame.at[i, "bpm"],
+        "key": frame.at[i, "camelot"],
+        "groove": frame.at[i, "danceability"],
+        "genres": frame.at[i, "genres"],
+        "_path": frame.at[i, "path"],
+    } for position, i in enumerate(indices)])
+
+
+def _selection_table(frame: pd.DataFrame, indices, key: str) -> None:
+    """I brani selezionati, elencati e ascoltabili.
+
+    Il conteggio da solo non bastava: prima di ordinare venti brani in un
+    set si vuole vedere QUALI sono, e poterne sentire uno.
+    """
+    if not len(indices):
+        return
+    table = selection_rows(frame, indices)
+    play_table(
+        f"map_selection::{key}", table,
+        ["#", "file", "BPM", "key", "groove", "genres"],
+        _read_only("#", "file", "BPM", "key", "groove", "genres"),
+        editable=False, editor_key=f"map_selection_editor::{key}")
+
+
+def render_magic_playlist(frame: pd.DataFrame, cost: TransitionCost, pool,
+                          store: MapStore, seed, picked, lasso,
+                          playlist: list[int]) -> None:
+    """Dalla selezione sulla mappa a una playlist ordinata."""
 
     if lasso:
         # Lo stesso gesto fa due domande diverse, e quale delle due si stia
@@ -516,6 +568,7 @@ def render_map(store: MapStore) -> None:
             st.markdown(f"**{len(chosen)} track(s)** inside the shape you "
                         "drew — in no order of their own, which is what "
                         "magic sort is for.")
+            _selection_table(frame, chosen, "inside")
             c1, c2 = st.columns(2)
             if c1.button("✨ Magic sort them into the playlist", type="primary",
                          width="stretch", disabled=len(chosen) < 2):
@@ -539,6 +592,7 @@ def render_map(store: MapStore) -> None:
                                  radius=diagonal * radius_pct / 100, pool=pool)
             st.markdown(f"**{len(ordered)} track(s)** under the line you "
                         "drew, in the order the line meets them.")
+            _selection_table(frame, ordered, "line")
             c1, c2 = st.columns(2)
             if c1.button("➕ Use it as the playlist", type="primary",
                          width="stretch", disabled=not ordered):
@@ -556,6 +610,7 @@ def render_map(store: MapStore) -> None:
             "Magic sort walks all of them once, in the order that keeps every "
             "transition cheap — the travelling-salesman path over the cost "
             "below. It is the answer to a folder of tracks in no order.")
+        _selection_table(frame, picked, "picked")
         c1, c2 = st.columns(2)
         if c1.button("✨ Magic sort them into the playlist",
                      type="primary", width="stretch"):
@@ -587,6 +642,8 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
     st.markdown(f"**Seed — {row['name']}**  \n"
                 f"{row['bpm'] or '?'} BPM · {row['camelot'] or '?'}{groove} · "
                 f"{row['genres']}")
+    # anche quando e' uno solo: la riga si ascolta come le altre
+    _selection_table(frame, [seed], "seed")
 
     w1, w2, w3 = st.columns(3)
     cost.w_map = w1.slider("Weight — sound", 0.0, 2.0, 1.0, 0.1,
