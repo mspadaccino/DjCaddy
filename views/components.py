@@ -129,7 +129,10 @@ _PLAYER_CSS = """
 }
 .wp canvas { flex: 1 1 auto; height: 84px; cursor: pointer; display: block; }
 .wp .clock {
-  flex: 0 0 auto; font-variant-numeric: tabular-nums;
+  /* nowrap piu' una larghezza minima: senza, "5:33 / 7:23" andava a capo e
+     si leggeva solo meta' del tempo. */
+  flex: 0 0 auto; white-space: nowrap; min-width: 5.5rem; text-align: right;
+  font-variant-numeric: tabular-nums;
   font-size: 0.8rem; color: var(--st-text-color, #333); opacity: 0.75;
 }
 """
