@@ -559,12 +559,10 @@ if durations is not None and durations.tracks:
 st.divider()
 st.header("Junk files")
 st.caption(
-    "On a non-macOS volume (this drive is exFAT) the Finder cannot store a "
-    "file's extended attributes inside it, so it writes them to a companion "
-    "`._<name>` — one per track, plus one per folder. They carry the track's "
-    "own extension but hold no audio: typically 4 KB whose only real content "
-    "is the browser's download-quarantine flag. The Finder hides them, "
-    "rekordbox refuses them, djay Pro ignores them."
+    "Small companion files macOS leaves beside the real ones, named "
+    "`._<name>`. They carry the track's extension but hold no audio, and "
+    "nothing plays them. Removing them frees space and keeps them out of "
+    "the way."
 )
 
 sidecar_key = f"sidecars::{root}"
