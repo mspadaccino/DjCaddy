@@ -22,7 +22,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from analysis.graph_playlist import GraphPlaylist, suggestions
-from analysis.mixing import TransitionCost
+from analysis.mixing import TransitionCost, bpm_shift, camelot_shift
 from views.components import NOW_PLAYING, render_player
 
 _FRONTEND_DIR = Path(__file__).parent / "graph_board_frontend"
@@ -116,6 +116,31 @@ def _some(row, column: str):
         return None
     value = row[column]
     return value if pd.notna(value) and value != "" else None
+
+
+def _shifts(source, row) -> list[str]:
+    """Come cambia il brano rispetto a quello da cui lo si sta scegliendo.
+
+    Il costo dice quanto due brani sono lontani; questi dicono da che parte,
+    e sono la cosa che il costo non può dire perché non ha segno. Restano
+    fuori dall'ordinamento apposta: un set sale, tiene e lascia cadere, e
+    ordinare per direzione vorrebbe dire scegliere quale al posto del DJ.
+    """
+    out = []
+    tempo = bpm_shift(_some(source, "bpm"), _some(row, "bpm"))
+    if tempo is not None:
+        out.append(f"{round(tempo):+d} BPM")
+    wheel = camelot_shift(_some(source, "camelot"), _some(row, "camelot"))
+    if wheel is not None:
+        steps, mode = wheel
+        # Zero passi con la lettera cambiata non è "niente": è il relativo
+        # maggiore o minore, che è una mossa e va detta.
+        out.append(f"{steps:+d} wheel" if steps
+                   else ("relative" if mode else "same key"))
+    here, there = _some(source, "danceability"), _some(row, "danceability")
+    if here is not None and there is not None:
+        out.append(f"{there - here:+.2f} dance")
+    return out
 
 
 def _label(name: str) -> str:
@@ -255,11 +280,11 @@ def _render_frontier(frame: pd.DataFrame, cost: TransitionCost, pool,
     if source_idx is None:
         return
 
-    row = frame.iloc[source_idx]
-    bpm = _some(row, "bpm")
-    st.markdown(f"**Branching from — {row['name']}**  \n"
+    source = frame.iloc[source_idx]
+    bpm = _some(source, "bpm")
+    st.markdown(f"**Branching from — {source['name']}**  \n"
                f"{f'{bpm:.0f}' if bpm is not None else '?'} BPM · "
-               f"{_some(row, 'camelot') or '?'} · {row['genres']}")
+               f"{_some(source, 'camelot') or '?'} · {source['genres']}")
 
     taken = {at_path[p] for p in graph.tracks if p in at_path}
     picks = suggestions(cost, source_idx, taken, k=FRONTIER_SIZE, pool=pool)
@@ -277,14 +302,14 @@ def _render_frontier(frame: pd.DataFrame, cost: TransitionCost, pool,
         for col, (i, value) in zip(st.columns(FRONTIER_COLUMNS), row):
             with col.container(border=True):
                 _render_candidate(frame, i, value, color_of, other,
-                                  graph, source_path)
+                                  graph, source_path, source)
 
     render_player({frame.at[i, "path"] for i, _ in picks})
 
 
 def _render_candidate(frame: pd.DataFrame, i: int, value: float,
                       color_of: dict[str, str], other: str,
-                      graph: GraphPlaylist, source_path: str) -> None:
+                      graph: GraphPlaylist, source_path: str, source) -> None:
     """Una scheda della rosa, disegnata come i nodi sulla lavagna.
 
     Stessa faccia apposta: quello che si sceglie qui è quello che comparirà
@@ -293,17 +318,21 @@ def _render_candidate(frame: pd.DataFrame, i: int, value: float,
     row = frame.iloc[i]
     swatch = color_of.get(row["top_genre"], other)
     camelot = _some(row, "camelot")
-    bpm = _some(row, "bpm")
+    bpm, dance = _some(row, "bpm"), _some(row, "danceability")
+    # Due righe e non una: sopra che brano è, sotto come si muove rispetto a
+    # dove sei. Mescolate fra parentesi si leggono male entrambe.
     st.markdown(
         f"<div style='display:flex;gap:.5em;align-items:center'>"
         f"<span style='width:1.4em;height:1.4em;border-radius:.3em;"
         f"background:{swatch};flex:none'></span>"
         f"<b>{_label(row['name'])}</b></div>"
-        f"<div style='margin:.4em 0 .2em;font-size:.8em'>"
+        f"<div style='margin:.4em 0 .1em;font-size:.8em'>"
         f"{f'{bpm:.0f} BPM · ' if bpm is not None else ''}"
         f"<span style='background:{_camelot_color(camelot)};color:#1b1f27;"
         f"padding:.1em .4em;border-radius:.3em'>{camelot or '?'}</span>"
-        f" · cost {value:.3f}</div>",
+        f"{f' · {dance:.2f} dance' if dance is not None else ''}</div>"
+        f"<div style='margin:0 0 .2em;font-size:.78em;opacity:.65'>"
+        f"{' · '.join(_shifts(source, row))} · cost {value:.3f}</div>",
         unsafe_allow_html=True)
 
     hear, take = st.columns([1, 2])

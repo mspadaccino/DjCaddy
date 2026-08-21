@@ -5,7 +5,9 @@ from analysis.mixing import (
     along_path,
     closed_shape,
     bpm_distance,
+    bpm_shift,
     camelot_distance,
+    camelot_shift,
     magic_sort,
     nearest,
     resample_path,
@@ -39,6 +41,41 @@ def test_camelot_distance_free_moves():
 def test_camelot_distance_without_a_key():
     assert camelot_distance(None, "8A") == 0.5
     assert camelot_distance("8A", "non è un codice") == 0.5
+
+
+def test_bpm_shift_keeps_the_sign():
+    assert bpm_shift(118, 122) == 4
+    assert bpm_shift(122, 118) == -4
+    assert bpm_shift(120, 120) == 0
+
+
+def test_bpm_shift_folds_octaves_like_the_distance():
+    # Half-time non è una frenata di 64 BPM: è lo stesso passo.
+    assert bpm_shift(128, 64) == 0
+    assert bpm_shift(128, 66) == 4
+    assert bpm_shift(128, 260) == 2
+
+
+def test_bpm_shift_without_a_tempo():
+    assert bpm_shift(None, 128) is None
+    assert bpm_shift(128, 0) is None
+
+
+def test_camelot_shift_takes_the_short_way_round():
+    assert camelot_shift("8A", "9A") == (1, False)
+    assert camelot_shift("8A", "7A") == (-1, False)
+    assert camelot_shift("12A", "1A") == (1, False)     # la ruota si chiude
+    assert camelot_shift("1A", "12A") == (-1, False)
+
+
+def test_camelot_shift_reports_a_change_of_mode():
+    assert camelot_shift("8A", "8B") == (0, True)       # il relativo maggiore
+    assert camelot_shift("8A", "9B") == (1, True)
+
+
+def test_camelot_shift_without_a_key():
+    assert camelot_shift(None, "8A") is None
+    assert camelot_shift("8A", "non è un codice") is None
 
 
 def test_bpm_distance_folds_octaves():

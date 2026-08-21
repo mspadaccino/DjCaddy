@@ -132,6 +132,50 @@ def bpm_distance(a: float | None, b: float | None,
 
 
 # --------------------------------------------------------------------------
+# Scarti con segno
+# --------------------------------------------------------------------------
+
+# Le distanze qui sopra dicono QUANTO due brani sono lontani; queste dicono
+# DA CHE PARTE. Servono a mostrarlo, non a ordinare: un set sale, tiene e
+# lascia cadere, e mettere la direzione dentro al punteggio significherebbe
+# decidere quale delle tre — che è la scelta del DJ, non del programma.
+
+
+def bpm_shift(a: float | None, b: float | None) -> float | None:
+    """Di quanto cambia il tempo passando da `a` a `b`, col segno.
+
+    A ottave ripiegate come `bpm_distance`, e per la stessa ragione: da 128
+    a 64 si va in half-time senza cambiare passo, e segnarlo come −64 farebbe
+    leggere una frenata dove non c'è.
+    """
+    if not a or not b:
+        return None
+    folded = min((b * factor for factor in (0.5, 1.0, 2.0)),
+                 key=lambda value: abs(value - a))
+    return folded - a
+
+
+def camelot_shift(a: str | None, b: str | None) -> tuple[int, bool] | None:
+    """Passi con segno sulla ruota da `a` a `b`, e se cambia il modo.
+
+    Positivo è orario (8A→9A), che è la mossa con cui si alza di un grado
+    senza stonare. Si prende sempre la via breve, perché la ruota si chiude:
+    da 12A a 1A è un passo avanti, non undici indietro.
+
+    Il cambio di modo viaggia a parte perché non è un passo: 8A→8B sono zero
+    passi e un salto al relativo maggiore, che è una mossa vera.
+    """
+    if not a or not b:
+        return None
+    try:
+        n1, l1 = int(a[:-1]), a[-1].upper()
+        n2, l2 = int(b[:-1]), b[-1].upper()
+    except (ValueError, IndexError):
+        return None
+    return (n2 - n1 + 6) % 12 - 6, l1 != l2
+
+
+# --------------------------------------------------------------------------
 # Costo della transizione
 # --------------------------------------------------------------------------
 
