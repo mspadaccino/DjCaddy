@@ -31,9 +31,9 @@ the batch CLI and the Streamlit app — no duplicated logic.
 | `analysis/dj_export.py` | export section cues to rekordbox XML (the hub format for third-party DJ software converters) |
 | `analysis/cache.py` | per-file cache (key = path, valid by mtime+size) |
 | `analysis/engine.py` | orchestration: two-pass, cache, organize plan |
-| `analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) + multi-label genre/mood, over three 30 s windows |
-| `analysis/map_projection.py` | UMAP projection of the embeddings to the 2D map |
-| `analysis/map_store.py` | the map on disk: append-only metadata + embeddings, plus the projected X/Y |
+| `analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) feeding the genre/mood heads, over three 30 s windows; BPM and key from tags or Essentia; groove from onset regularity |
+| `analysis/map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
+| `analysis/map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
 | `analysis/mixing.py` | Camelot wheel, transition cost, path-drawn playlists, magic sort |
 | `analysis/map_job.py` | the map build as a long, resumable background job |
 | `cli.py` | entry point 1 — batch CLI |
@@ -118,22 +118,63 @@ The library as one picture: every track is a point, and points that sound
 alike sit together. It answers the question a folder cannot — *what do I play
 next, out of ninety thousand tracks?*
 
-**How a track becomes a point.** The Essentia Discogs-EffNet model is read at
-two places at once: the penultimate layer gives a **1280-dimension embedding**
-(the acoustic identity of the track, before it is flattened into genre names),
-and the classification heads give **several genres and moods with their
-confidence** — a track can be Minimal *and* Deep House, and both are kept.
+**How a track becomes a point.** Two stages, one inference. The Essentia
+**Discogs-EffNet** model produces a **1280-dimension embedding** — the
+acoustic identity of the track, before it is flattened into genre names — and
+that same vector is then fed to two classification heads, one for **400
+Discogs genres** and one for **moods**, which return several labels with
+their confidence: a track can be Minimal *and* Deep House, and both are kept.
+The embedding is not a by-product read off the side of a classifier; it is the
+first model's output, and the heads are consumers of it. The frames are
+computed once and read at both places.
+
 Only **three 30-second windows** are analyzed, at 25%, 50% and 75% of the
-track, and their results are averaged: about 8 seconds per track instead of
-half a minute, which on a whole library is the difference between hours and
-days. Before inference each window is brought to **-14 LUFS** (EBU R128) so
-that a loud master does not read as a different genre. BPM and key come from
-the file tags when they are there, and are measured otherwise; the key is
-converted to its **Camelot** code.
+track, and their frames are stacked and averaged — temporal average pooling,
+one vector per track. About 8 seconds per track instead of half a minute,
+which on a whole library is the difference between hours and days. Before
+inference each window is brought to **-14 LUFS** (EBU R128) so that a loud
+master does not read as a different genre.
+
+**What the model does not decide.** BPM, key and groove never touch the
+network. BPM and key are read from the **file's own tags** when they are there
+(and a BPM outside 40–220 is refused), and measured with Essentia otherwise —
+`RhythmExtractor2013` and `KeyExtractor`, on the middle window only, since
+both are properties of the whole track and measuring them three times does not
+improve them. The key is converted to its **Camelot** code. Groove is not a
+model output either: it is `1 − (spread of the gaps between onsets)`, a
+hand-computed statistic. It measures **rhythmic regularity** — a straight kick
+scores high, a syncopated breakbeat low — which correlates with danceability
+without being it.
+
+**Where it is kept.** Three files in one folder, and the split follows how
+they are written: `tracks.jsonl` (one JSON line per track, **appended**),
+`embeddings.f32` (the raw float32 vectors end to end, **appended** — line *n*
+of the first is block *n* of this one), and `coords.npy` (the two UMAP
+columns, **rewritten whole** on each projection, because a projection is a
+fact about the entire library rather than about one track). Appending instead
+of rewriting is what makes the job interruptible: at 90,000 tracks the
+embedding matrix is half a gigabyte.
 
 **The map itself** is a UMAP projection of the embeddings to two dimensions —
 UMAP rather than t-SNE because the distance *between* clusters keeps its
 meaning, and that distance is exactly what a line drawn across the map uses.
+A PCA to 64 dimensions runs first; it does not change the map (these
+embeddings keep nearly all their variance there) but it removes most of
+UMAP's neighbour search, which is almost all of its time.
+
+**Two kinds of nearness, and they are not the same.** *Sounds like it* is the
+cosine over the full **1280 dimensions** — the real one. *Mixes out of it*
+ranks by the transition cost, which uses the **two projected coordinates**
+plus tempo and key. The 2D map is a shadow of the embedding: convenient to
+look at, and flattened. A track can sound close and mix badly, or the reverse,
+and the two tabs under a seed exist to let you ask both questions.
+
+**Genre and mood never enter proximity.** The transition cost takes exactly
+three things — position on the map, BPM gap, Camelot distance — and no label.
+Genres are a **filter**: they narrow the universe before the question is
+asked, and say nothing about how close two tracks are once it has been. This
+is deliberate: the whole point of the embedding is that it hears things a
+genre name has already thrown away.
 
 **What you do with it**
 
