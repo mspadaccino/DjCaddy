@@ -307,7 +307,13 @@ In the app, a single track's **confirmed** sections (after you've adjusted the
 sliders/labels) can be downloaded the same way from the "Export cues to
 rekordbox XML" button.
 
-- **rekordbox**: import the XML directly (File → Import Collection).
+- **rekordbox**: the XML is a *library*, not a playlist file, and its
+  `File ▸ Import ▸ Import Playlist` will not even let you select an `.xml`.
+  Load it under `Preferences ▸ Advanced ▸ Database ▸ rekordbox xml` by
+  pointing **Imported Library** at the file; the tracks and playlists then
+  appear under the `rekordbox xml` tree in the sidebar, to drag into your own
+  collection. (For a playlist alone, with no BPM or cues, the **M3U8** export
+  is what Import Playlist accepts.)
 - **Serato / Traktor / djay Pro**: rekordbox XML is the format that
   third-party converters — [DJ Conversion Utility](https://atgr-production-team.sellfy.store/p/emuy/),
   [MIXO](https://www.mixo.dj/), [Lexicon](https://www.lexicondj.com/) — accept

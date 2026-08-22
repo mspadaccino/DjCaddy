@@ -836,9 +836,19 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     p4.download_button("⬇ rekordbox XML", build_rekordbox_xml(tracks),
                        "wavecut_playlist.xml", "application/xml",
                        width="stretch")
-    st.caption("M3U8 opens in most players and DJ apps; the rekordbox XML "
-               "carries the order and the BPM, and is what the third-party "
-               "converters read.")
+    # Il punto pratico, non la differenza di formato: rekordbox importa le
+    # playlist da M3U8 e la libreria da XML, e il suo "Import Playlist" non
+    # apre proprio i file .xml — nel selettore risultano non selezionabili,
+    # che sembra un file rotto e non lo è.
+    st.caption(
+        "**M3U8** is what `File ▸ Import ▸ Import Playlist` takes — "
+        "rekordbox's playlist import does not read XML, so an .xml will not "
+        "even be selectable there. The **XML** goes in as a library instead: "
+        "`Preferences ▸ Advanced ▸ Database ▸ rekordbox xml`, point *Imported "
+        "Library* at the file, and the **Wavecut** playlist appears under the "
+        "`rekordbox xml` tree in the sidebar, ready to drag into your "
+        "collection. Only the XML carries the BPM and the cues, and it is "
+        "what the third-party converters read.")
 
 
 def graph_seeds(at_path: dict[str, int]) -> list[int]:
