@@ -45,7 +45,7 @@ from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import (TransitionCost, along_path, closed_shape,
                              magic_sort, nearest)
-from views.components import pick_folder, play_table
+from views.components import pick_folder, play_table, tick_all
 from views.graph_board import render_graph_builder
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
@@ -726,6 +726,11 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
         if not len(table):
             st.info("No candidate passes the filters.")
         else:
+            # Spente di default: qui si scelgono pochi brani fra i venti
+            # proposti, non si prende tutto — il contrario di Tag analysis,
+            # dove la coda e' gia' quella su cui si vuole lavorare.
+            add_all, mix_key = tick_all("map_suggestions", default=False)
+            table["Add"] = add_all
             # Ascoltare e scegliere sulla STESSA riga. Prima erano due
             # tabelle, una per spuntare e una per sentire: gli stessi venti
             # brani scritti due volte, e la decisione presa su una riga
@@ -739,7 +744,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                                 "the button below."),
                  **_read_only("cost", "file", "BPM", "key", "groove", "sound",
                               "bpm cost", "key cost", "genres", "folder")},
-                editor_key="map_sugg_editor")
+                editor_key=mix_key)
             wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
             if st.button(f"➕ Add {len(wanted)} to the playlist",
                          disabled=not wanted, type="primary"):
@@ -754,6 +759,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "tempo or key. This is 'what else sounds like this', which is a "
             "different question from 'what mixes out of this'.")
         neighbours = pd.DataFrame([{
+            "Add": False,
             "similarity": round(score, 3),
             "file": frame.at[i, "name"],
             "BPM": frame.at[i, "bpm"],
@@ -761,15 +767,34 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "genres": frame.at[i, "genres"],
             "folder": frame.at[i, "folder"],
             "_path": frame.at[i, "path"],
+            "_row": i,
         } for i, score in store.similar(seed, k=shown, limit=len(frame))])
         if not len(neighbours):
             st.info("Nothing to compare this one with yet.")
         else:
-            play_table("map_neighbours", neighbours,
-                       ["similarity", "file", "BPM", "key", "genres", "folder"],
-                       _read_only("similarity", "file", "BPM", "key", "genres",
-                                  "folder"),
-                       editable=False, editor_key="map_neighbours_editor")
+            # Si sceglie anche da qui, e non solo si ascolta: un brano che
+            # somiglia al seme e' un candidato quanto uno che ci si mixa —
+            # trovarlo e non poterlo prendere voleva dire cercarselo a mano
+            # nell'altra scheda, dove magari non compare nemmeno.
+            near_all, near_key = tick_all("map_neighbours", default=False)
+            neighbours["Add"] = near_all
+            picked_near = play_table(
+                "map_neighbours", neighbours,
+                ["Add", "similarity", "file", "BPM", "key", "genres", "folder"],
+                {"Add": st.column_config.CheckboxColumn(
+                    "Add", help="Tick what you want in the playlist, then "
+                                "the button below."),
+                 **_read_only("similarity", "file", "BPM", "key", "genres",
+                              "folder")},
+                editor_key=near_key)
+            near_wanted = [int(i) for i in
+                           picked_near.loc[picked_near["Add"], "_row"]]
+            if st.button(f"➕ Add {len(near_wanted)} to the playlist",
+                         disabled=not near_wanted, type="primary",
+                         key="map_neighbours_add"):
+                remember_playlist(frame, playlist + [i for i in near_wanted
+                                                     if i not in playlist])
+                st.rerun()
 
 
 def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
