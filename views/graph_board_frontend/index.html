@@ -470,8 +470,10 @@
       var n = nodeById(drag.id);
       if (!n) return;
       var p = scenePoint(evt);
-      n.x = clamp(p.x / W, 0.02, 0.98);
-      n.y = clamp(p.y / H, 0.02, 0.98);
+      // Mezza scheda per lato: queste sono le coordinate del CENTRO, e
+      // fermarle al bordo del foglio ci lascia dentro solo metà scheda.
+      n.x = clamp(p.x / W, CARD_W / W / 2, 1 - CARD_W / W / 2);
+      n.y = clamp(p.y / H, CARD_H / H / 2, 1 - CARD_H / H / 2);
       drag.moved = true;
       redrawDragged();
     } else if (pan) {

@@ -128,6 +128,64 @@ def _some(row, column: str):
     return value if pd.notna(value) and value != "" else None
 
 
+# Cosa può dire l'ALTEZZA di una scheda sulla lavagna. L'asse x è già preso
+# dall'ordine della scaletta, che non è negoziabile; l'altezza invece è libera
+# e può portare la misura che in quel momento racconta il set.
+HEIGHT_FIELDS = {"BPM": "bpm", "key": "camelot", "groove": "danceability"}
+GRAPH_AXIS = "map::graph_axis"
+
+
+def _heights(frame: pd.DataFrame, at_path: dict[str, int],
+             tracks: list[str], axis: str) -> dict[str, float]:
+    """Per ogni brano, quanto in alto va: da 0 (in basso) a 1 (in cima).
+
+    La scala si tende sui brani CHE CI SONO, non sulla libreria: una catena
+    che vive fra 118 e 124 BPM, misurata sull'intera libreria, sarebbe una
+    riga piatta — e la riga piatta è proprio ciò che l'asse dovrebbe smentire
+    o confermare.
+    """
+    column = HEIGHT_FIELDS[axis]
+    raw: dict[str, float] = {}
+    for path in tracks:
+        row = frame.iloc[at_path[path]] if path in at_path else None
+        value = _some(row, column)
+        if value is None:
+            continue
+        if column == "camelot":
+            # Il numero della ruota, non la lettera: è quello che dice di
+            # quanto ci si sposta armonicamente.
+            code = str(value).strip().upper()
+            raw[path] = int(code[:-1]) if code[:-1].isdigit() else None
+            if raw[path] is None:
+                raw.pop(path)
+        else:
+            raw[path] = float(value)
+    if not raw:
+        return {}
+    low, high = min(raw.values()), max(raw.values())
+    if high <= low:
+        return {path: 0.5 for path in raw}
+    return {path: (value - low) / (high - low) for path, value in raw.items()}
+
+
+def _place_on_axis(graph: GraphPlaylist, frame: pd.DataFrame,
+                   at_path: dict[str, int], only=None) -> None:
+    """Mette i brani al posto che la regola in vigore assegna loro.
+
+    Con `only` tocca solo quelli, e il resto della lavagna resta com'è: chi
+    l'ha disposta a mano non se la vede disfare per aver aggiunto un brano.
+    """
+    axis = st.session_state.get(GRAPH_AXIS)
+    if axis not in HEIGHT_FIELDS:
+        return
+    spread = GraphPlaylist(places=dict(graph.places), links=list(graph.links),
+                           order=list(graph.order))
+    spread.arrange(_heights(frame, at_path, graph.walk(), axis))
+    for track in (graph.walk() if only is None else only):
+        if track in spread.places:
+            graph.places[track] = spread.places[track]
+
+
 def _read_only(*columns: str) -> dict:
     """Colonne che si guardano e basta.
 
@@ -354,6 +412,28 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
         _render_start(frame, pool, chosen)
         return
 
+    # Il gesto della lavagna si applica PRIMA di disegnare qualsiasi cosa.
+    # Il valore del componente sta in sessione sotto la sua chiave, quindi si
+    # può leggere in cima al giro: chiederlo al componente vorrebbe dire
+    # averlo già disegnato, e disegnarlo con le posizioni di prima del gesto
+    # significa rimandargli indietro la scheda dove stava — che è come si
+    # perde uno spostamento appena fatto.
+    event = st.session_state.get("graph_board_widget")
+    if event and event.get("at") != st.session_state.get(GRAPH_EVENT):
+        st.session_state[GRAPH_EVENT] = event.get("at")
+        moved = event.get("id")
+        if event.get("type") == "move" and moved in graph:
+            graph.move(moved, event["x"], event["y"])
+            _save(graph)
+        elif event.get("type") == "click" and moved in graph:
+            st.session_state[GRAPH_SOURCE] = moved
+        elif event.get("type") == "remove" and moved in graph:
+            graph.remove(moved)
+            _save(graph)
+            if st.session_state.get(GRAPH_SOURCE) == moved:
+                st.session_state[GRAPH_SOURCE] = (graph.tracks[-1]
+                                                  if graph.tracks else None)
+
     color_of = _color_map(frame)
     other = OTHER_COLOR["dark" if dark else "light"]
     selected = st.session_state.get(GRAPH_SOURCE)
@@ -366,6 +446,18 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     span = _drive_span(frame)
 
     _render_tables(frame, cost, pool, at_path, graph, walk, before)
+
+    axis = st.radio("Height means", list(HEIGHT_FIELDS), horizontal=True,
+                    key="graph_axis_pick",
+                    help="Left to right is always the playlist order. This "
+                         "picks what the vertical axis says.")
+    # Si ridispone quando si sceglie una misura diversa, non a ogni giro:
+    # altrimenti uno spostamento a mano durerebbe fino al primo click su
+    # qualunque cosa, che è come non poterlo fare.
+    if axis != st.session_state.get(GRAPH_AXIS):
+        st.session_state[GRAPH_AXIS] = axis
+        _place_on_axis(graph, frame, at_path)
+        _save(graph)
 
     nodes = []
     for path in graph.tracks:
@@ -391,30 +483,14 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
         })
     links = [{"a": a, "b": b} for a, b in graph.links]
 
-    event = _graph_board(nodes=nodes, links=links, selected=selected,
-                         dark=dark, key="graph_board_widget", default=None)
+    _graph_board(nodes=nodes, links=links, selected=selected,
+                 dark=dark, key="graph_board_widget", default=None)
 
-    if event and event.get("at") != st.session_state.get(GRAPH_EVENT):
-        st.session_state[GRAPH_EVENT] = event.get("at")
-        kind = event.get("type")
-        node_id = event.get("id")
-        if kind == "move" and node_id in graph:
-            graph.move(node_id, event["x"], event["y"])
-            _save(graph)
-        elif kind == "click" and node_id in graph:
-            st.session_state[GRAPH_SOURCE] = node_id
-            st.rerun(scope="fragment")
-        elif kind == "remove" and node_id in graph:
-            graph.remove(node_id)
-            _save(graph)
-            if st.session_state.get(GRAPH_SOURCE) == node_id:
-                st.session_state[GRAPH_SOURCE] = graph.tracks[-1] if graph.tracks else None
-            st.rerun(scope="fragment")
-
-    st.caption("**Drag** a card to arrange it · the **bin** under the "
-               "selected card removes it and reconnects its neighbours · "
-               "**scroll** to zoom, drag the background to pan, drag inside "
-               "the **minimap** to move the view · **⛶** goes full screen.")
+    st.caption("Left to right the cards follow the playlist; how high they "
+               "sit is the measure below. **Drag** one to break the rule "
+               "where it suits you — picking a measure again puts them all "
+               "back on it. The **bin** under the selected card removes it, "
+               "**scroll** zooms, and **⛶** goes full screen.")
 
     c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
     if c1.button("↺ Restart the board", width="stretch"):
@@ -561,10 +637,15 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
         # In fila uno dietro l'altro: spuntarne tre vuol dire "poi questi
         # tre", e attaccarli tutti alla stessa sorgente farebbe tre rami
         # invece di un seguito.
-        previous = source_path
+        previous, added = source_path, []
         for i in wanted:
             graph.add(previous, frame.at[i, "path"])
+            added.append(frame.at[i, "path"])
             previous = frame.at[i, "path"]
+        # Le nuove nascono già al loro posto sulla regola in vigore. Le
+        # vecchie no: chi le avesse spostate a mano non se le vedrebbe
+        # rimettere in riga per aver scelto un brano.
+        _place_on_axis(graph, frame, at_path, only=added)
         _save(graph)
         st.session_state[GRAPH_SOURCE] = previous
         st.rerun(scope="fragment")

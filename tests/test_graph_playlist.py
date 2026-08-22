@@ -154,6 +154,21 @@ def test_new_tracks_land_clear_of_the_ones_already_there():
                for x, y in places)
 
 
+def test_arrange_reads_left_to_right_and_puts_the_high_ones_up():
+    graph = GraphPlaylist().start("a").add("a", "b").add("b", "c")
+    graph.arrange({"a": 0.0, "b": 1.0, "c": 0.5})
+    xs = [graph.places[t][0] for t in ["a", "b", "c"]]
+    assert xs == sorted(xs)
+    # y cresce verso il basso, quindi il valore piu' alto ha la y piu' bassa.
+    assert graph.places["b"][1] < graph.places["c"][1] < graph.places["a"][1]
+
+
+def test_arrange_puts_a_track_with_no_value_halfway_up():
+    graph = GraphPlaylist().start("a").add("a", "b")
+    graph.arrange({"a": 1.0})
+    assert graph.places["b"][1] == pytest.approx(0.5, abs=0.02)
+
+
 def test_straighten_puts_a_chain_left_to_right_in_reading_order():
     graph = GraphPlaylist().start("a", "b").add("b", "c").add("c", "d")
     graph.move("a", 0.9, 0.9)

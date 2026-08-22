@@ -139,6 +139,27 @@ class GraphPlaylist:
             self.places[track] = (float(x), float(y))
         return self
 
+    def arrange(self, height: dict[str, float]) -> "GraphPlaylist":
+        """Dispone la lavagna: l'ordine sull'asse x, una misura sull'asse y.
+
+        In orizzontale i brani vanno come si leggeranno, spaziati uguali. In
+        verticale sale chi ha il valore più alto della misura scelta — il
+        tempo, la tonalità, il groove — così la forma del set si vede senza
+        leggere un numero: una salita è una salita.
+
+        `height` dà per ogni brano un valore fra 0 (in basso) e 1 (in alto).
+        Chi non ce l'ha sta a mezza altezza: non sappiamo dove metterlo, e il
+        centro è l'unico posto che non afferma niente.
+        """
+        walk = self.walk()
+        if not walk:
+            return self
+        first, last = _on_board(0.0, 0.0)[0], _on_board(1.0, 1.0)[0]
+        for n, track in enumerate(walk):
+            x = first if len(walk) == 1 else first + (last - first) * n / (len(walk) - 1)
+            self.places[track] = _on_board(x, 1.0 - height.get(track, 0.5))
+        return self
+
     def straighten(self, per_row: int = 6) -> "GraphPlaylist":
         """Rimette i brani in fila nell'ordine in cui si leggono.
 
