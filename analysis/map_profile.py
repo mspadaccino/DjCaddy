@@ -395,6 +395,14 @@ class ProfileAnalyzer:
         # 5,1 s contro 2,3 s a brano; il vettore si sposta di 0,0006.
         frames = np.asarray(self._embedding(np.concatenate(
             [self._resample(s) for s in segments]).astype(np.float32)))
+        if not frames.size:
+            # Il modello forma una fettina ogni 128 frame, cioè 2,048 s: da
+            # un brano più corto non esce niente. Senza questo ritorno la
+            # media di zero fettine è NaN e a esplodere è il classificatore,
+            # due righe più giù, con un TypeError che non dice nulla. Nella
+            # libreria capita sui "sample toolbox" dei DMC, da due secondi.
+            profile.error = "troppo corto per il modello (meno di 2 secondi)"
+            return profile
         profile.embedding = frames.mean(axis=0).astype(np.float32)
         profile.genres = select_labels(
             np.mean(self._genre(frames), axis=0),
@@ -449,10 +457,34 @@ def profile_many(paths, settings: ProfileSettings | None = None, workers: int = 
 
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures.process import BrokenProcessPool
 
-    with ProcessPoolExecutor(
-        max_workers=min(workers, len(paths)),
-        mp_context=multiprocessing.get_context("spawn"),
-        initializer=_pool_init, initargs=(settings, model_dir),
-    ) as pool:
-        yield from pool.map(_pool_analyze, paths)
+    context = multiprocessing.get_context("spawn")
+    remaining = paths
+    while remaining:
+        produced = 0
+        try:
+            with ProcessPoolExecutor(
+                max_workers=min(workers, len(remaining)),
+                mp_context=context,
+                initializer=_pool_init, initargs=(settings, model_dir),
+            ) as pool:
+                for profile in pool.map(_pool_analyze, remaining):
+                    produced += 1
+                    yield profile
+            return
+        except BrokenProcessPool:
+            # Su certi file Essentia libera un puntatore che non aveva
+            # allocato e il processo figlio muore sul colpo, senza sollevare
+            # niente: il `try` dentro `_pool_analyze` non può vederlo, e il
+            # pool resta inservibile. Prima di questo ramo bastava un mp3
+            # così a far cadere un job da cinquanta ore, dopo sedicimila
+            # brani analizzati bene. I brani che erano in volo si segnano
+            # come falliti — non essendo finiti sulla mappa, il rilancio
+            # li rimette in coda da solo — e si riparte con un pool nuovo.
+            lost = remaining[produced:produced + workers]
+            remaining = remaining[produced + workers:]
+            for path in lost:
+                yield TrackProfile(
+                    path=path,
+                    error="BrokenProcessPool: un processo è morto qui sotto")

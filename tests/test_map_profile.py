@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -97,3 +99,49 @@ def test_a_straight_kick_is_more_danceable_than_a_scattered_one():
 def test_too_few_onsets_is_answered_with_i_do_not_know():
     assert onset_regularity([1.0, 2.0, 3.0]) is None
     assert onset_regularity([]) is None
+
+
+def test_a_dead_worker_does_not_take_the_whole_queue_with_it(monkeypatch):
+    """Essentia ogni tanto libera un puntatore che non ha allocato e il
+    processo figlio muore sul colpo: non è un'eccezione, quindi dentro al
+    figlio non c'è niente da intercettare e il pool resta inservibile.
+    Prima che questo fosse gestito, un mp3 così buttava giù un job da
+    cinquanta ore dopo sedicimila brani analizzati bene.
+    """
+    import concurrent.futures
+    from concurrent.futures.process import BrokenProcessPool
+
+    from analysis import map_profile
+
+    pools = []
+
+    class FakePool:
+        """Il primo pool ne consegna tre e poi muore; il secondo lavora."""
+        def __init__(self, **kwargs):
+            pools.append(self)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def map(self, fn, paths):
+            paths = list(paths)
+            if len(pools) == 1:
+                for path in paths[:3]:
+                    yield map_profile.TrackProfile(path=path)
+                raise BrokenProcessPool("figlio morto in codice nativo")
+            for path in paths:
+                yield map_profile.TrackProfile(path=path)
+
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", FakePool)
+    queue = [Path(f"/x/{i}.mp3") for i in range(10)]
+    out = list(map_profile.profile_many(queue, workers=2))
+
+    # Nessun brano perso per strada, e nell'ordine di partenza.
+    assert [p.path for p in out] == queue
+    # I due che erano in volo quando il pool è morto: segnati falliti, non
+    # scritti sulla mappa, quindi il rilancio li rimette in coda da solo.
+    assert [p.path.name for p in out if p.error] == ["3.mp3", "4.mp3"]
+    assert len(pools) == 2                      # ne ha aperto uno nuovo
