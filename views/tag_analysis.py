@@ -35,7 +35,7 @@ from analysis.essentia_tags import (
 from analysis.tag_breakdown import as_text, build_breakdown
 from analysis.tag_job import load_state
 from analysis.tag_tracking import DEFAULT_TRACKING_FILE, ProcessedTracker
-from views.components import pick_folder, play_table
+from views.components import pick_folder, play_table, tick_all
 
 # Secondi a brano misurati su questa macchina (M5, 10 core, 24 analisi), per
 # numero di processi. Servono a dire quanto ci vorrà PRIMA di partire, che è
@@ -230,16 +230,20 @@ if readable:
             "that are already there* in the settings if the point is to "
             "replace what they carry.")
     else:
-        st.caption(
-            f"**{len(selected):,} tracks** match — all of them listed, all "
-            "ticked. Untick whatever you want left alone.")
+        col_note, col_ticks = st.columns([4, 2])
+        all_ticked, editor_key = tick_all(f"cov::{root}::{choice}",
+                                          into=col_ticks)
+        col_note.caption(
+            f"**{len(selected):,} tracks** match — all of them listed, "
+            + ("all ticked. Untick whatever you want left alone."
+               if all_ticked else "none ticked. Tick what you want analyzed."))
 
         # Si elencano TUTTI, senza tetto: la griglia disegna solo le righe a
         # schermo, quindi la lunghezza dell'elenco quasi non si paga — misurate
         # 26 ms per 10.000 righe e 88 ms per 90.000. Un tetto renderebbe
         # invisibile lo stato di tag proprio dei file che restano da sistemare.
         table = pd.DataFrame([
-            {"Analyze": True, "file": c.path.name,
+            {"Analyze": all_ticked, "file": c.path.name,
              "GENRE": c.genre or "❌ missing",
              "COMMENT": c.comment or "❌ missing",
              "folder": str(c.path.parent), "_path": str(c.path)}
@@ -256,7 +260,7 @@ if readable:
                      "one djay Pro displays."),
              "file": st.column_config.TextColumn(disabled=True),
              "folder": st.column_config.TextColumn(disabled=True)},
-            editor_key=f"cov_editor::{choice}")
+            editor_key=editor_key)
 
         unticked = {Path(x) for x in edited_cov.loc[~edited_cov["Analyze"], "_path"]}
         queue = [c.path for c in selected if c.path not in unticked]
@@ -411,6 +415,19 @@ settings = TagSettings(
     max_seconds=int(max_seconds),
 )
 
+# --- Dove compare l'esecuzione a mano ---------------------------------------
+
+# Il posto in cui questo blocco COMPARE e il posto in cui e' scritto sono
+# diversi apposta. Il pulsante che lancia i brani scelti deve stare vicino
+# alla tabella in cui si scelgono: sotto al job in background si arrivava
+# prima al "▶ Start the job", che sembra il pulsante di lancio e invece
+# ignora la selezione e macina la cartella intera. Scritto in fondo perche'
+# ha bisogno delle impostazioni qui sopra e perche' finisce con st.stop():
+# riempiendo un contenitore gia' piazzato, il job in background e' gia'
+# disegnato quando lo stop scatta.
+analyze_slot = st.container()
+
+
 # --- Job in background -----------------------------------------------------
 
 # L'alternativa al blocco qui sopra, per quando i brani sono troppi: la
@@ -422,9 +439,10 @@ st.divider()
 st.subheader("The whole folder, in the background")
 st.caption(
     "Two ways to run, and this is the one for a lot of tracks: it works "
-    "through the folder on its own and writes as it goes, so it needs none "
-    "of the picking above. To choose tracks by hand and see what comes back "
-    "before saving, use the **Analyze** button below instead.")
+    "through the folder on its own and writes as it goes, so it ignores "
+    "the picking above — ticked or not, it goes over everything the folder "
+    "still owes. To run only the tracks you ticked, and see what comes back "
+    "before anything is written, use **Analyze** above.")
 
 stato = load_state()
 
@@ -457,7 +475,10 @@ else:
         f"Analyzes **{root}** and writes as it goes, skipping whatever the "
         "progress file already records — so it can be stopped and restarted "
         "without losing or repeating work. It uses the settings above.")
-    if st.button(f"▶ Start the job with {workers} at a time"):
+    # Il "whole folder" sta nell'etichetta e non solo nella didascalia sopra:
+    # e' la riga che si legge davvero, ed e' quella che prima faceva credere
+    # che questo fosse il pulsante di lancio dei brani spuntati.
+    if st.button(f"▶ Start the job on the whole folder — {workers} at a time"):
         log = Path(tempfile.gettempdir()) / "wavecut_tag_job.log"
         cmd = [sys.executable, str(Path(__file__).resolve().parent.parent / "tag_cli.py"),
                str(root), "--workers", str(workers),
@@ -481,137 +502,138 @@ else:
         time.sleep(1.5)          # il job scrive lo stato quasi subito
         st.rerun()
 
-# --- Esecuzione ------------------------------------------------------------
+with analyze_slot:
+    # --- Esecuzione --------------------------------------------------------
 
-if not queue:
-    st.info(
-        "Nothing is queued, so there is nothing to analyze by hand. Widen "
-        "**Work on tracks missing…** above to bring tracks in."
-        if not selected else
-        "Everything in the table is unticked, so nothing is queued. Tick a "
-        "row to bring it back.")
-    st.stop()
+    if not queue:
+        st.info(
+            "Nothing is queued, so there is nothing to analyze by hand. Widen "
+            "**Work on tracks missing…** above to bring tracks in."
+            if not selected else
+            "Everything in the table is unticked, so nothing is queued. Tick a "
+            "row to bring it back.")
+        st.stop()
 
-st.divider()
-st.subheader("Analyze")
+    st.divider()
+    st.subheader("Analyze")
 
-if not available():
-    st.error("`essentia` is not importable, so nothing can be analyzed here.")
-    st.stop()
-if missing_models():
-    st.error("Model files are missing — see Environment above.")
-    st.stop()
+    if not available():
+        st.error("`essentia` is not importable, so nothing can be analyzed here.")
+        st.stop()
+    if missing_models():
+        st.error("Model files are missing — see Environment above.")
+        st.stop()
 
-st.caption(
-    "Nothing is written at this stage: the results appear below and saving "
-    "them is a separate click, so the analysis is never paid for twice."
-)
+    st.caption(
+        "Nothing is written at this stage: the results appear below and saving "
+        "them is a separate click, so the analysis is never paid for twice."
+    )
 
-batch = int(st.number_input(
-    "How many to analyze now", 1, max(1, len(queue)), max(1, len(queue)),
-    help="Defaults to the whole queue. Lower it to try a handful first and "
-         "see what comes back before committing to hours."))
+    batch = int(st.number_input(
+        "How many to analyze now", 1, max(1, len(queue)), max(1, len(queue)),
+        help="Defaults to the whole queue. Lower it to try a handful first and "
+             "see what comes back before committing to hours."))
 
-each = _seconds_each(workers)
-eta = batch * each
-spelled = _spelled(eta)
-st.caption(
-    f"About **{each:.0f}s per track** at {workers} at a time"
-    f"{f' (vs {SECONDS_PER_TRACK[1]:.0f}s one at a time)' if workers > 1 else ''}"
-    f" — roughly **{spelled}** for {batch:,}. "
-    f"Each process holds its own copy of the models, about "
-    f"{workers * 1.3:.1f} GB in total."
-)
-if eta > 3600:
-    st.warning(
-        f"That is about {eta / 3600:.1f} hours, and the browser tab has to "
-        "stay open the whole time — closing it stops the run, though "
-        "everything already saved stays saved. Long runs are what the "
-        "background job is for.")
+    each = _seconds_each(workers)
+    eta = batch * each
+    spelled = _spelled(eta)
+    st.caption(
+        f"About **{each:.0f}s per track** at {workers} at a time"
+        f"{f' (vs {SECONDS_PER_TRACK[1]:.0f}s one at a time)' if workers > 1 else ''}"
+        f" — roughly **{spelled}** for {batch:,}. "
+        f"Each process holds its own copy of the models, about "
+        f"{workers * 1.3:.1f} GB in total."
+    )
+    if eta > 3600:
+        st.warning(
+            f"That is about {eta / 3600:.1f} hours, and the browser tab has to "
+            "stay open the whole time — closing it stops the run, though "
+            "everything already saved stays saved. Long runs are what the "
+            "background job is for.")
 
-if st.button(f"Analyze {batch} of {len(queue):,}", type="primary"):
-    todo = queue[:batch]
-    bar = st.progress(0.0, text="Loading models…")
-    done, failures = [], []
-    for i, (path, tags, error) in enumerate(
-            analyze_many(todo, settings, workers=workers), 1):
-        bar.progress(i / len(todo),
-                     text=f"{i}/{len(todo)} · {path.name[:60]}")
-        if error is None:
-            done.append((path, tags))
-        else:
-            failures.append({"file": path.name, "folder": str(path.parent),
-                             "error": error})
-    bar.empty()
-    st.session_state["tag_analysis::analyzed"] = done
-    st.session_state["tag_analysis::failed"] = failures
+    if st.button(f"Analyze {batch} of {len(queue):,}", type="primary"):
+        todo = queue[:batch]
+        bar = st.progress(0.0, text="Loading models…")
+        done, failures = [], []
+        for i, (path, tags, error) in enumerate(
+                analyze_many(todo, settings, workers=workers), 1):
+            bar.progress(i / len(todo),
+                         text=f"{i}/{len(todo)} · {path.name[:60]}")
+            if error is None:
+                done.append((path, tags))
+            else:
+                failures.append({"file": path.name, "folder": str(path.parent),
+                                 "error": error})
+        bar.empty()
+        st.session_state["tag_analysis::analyzed"] = done
+        st.session_state["tag_analysis::failed"] = failures
 
-analyzed = st.session_state.get("tag_analysis::analyzed", [])
-failures = st.session_state.get("tag_analysis::failed", [])
+    analyzed = st.session_state.get("tag_analysis::analyzed", [])
+    failures = st.session_state.get("tag_analysis::failed", [])
 
-if failures:
-    st.warning(f"{len(failures)} track(s) could not be analyzed.")
-    st.dataframe(pd.DataFrame(failures), width="stretch", hide_index=True)
+    if failures:
+        st.warning(f"{len(failures)} track(s) could not be analyzed.")
+        st.dataframe(pd.DataFrame(failures), width="stretch", hide_index=True)
 
-if not analyzed:
-    st.stop()
+    if not analyzed:
+        st.stop()
 
-# --- Cosa verrebbe scritto, e salvataggio ----------------------------------
+    # --- Cosa verrebbe scritto, e salvataggio ------------------------------
 
-st.divider()
-st.subheader("What it found — save when it looks right")
-st.caption(
-    "Nothing has touched the files yet. The formatting below follows the "
-    "settings above, so changing the genre format or how many moods go in the "
-    "comment updates this without re-analyzing. The thresholds are the "
-    "exception: they are applied while analyzing, so changing those needs "
-    "another pass."
-)
+    st.divider()
+    st.subheader("What it found — save when it looks right")
+    st.caption(
+        "Nothing has touched the files yet. The formatting below follows the "
+        "settings above, so changing the genre format or how many moods go in the "
+        "comment updates this without re-analyzing. The thresholds are the "
+        "exception: they are applied while analyzing, so changing those needs "
+        "another pass."
+    )
 
-rows = []
-for path, tags in analyzed:
-    values = build_tag_values(tags, settings)
-    rows.append({
-        "Save": True, "file": path.name,
-        "GENRE": values.genre or "—", "COMMENT": values.mood or "—",
-        "confidence": (values.genre_confidence or "")[:60],
-        "_path": str(path),
-    })
-edited_run = play_table(
-    "run", pd.DataFrame(rows),
-    ["Save", "file", "GENRE", "COMMENT", "confidence"],
-    {"Save": st.column_config.CheckboxColumn("Save"),
-     "GENRE": st.column_config.TextColumn("GENRE (proposed)", disabled=True,
-                                          width="medium"),
-     "COMMENT": st.column_config.TextColumn("COMMENT (proposed)", disabled=True,
-                                            width="medium"),
-     "file": st.column_config.TextColumn(disabled=True),
-     "confidence": st.column_config.TextColumn(disabled=True)},
-    editor_key="run_editor")
+    rows = []
+    for path, tags in analyzed:
+        values = build_tag_values(tags, settings)
+        rows.append({
+            "Save": True, "file": path.name,
+            "GENRE": values.genre or "—", "COMMENT": values.mood or "—",
+            "confidence": (values.genre_confidence or "")[:60],
+            "_path": str(path),
+        })
+    edited_run = play_table(
+        "run", pd.DataFrame(rows),
+        ["Save", "file", "GENRE", "COMMENT", "confidence"],
+        {"Save": st.column_config.CheckboxColumn("Save"),
+         "GENRE": st.column_config.TextColumn("GENRE (proposed)", disabled=True,
+                                              width="medium"),
+         "COMMENT": st.column_config.TextColumn("COMMENT (proposed)", disabled=True,
+                                                width="medium"),
+         "file": st.column_config.TextColumn(disabled=True),
+         "confidence": st.column_config.TextColumn(disabled=True)},
+        editor_key="run_editor")
 
-to_save = set(edited_run.loc[edited_run["Save"], "_path"])
-st.caption(f"**{len(to_save)}** of {len(rows)} ticked for saving.")
+    to_save = set(edited_run.loc[edited_run["Save"], "_path"])
+    st.caption(f"**{len(to_save)}** of {len(rows)} ticked for saving.")
 
-if st.button(f"💾 Save tags to {len(to_save)} file(s)", type="primary",
-             disabled=not to_save):
-    tracker = ProcessedTracker()
-    written, problems = 0, []
-    pending = [(p, t) for p, t in analyzed if str(p) in to_save]
-    bar = st.progress(0.0, text="Writing…")
-    for i, (path, tags) in enumerate(pending, 1):
-        bar.progress(i / len(pending), text=f"{i}/{len(pending)} · {path.name[:60]}")
-        try:
-            if write_tags(path, tags, settings):
-                written += 1
-            tracker.mark(path)
-        except Exception as e:
-            problems.append({"file": path.name, "error": f"{type(e).__name__}: {e}"})
-    bar.empty()
-    st.success(f"Tags written to {written} file(s).")
-    if problems:
-        st.warning(f"{len(problems)} could not be written.")
-        st.dataframe(pd.DataFrame(problems), width="stretch", hide_index=True)
-    st.session_state.pop("tag_analysis::analyzed", None)
-    for key in [k for k in list(st.session_state)
-                if str(k).startswith(("tagscan::", "tagpreview::"))]:
-        st.session_state.pop(key, None)
+    if st.button(f"💾 Save tags to {len(to_save)} file(s)", type="primary",
+                 disabled=not to_save):
+        tracker = ProcessedTracker()
+        written, problems = 0, []
+        pending = [(p, t) for p, t in analyzed if str(p) in to_save]
+        bar = st.progress(0.0, text="Writing…")
+        for i, (path, tags) in enumerate(pending, 1):
+            bar.progress(i / len(pending), text=f"{i}/{len(pending)} · {path.name[:60]}")
+            try:
+                if write_tags(path, tags, settings):
+                    written += 1
+                tracker.mark(path)
+            except Exception as e:
+                problems.append({"file": path.name, "error": f"{type(e).__name__}: {e}"})
+        bar.empty()
+        st.success(f"Tags written to {written} file(s).")
+        if problems:
+            st.warning(f"{len(problems)} could not be written.")
+            st.dataframe(pd.DataFrame(problems), width="stretch", hide_index=True)
+        st.session_state.pop("tag_analysis::analyzed", None)
+        for key in [k for k in list(st.session_state)
+                    if str(k).startswith(("tagscan::", "tagpreview::"))]:
+            st.session_state.pop(key, None)

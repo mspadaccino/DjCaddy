@@ -98,6 +98,34 @@ def play_table(section: str, table: pd.DataFrame, column_order: list[str],
     return edited
 
 
+def tick_all(base: str, into=None, default: bool = True) -> tuple[bool, str]:
+    """I pulsanti Select all / Unselect all sopra una tabella con le spunte.
+
+    Torna due cose: il valore da mettere nella colonna delle spunte quando
+    la tabella si ricostruisce, e la chiave da passarle.
+
+    La chiave porta un CONTATORE che i due pulsanti fanno avanzare, e non e'
+    un dettaglio: cambiare chiave fa nascere la tabella da capo, ed e' l'unico
+    modo di svuotare davvero le spunte. Cancellare il suo stato in sessione
+    non basta — le spunte cambiate a mano vivono anche nella griglia sul
+    frontend, che le rimanda indietro: misurato, dopo "Unselect all"
+    restavano spuntate proprio le righe toccate poco prima.
+    """
+    tick_key, fresh_key = f"tickall::{base}", f"tickfresh::{base}"
+    fresh = st.session_state.get(fresh_key, 0)
+
+    def _set(value: bool, fresh=fresh) -> None:
+        st.session_state[tick_key] = value
+        st.session_state[fresh_key] = fresh + 1
+
+    col_all, col_none = (into or st).columns(2)
+    col_all.button("Select all", on_click=_set, args=(True,),
+                   width="stretch", key=f"tickyes::{base}")
+    col_none.button("Unselect all", on_click=_set, args=(False,),
+                    width="stretch", key=f"tickno::{base}")
+    return st.session_state.get(tick_key, default), f"{base}::{fresh}"
+
+
 # Quante colonne disegna l'onda, e a che frequenza si legge l'audio per
 # ricavarla. Mille campioni al secondo sono un millesimo di quelli veri e
 # bastano per il PROFILO: quello che si guarda qui e' dove il brano sale e
