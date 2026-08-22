@@ -29,7 +29,8 @@ import streamlit.components.v1 as components
 
 from analysis.duplicates import normalized_name
 from analysis.graph_playlist import GraphPlaylist, suggestions
-from analysis.mixing import TransitionCost, bpm_shift, camelot_shift
+from analysis.mixing import (BPM_TOLERANCE, TransitionCost, bpm_shift,
+                             camelot_shift)
 from views.components import play_table
 
 _FRONTEND_DIR = Path(__file__).parent / "graph_board_frontend"
@@ -133,47 +134,82 @@ def _some(row, column: str):
 # e può portare la misura che in quel momento racconta il set.
 HEIGHT_FIELDS = {"BPM": "bpm", "key": "camelot", "groove": "danceability"}
 GRAPH_AXIS = "map::graph_axis"
+# I brani che qualcuno ha spostato a mano, e che la regola non tocca più
+# finché non si sceglie una misura da capo.
+GRAPH_MOVED = "map::graph_moved"
 
 
-def _heights(frame: pd.DataFrame, at_path: dict[str, int],
-             tracks: list[str], axis: str) -> dict[str, float]:
-    """Per ogni brano, quanto in alto va: da 0 (in basso) a 1 (in cima).
-
-    La scala si tende sui brani CHE CI SONO, non sulla libreria: una catena
-    che vive fra 118 e 124 BPM, misurata sull'intera libreria, sarebbe una
-    riga piatta — e la riga piatta è proprio ciò che l'asse dovrebbe smentire
-    o confermare.
-    """
+def _measured(frame: pd.DataFrame, at_path: dict[str, int],
+              tracks: list[str], axis: str) -> dict[str, float]:
+    """Il valore grezzo della misura scelta, per i brani che ce l'hanno."""
     column = HEIGHT_FIELDS[axis]
-    raw: dict[str, float] = {}
+    out: dict[str, float] = {}
     for path in tracks:
-        row = frame.iloc[at_path[path]] if path in at_path else None
-        value = _some(row, column)
+        value = _some(frame.iloc[at_path[path]] if path in at_path else None,
+                      column)
         if value is None:
             continue
         if column == "camelot":
             # Il numero della ruota, non la lettera: è quello che dice di
             # quanto ci si sposta armonicamente.
-            code = str(value).strip().upper()
-            raw[path] = int(code[:-1]) if code[:-1].isdigit() else None
-            if raw[path] is None:
-                raw.pop(path)
+            code = str(value).strip().upper()[:-1]
+            if code.isdigit():
+                out[path] = float(code)
         else:
-            raw[path] = float(value)
-    if not raw:
+            out[path] = float(value)
+    return out
+
+
+def _span_of(axis: str, values: dict[str, float],
+             frame: pd.DataFrame) -> tuple[float, float]:
+    """Fra quali due valori tendere l'altezza, per la misura scelta.
+
+    NON sugli estremi della catena. Una catena di otto brani, su questa
+    libreria, copre un BPM scarso — è il costo di transizione che fa il suo
+    mestiere — e tenderla su sé stessa trasforma un ottavo di BPM in mezza
+    lavagna: una salita che non esiste. Peggio, quando i valori sono tutti
+    uguali non c'è nessuna scala da tendere e viene fuori una riga piatta
+    senza spiegazione.
+
+    Ogni misura ha invece una scala sua, e sempre la stessa: così due catene
+    si confrontano, e piatto vuol dire davvero "non si muove".
+    """
+    if axis == "key":
+        return (1.0, 12.0)                      # la ruota, tutta
+    if axis == "groove":
+        return _drive_span(frame)               # i decili della libreria
+    # Il tempo attorno a dove sta la catena, largo quanto il pitch fader:
+    # oltre il ±6% la transizione costa comunque troppo per capitare.
+    middle = sorted(values.values())[len(values) // 2] if values else 120.0
+    return (middle * (1 - BPM_TOLERANCE), middle * (1 + BPM_TOLERANCE))
+
+
+def _heights(frame: pd.DataFrame, at_path: dict[str, int],
+             tracks: list[str], axis: str) -> dict[str, float]:
+    """Per ogni brano, quanto in alto va: da 0 (in basso) a 1 (in cima)."""
+    values = _measured(frame, at_path, tracks, axis)
+    if not values:
         return {}
-    low, high = min(raw.values()), max(raw.values())
+    low, high = _span_of(axis, values, frame)
     if high <= low:
-        return {path: 0.5 for path in raw}
-    return {path: (value - low) / (high - low) for path, value in raw.items()}
+        return {path: 0.5 for path in values}
+    return {path: min(1.0, max(0.0, (value - low) / (high - low)))
+            for path, value in values.items()}
 
 
 def _place_on_axis(graph: GraphPlaylist, frame: pd.DataFrame,
-                   at_path: dict[str, int], only=None) -> None:
-    """Mette i brani al posto che la regola in vigore assegna loro.
+                   at_path: dict[str, int], keep_manual: bool = True) -> None:
+    """Rimette i brani dove la regola in vigore li vuole.
 
-    Con `only` tocca solo quelli, e il resto della lavagna resta com'è: chi
-    l'ha disposta a mano non se la vede disfare per aver aggiunto un brano.
+    Tutti, non solo gli ultimi arrivati. Spaziare la catena vuol dire dividere
+    la larghezza per quanti sono, quindi ogni brano in più sposta anche gli
+    altri: dare il posto nuovo soltanto a chi arriva significa metterlo dove
+    c'è già qualcuno — con cinque brani il quinto nasceva esattamente sopra il
+    quarto.
+
+    Chi è stato spostato a mano non si tocca, ed è l'unica eccezione: il posto
+    scelto da qualcuno vale più di quello calcolato. `keep_manual=False`
+    toglie anche quella, ed è cosa fa il click su una misura.
     """
     axis = st.session_state.get(GRAPH_AXIS)
     if axis not in HEIGHT_FIELDS:
@@ -181,8 +217,9 @@ def _place_on_axis(graph: GraphPlaylist, frame: pd.DataFrame,
     spread = GraphPlaylist(places=dict(graph.places), links=list(graph.links),
                            order=list(graph.order))
     spread.arrange(_heights(frame, at_path, graph.walk(), axis))
-    for track in (graph.walk() if only is None else only):
-        if track in spread.places:
+    by_hand = set(st.session_state.get(GRAPH_MOVED) or []) if keep_manual else set()
+    for track in graph.walk():
+        if track not in by_hand and track in spread.places:
             graph.places[track] = spread.places[track]
 
 
@@ -424,6 +461,9 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
         moved = event.get("id")
         if event.get("type") == "move" and moved in graph:
             graph.move(moved, event["x"], event["y"])
+            # Da qui in poi quel brano se lo tiene, il suo posto.
+            st.session_state[GRAPH_MOVED] = list(
+                {*(st.session_state.get(GRAPH_MOVED) or []), moved})
             _save(graph)
         elif event.get("type") == "click" and moved in graph:
             st.session_state[GRAPH_SOURCE] = moved
@@ -451,12 +491,26 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
                     key="graph_axis_pick",
                     help="Left to right is always the playlist order. This "
                          "picks what the vertical axis says.")
+    # Quanto si muove davvero la misura, e su che scala la si sta leggendo.
+    # Senza, una riga piatta sembra un guasto invece di una notizia — ed è
+    # una notizia: su questa libreria una catena copre spesso un BPM scarso.
+    values = _measured(frame, at_path, walk, axis)
+    if values:
+        low, high = _span_of(axis, values, frame)
+        digits = 0 if axis == "key" else (1 if axis == "BPM" else 2)
+        st.caption(f"{axis} runs {min(values.values()):.{digits}f} to "
+                   f"{max(values.values()):.{digits}f} on this chain, drawn "
+                   f"against {low:.{digits}f}–{high:.{digits}f}. A flat row "
+                   "means the measure does not move.")
     # Si ridispone quando si sceglie una misura diversa, non a ogni giro:
     # altrimenti uno spostamento a mano durerebbe fino al primo click su
     # qualunque cosa, che è come non poterlo fare.
     if axis != st.session_state.get(GRAPH_AXIS):
         st.session_state[GRAPH_AXIS] = axis
-        _place_on_axis(graph, frame, at_path)
+        # Scegliere una misura è dire "rimetti tutto in riga", spostamenti a
+        # mano compresi: è l'unico modo per disfarli, ed è dichiarato.
+        st.session_state[GRAPH_MOVED] = []
+        _place_on_axis(graph, frame, at_path, keep_manual=False)
         _save(graph)
 
     nodes = []
@@ -496,6 +550,7 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
     if c1.button("↺ Restart the board", width="stretch"):
         st.session_state[GRAPH_STATE] = None
         st.session_state[GRAPH_SOURCE] = None
+        st.session_state[GRAPH_MOVED] = []
         st.rerun(scope="fragment")
     if c2.button("⇥ Straighten", width="stretch",
                  help="Line the cards up in the order the playlist will read."):
@@ -637,15 +692,14 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
         # In fila uno dietro l'altro: spuntarne tre vuol dire "poi questi
         # tre", e attaccarli tutti alla stessa sorgente farebbe tre rami
         # invece di un seguito.
-        previous, added = source_path, []
+        previous = source_path
         for i in wanted:
             graph.add(previous, frame.at[i, "path"])
-            added.append(frame.at[i, "path"])
             previous = frame.at[i, "path"]
-        # Le nuove nascono già al loro posto sulla regola in vigore. Le
-        # vecchie no: chi le avesse spostate a mano non se le vedrebbe
-        # rimettere in riga per aver scelto un brano.
-        _place_on_axis(graph, frame, at_path, only=added)
+        # Rispaziare tutta la catena, non solo gli arrivati: un brano in più
+        # stringe i posti di tutti, e chi non si sposta resta dove il posto
+        # non è più suo.
+        _place_on_axis(graph, frame, at_path)
         _save(graph)
         st.session_state[GRAPH_SOURCE] = previous
         st.rerun(scope="fragment")
