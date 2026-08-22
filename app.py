@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import streamlit as st
 
+from views.components import render_dock
+
 st.set_page_config(page_title="Wavecut", page_icon="🌊", layout="wide")
 
 navigation = st.navigation([
@@ -19,4 +21,9 @@ navigation = st.navigation([
     st.Page("views/folder_analysis.py", title="Folder analysis", icon="📁"),
     st.Page("views/map_analysis.py", title="Map", icon="🗺️"),
 ])
+
+# Prima della pagina, non dopo: il lettore vive in `st.bottom`, che disegna
+# sempre in fondo allo schermo qualunque sia l'ordine, e cosi' resta al suo
+# posto anche nelle pagine che si interrompono a meta' con st.stop().
+render_dock()
 navigation.run()

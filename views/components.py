@@ -15,7 +15,6 @@ import pandas as pd
 import streamlit as st
 
 NOW_PLAYING = "components::now_playing"
-NOW_PLAYING_FROM = "components::now_playing_from"
 
 # Formati che il browser sa riprodurre da solo, col tipo MIME da dichiarare.
 # Dichiararlo evita di affidarsi a come il browser indovina il contenuto:
@@ -68,23 +67,23 @@ def pick_folder(state_key: str, label: str = "Folder",
 def play_table(section: str, table: pd.DataFrame, column_order: list[str],
                column_config: dict, editable: bool = True,
                editor_key: str | None = None) -> pd.DataFrame:
-    """Tabella con una colonna ▶ per riga e un lettore sotto.
+    """Tabella con una colonna ▶ per riga.
 
-    Serve a sentire un file PRIMA di deciderne la sorte. Il lettore carica
-    solo il file cliccato: la colonna audio nativa di Streamlit vorrebbe
-    invece un URL per ogni riga, e generarli legge OGNI file per intero in
-    memoria a ogni rerun — misurato, 2,5 ms e l'intero contenuto per riga,
-    cioè giga di traffico su una tabella di qualche centinaio di righe.
+    Serve a sentire un file PRIMA di deciderne la sorte. Il clic sceglie il
+    brano e basta: a suonarlo ci pensa `render_dock`, in fondo alla pagina.
+    Il lettore carica solo il file scelto — la colonna audio nativa di
+    Streamlit vorrebbe invece un URL per ogni riga, e generarli legge OGNI
+    file per intero in memoria a ogni rerun (misurato: 2,5 ms e l'intero
+    contenuto per riga, cioè giga di traffico su qualche centinaio di righe).
     """
     order_key, click_key = f"order::{section}", f"click::{section}"
     st.session_state[order_key] = list(table["_path"])
 
-    def _on_play(order_key=order_key, click_key=click_key, section=section):
+    def _on_play(order_key=order_key, click_key=click_key):
         click = st.session_state.get(click_key)
         order = st.session_state.get(order_key, [])
         if click and 0 <= click.get("row", -1) < len(order):
             st.session_state[NOW_PLAYING] = order[click["row"]]
-            st.session_state[NOW_PLAYING_FROM] = section
 
     shown = table.copy()
     shown.insert(0, "Play", "▶")
@@ -96,7 +95,6 @@ def play_table(section: str, table: pd.DataFrame, column_order: list[str],
         column_order=["Play", *column_order], column_config=config,
         **({} if editable else {"disabled": column_order}),
     )
-    render_player(set(table["_path"]), section)
     return edited
 
 
@@ -110,8 +108,12 @@ WAVE_RATE = 1000
 _PLAYER_HTML = """
 <div class="wp">
   <button class="pp" type="button" aria-label="Play or pause">&#9654;</button>
-  <div class="wavebox"><canvas class="wave"></canvas></div>
+  <div class="wavebox">
+    <div class="name"></div>
+    <canvas class="wave"></canvas>
+  </div>
   <span class="clock">0:00</span>
+  <button class="x" type="button" aria-label="Close the player">&#10005;</button>
 </div>
 """
 
@@ -135,7 +137,15 @@ _PLAYER_CSS = """
    Retina ogni passata raddoppiava la larghezza (misurato: 637, 1274, 2548,
    5096, 10192) e l'onda si allargava a destra fino a esplodere. */
 .wp .wavebox { flex: 1 1 0; min-width: 0; }
-.wp canvas { display: block; width: 100%; height: 84px; cursor: pointer; }
+/* Il nome sta DENTRO il riquadro dell'onda e non come didascalia sopra il
+   componente: in fondo allo schermo ogni riga in piu' e' spazio tolto alla
+   pagina, e una riga di testo larga quanto l'onda non allunga il lettore. */
+.wp .name {
+  font-size: 0.78rem; line-height: 1.2; margin-bottom: 0.25rem;
+  color: var(--st-text-color, #333); opacity: 0.7;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wp canvas { display: block; width: 100%; height: 56px; cursor: pointer; }
 .wp .clock {
   /* nowrap piu' una larghezza minima: senza, "5:33 / 7:23" andava a capo e
      si leggeva solo meta' del tempo. */
@@ -143,6 +153,12 @@ _PLAYER_CSS = """
   font-variant-numeric: tabular-nums;
   font-size: 0.8rem; color: var(--st-text-color, #333); opacity: 0.75;
 }
+.wp .x {
+  flex: 0 0 auto; border: none; background: none; cursor: pointer;
+  padding: 0.25rem 0; font-size: 0.85rem; line-height: 1;
+  color: var(--st-text-color, #333); opacity: 0.4;
+}
+.wp .x:hover { opacity: 0.9; }
 """
 
 # L'onda E' la barra di avanzamento: la parte gia' suonata si colora, e un
@@ -151,13 +167,14 @@ _PLAYER_CSS = """
 # dell'onda, e sovrapporli sarebbe solo decorazione.
 _PLAYER_JS = """
 export default function (component) {
-  const { data, parentElement } = component
+  const { data, parentElement, setStateValue } = component
   const root = parentElement.querySelector(".wp")
   if (!root || !data || !data.url) return
 
   const canvas = root.querySelector("canvas")
   const button = root.querySelector(".pp")
   const clock = root.querySelector(".clock")
+  root.querySelector(".name").textContent = data.name || ""
   const peaks = data.peaks || []
   const total = data.duration || 0
 
@@ -218,6 +235,15 @@ export default function (component) {
   audio.onpause = () => { button.innerHTML = "&#9654;" }
   audio.onended = () => { button.innerHTML = "&#9654;" }
   button.onclick = () => { audio.paused ? audio.play().catch(() => {}) : audio.pause() }
+  // Si ferma QUI, prima di avvisare Python: l'oggetto Audio vive su window e
+  // sopravvive allo smontaggio del componente, quindi lasciar fare tutto a un
+  // rerun avrebbe fatto sparire il lettore col brano che continuava a suonare.
+  // Azzerare l'indirizzo fa anche ripartire lo stesso brano se lo si riclicca.
+  root.querySelector(".x").onclick = () => {
+    audio.pause()
+    window.__wavecut_url = null
+    setStateValue("closed", Date.now())
+  }
   canvas.onclick = (e) => {
     const box = canvas.getBoundingClientRect()
     const where = (e.clientX - box.left) / box.width
@@ -287,43 +313,56 @@ def _media_url(track: Path, mime: str) -> str | None:
         return None
 
 
-def render_player(paths_here: set, section: str = "") -> None:
-    """Il lettore del file scelto, sotto la tabella in cui e' stato scelto.
+def _forget() -> None:
+    """Il ✕ del lettore: si dimentica il brano, e il dock sparisce."""
+    st.session_state.pop(NOW_PLAYING, None)
 
-    Il confronto e' sulla SEZIONE e non solo sul percorso: lo stesso file
-    puo' comparire in due tabelle della stessa pagina, e allora si
-    disegnavano due lettori per lo stesso brano.
+
+def render_dock() -> None:
+    """Il lettore del brano scelto, fisso in fondo alla pagina.
+
+    Sta in `st.bottom` e non sotto la tabella da cui e' partito: di tabelle
+    ce ne sono tante e sparse, e il lettore spuntava ogni volta in un punto
+    diverso — quasi sempre fuori schermo, cosi' che per mettere in pausa
+    bisognava ritrovarlo. Qui il posto e' sempre lo stesso.
+
+    Si chiama una volta sola, da `app.py`, PRIMA della pagina: `st.bottom`
+    e' un contenitore a se', quindi l'ordine non cambia dove appare, e cosi'
+    il lettore c'e' anche nelle pagine che si fermano presto con st.stop().
     """
     current = st.session_state.get(NOW_PLAYING)
-    if current is None or current not in paths_here:
-        return
-    chosen_in = st.session_state.get(NOW_PLAYING_FROM, section)
-    if section and chosen_in and chosen_in != section:
+    if current is None:
         return
     track = Path(current)
-    if not track.exists():
-        st.warning(f"Not there any more: {track.name}")
-        return
-    st.caption(f"▶ {track.name}")
-    mime = PLAYABLE.get(track.suffix.lower())
-    if mime is None:
-        st.info(f"The browser cannot play {track.suffix} files.")
-        return
+    with st.bottom:
+        if not track.exists():
+            st.warning(f"Not there any more: {track.name}")
+            return
+        mime = PLAYABLE.get(track.suffix.lower())
+        if mime is None:
+            st.info(f"The browser cannot play {track.suffix} files.")
+            return
 
-    try:
-        stat = track.stat()
-        wave = _envelope(str(track), stat.st_mtime, stat.st_size)
-    except OSError:
-        wave = None
-    url = _media_url(track, mime) if wave else None
+        try:
+            stat = track.stat()
+            wave = _envelope(str(track), stat.st_mtime, stat.st_size)
+        except OSError:
+            wave = None
+        url = _media_url(track, mime) if wave else None
 
-    if wave and url:
-        peaks, seconds = wave
-        _wave_player(data={"url": url, "peaks": peaks, "duration": seconds},
-                     key=f"wave::{section or 'solo'}", height=110)
-        return
+        if wave and url:
+            peaks, seconds = wave
+            # una chiave sola per tutta l'app: cambiando brano il componente
+            # non viene rimontato, riceve solo dati nuovi, e il lettore in
+            # fondo resta quello di prima invece di sparire e riapparire.
+            _wave_player(data={"url": url, "peaks": peaks, "duration": seconds,
+                               "name": track.name},
+                         key="wave::dock", height=96,
+                         on_closed_change=_forget)
+            return
 
-    try:
-        st.audio(str(track), format=mime, autoplay=True)
-    except Exception as e:
-        st.warning(f"Could not play it: {e}")
+        st.caption(f"▶ {track.name}")
+        try:
+            st.audio(str(track), format=mime, autoplay=True)
+        except Exception as e:
+            st.warning(f"Could not play it: {e}")
