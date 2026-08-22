@@ -831,11 +831,20 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
                        "duration": frame.at[i, "duration"],
                        "genre": frame.at[i, "top_genre"], "cues": []})
 
-    p3.download_button("⬇ M3U8", build_m3u8(tracks), "wavecut_playlist.m3u8",
-                       "audio/x-mpegurl", width="stretch")
-    p4.download_button("⬇ rekordbox XML", build_rekordbox_xml(tracks),
-                       "wavecut_playlist.xml", "application/xml",
-                       width="stretch")
+    # I due pulsanti dicono COSA sono, non solo in che formato: è la
+    # distinzione su cui rekordbox si impunta, e leggerla sul pulsante evita
+    # di scoprirla dal selettore dei file che rifiuta l'estensione.
+    p3.download_button("⬇ Export as playlist (M3U8)", build_m3u8(tracks),
+                       "wavecut_playlist.m3u8", "audio/x-mpegurl",
+                       width="stretch",
+                       help="What rekordbox's Import Playlist accepts. "
+                            "Order and files only — no BPM, no cues.")
+    p4.download_button("⬇ Export as library (rekordbox XML)",
+                       build_rekordbox_xml(tracks), "wavecut_library.xml",
+                       "application/xml", width="stretch",
+                       help="A library, not a playlist file: load it under "
+                            "Preferences ▸ Advanced ▸ Database ▸ rekordbox "
+                            "xml. Carries the BPM and the cues.")
     # Il punto pratico, non la differenza di formato: rekordbox importa le
     # playlist da M3U8 e la libreria da XML, e il suo "Import Playlist" non
     # apre proprio i file .xml — nel selettore risultano non selezionabili,
