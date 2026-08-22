@@ -34,7 +34,8 @@ the batch CLI and the Streamlit app — no duplicated logic.
 | `analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) feeding the genre/mood heads, over three 30 s windows; BPM and key from tags or Essentia; groove from onset regularity |
 | `analysis/map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
 | `analysis/map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
-| `analysis/mixing.py` | Camelot wheel, transition cost, path-drawn playlists, magic sort |
+| `analysis/mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
+| `analysis/graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, and the roster of what comes next |
 | `analysis/map_job.py` | the map build as a long, resumable background job |
 | `cli.py` | entry point 1 — batch CLI |
 | `app.py` | entry point 2 — Wavecut review app (Streamlit) |
@@ -191,7 +192,60 @@ genre name has already thrown away.
 - **box-select a group** and let **magic sort** order it: the cheapest path
   that visits every track once (an open travelling-salesman problem, solved
   nearest-neighbour then 2-opt), so each track melts into the next;
+- **grow a set one track at a time** in the graph builder, below;
 - export the result as **M3U8** or **rekordbox XML**.
+
+Both the selection and the graph builder write to the same **playlist**,
+which is why it has a section of its own below them rather than living inside
+either.
+
+#### The graph builder
+
+Magic sort answers *put these in the best order*. This answers the other
+question — *what comes next?* — one track at a time, which is how a set is
+actually decided.
+
+**Two tables give the orders, the board shows the result.** On the left the
+chain as it stands; on the right the candidates that mix out of whichever
+track you are standing on, ranked by the same transition cost. Tick one or
+several, add them, and they go on **one behind the other** — ticking three
+means "then these three", not three branches off the same track. Both tables
+carry the same columns: BPM, key, groove, the folder the file came from, and
+the **signed shift** against the previous track.
+
+That shift is the thing the cost cannot tell you. A cost is a distance and
+has no sign: from a track at 118 BPM, one at 122 and one at 114 score the
+same. `+4 BPM · +1 wheel · +0.09 groove` says which way the set is moving,
+warm for rising and cool for falling. It is deliberately **not** in the
+ranking — a set climbs, holds and lets go, and sorting by direction would be
+choosing which of the three on the DJ's behalf.
+
+**The board is a picture, not a control.** Left to right the cards follow the
+playlist order; how high a card sits is a measure you pick with a radio —
+tempo, key or groove — so a set that climbs looks like a climb. Each scale is
+fixed rather than stretched over the chain: the wheel for keys, the library's
+deciles for groove, and for tempo the pitch fader's ±6% around where the
+chain sits. Stretching a chain over its own range turns one BPM of drift into
+half the board, and this cost proposes tracks at the same tempo — a chain of
+eight here often spans about a single BPM. With fixed scales two chains can
+be compared, and a flat row honestly means the measure does not move. Cards
+can be dragged off the rule and stay off it; picking a measure again puts
+everything back.
+
+**Copies are one entry.** A track filed in four folders has the same tempo
+and key in all four, so it has the same cost from anywhere and would take
+four of the nine slots. They are gathered under one row marked `×4`, and
+putting one down blocks the rest — a set should not take the same record
+twice. Which copy is a real question, so the roster names them by folder and
+lets you choose rather than picking for you.
+
+The builder has **its own filters**, not the map's: a clickable **Camelot
+wheel** (two rings, major outside and minor inside, the way the players draw
+it, because harmonic mixing is a question about neighbours and a list of
+twenty-four codes hides exactly the adjacency that matters), plus genres, BPM
+and groove ranges. Tracks already on the board are never filtered away —
+a filter is about what to propose next, not about breaking a chain someone
+has built.
 
 The **size of a point** carries a number you choose — BPM, groove (how
 regular the onsets are) or energy (integrated loudness) — scaled between the
