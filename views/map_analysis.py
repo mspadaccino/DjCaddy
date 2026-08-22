@@ -638,6 +638,25 @@ def render_magic_playlist(frame: pd.DataFrame, cost: TransitionCost, pool,
         st.info("Nothing selected yet. Click a point on the map, or draw a "
                 "lasso through it.")
 
+
+def render_playlist_section(store: MapStore) -> None:
+    """La playlist, sotto le due sezioni che la riempiono.
+
+    Stava in fondo a Magic Playlist, ed era il posto sbagliato: anche la
+    lavagna ci scrive, e la lavagna sta più giù. Chi mandava una catena da
+    laggiù non vedeva succedere niente — il risultato compariva sopra, in
+    un'altra sezione, che poteva benissimo essere chiusa. Una cosa scritta da
+    due posti si mostra dopo entrambi.
+    """
+    if not len(store) or not store.placed:
+        return
+    placed = store.placed
+    frame = pd.DataFrame(store.rows[:placed])
+    cost = TransitionCost(store.coords[:placed], frame["bpm"].tolist(),
+                          frame["camelot"].tolist())
+    at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
+    playlist = [at_path[p] for p in st.session_state.get(PLAYLIST, [])
+                if p in at_path]
     render_playlist(frame, cost, playlist)
 
 
@@ -1059,6 +1078,11 @@ with st.expander(
            if _waiting else ""),
         expanded=_running_board or bool(_waiting)):
     render_graph_section(store)
+
+# Dopo entrambe le sezioni che la riempiono, e fuori da tutte e due: la
+# playlist è il risultato, e il risultato non sta dentro uno dei due modi di
+# ottenerlo. Si disegna da sé solo quando c'è qualcosa dentro.
+render_playlist_section(store)
 
 st.divider()
 
