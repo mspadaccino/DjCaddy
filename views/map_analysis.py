@@ -524,6 +524,7 @@ def selection_rows(frame: pd.DataFrame, indices) -> pd.DataFrame:
         "key": frame.at[i, "camelot"],
         "groove": frame.at[i, "danceability"],
         "genres": frame.at[i, "genres"],
+        "folder": frame.at[i, "folder"],
         "_path": frame.at[i, "path"],
     } for position, i in enumerate(indices)])
 
@@ -539,8 +540,8 @@ def _selection_table(frame: pd.DataFrame, indices, key: str) -> None:
     table = selection_rows(frame, indices)
     play_table(
         f"map_selection::{key}", table,
-        ["#", "file", "BPM", "key", "groove", "genres"],
-        _read_only("#", "file", "BPM", "key", "groove", "genres"),
+        ["#", "file", "BPM", "key", "groove", "genres", "folder"],
+        _read_only("#", "file", "BPM", "key", "groove", "genres", "folder"),
         editable=False, editor_key=f"map_selection_editor::{key}")
 
 
@@ -699,6 +700,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "bpm cost": round(cost.parts(seed, i)["bpm"], 2),
             "key cost": round(cost.parts(seed, i)["key"], 2),
             "genres": frame.at[i, "genres"],
+            "folder": frame.at[i, "folder"],
             "_path": frame.at[i, "path"],
             "_row": i,
         } for i, value in suggestions])
@@ -712,12 +714,12 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             edited = play_table(
                 "map_suggestions", table,
                 ["Add", "cost", "file", "BPM", "key", "groove", "sound",
-                 "bpm cost", "key cost", "genres"],
+                 "bpm cost", "key cost", "genres", "folder"],
                 {"Add": st.column_config.CheckboxColumn(
                     "Add", help="Tick what you want in the playlist, then "
                                 "the button below."),
                  **_read_only("cost", "file", "BPM", "key", "groove", "sound",
-                              "bpm cost", "key cost", "genres")},
+                              "bpm cost", "key cost", "genres", "folder")},
                 editor_key="map_sugg_editor")
             wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
             if st.button(f"➕ Add {len(wanted)} to the playlist",
@@ -738,14 +740,16 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "BPM": frame.at[i, "bpm"],
             "key": frame.at[i, "camelot"],
             "genres": frame.at[i, "genres"],
+            "folder": frame.at[i, "folder"],
             "_path": frame.at[i, "path"],
         } for i, score in store.similar(seed, k=shown, limit=len(frame))])
         if not len(neighbours):
             st.info("Nothing to compare this one with yet.")
         else:
             play_table("map_neighbours", neighbours,
-                       ["similarity", "file", "BPM", "key", "genres"],
-                       _read_only("similarity", "file", "BPM", "key", "genres"),
+                       ["similarity", "file", "BPM", "key", "genres", "folder"],
+                       _read_only("similarity", "file", "BPM", "key", "genres",
+                                  "folder"),
                        editable=False, editor_key="map_neighbours_editor")
 
 
@@ -771,12 +775,14 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
         "key": frame.at[i, "camelot"],
         "from previous": round(step, 3) if step is not None else None,
         "genres": frame.at[i, "genres"],
+        "folder": frame.at[i, "folder"],
         "_path": frame.at[i, "path"],
     } for position, (i, step) in enumerate(zip(playlist, costs))])
 
     play_table("map_playlist", table,
-               ["#", "file", "BPM", "key", "from previous", "genres"],
+               ["#", "file", "BPM", "key", "from previous", "genres", "folder"],
                {"file": st.column_config.TextColumn(disabled=True),
+                "folder": st.column_config.Column(disabled=True),
                 "from previous": st.column_config.NumberColumn(
                     "from previous", disabled=True,
                     help="The transition cost from the track above: 0 is "

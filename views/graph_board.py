@@ -588,6 +588,10 @@ def _spelled(row, source) -> dict:
         if steps is not None else None,
         "Δgroove": gaps.get("dance"),
         "genres": row["genres"],
+        # Da dove viene il file. Due brani con lo stesso nome esistono, e
+        # senza la cartella non c'è modo di dire quale dei due si sta
+        # guardando.
+        "folder": row["folder"],
     }
 
 
@@ -616,9 +620,9 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
             for n, path in enumerate(walk) if path in at_path])
         play_table("graph_chain", table,
                    ["#", "file", "BPM", "key", "groove",
-                    "Δbpm", "Δkey", "Δgroove", "genres"],
+                    "Δbpm", "Δkey", "Δgroove", "genres", "folder"],
                    _read_only("#", "file", "BPM", "key", "groove",
-                              "Δbpm", "Δkey", "Δgroove", "genres"),
+                              "Δbpm", "Δkey", "Δgroove", "genres", "folder"),
                    editable=False, editor_key="graph_chain_editor")
         # La sorgente di default è l'ultimo arrivato, che è da dove si
         # continua nove volte su dieci; cambiarla serve a ramificare.
@@ -676,11 +680,12 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
     edited = play_table(
         "graph_roster", table,
         ["Add", "cost", "file", "BPM", "key", "groove",
-         "Δbpm", "Δkey", "Δgroove", "copies", "genres"],
+         "Δbpm", "Δkey", "Δgroove", "copies", "genres", "folder"],
         {"Add": st.column_config.CheckboxColumn(
             "Add", help="Tick what you want next, then the button below."),
          **_read_only("cost", "file", "BPM", "key", "groove",
-                      "Δbpm", "Δkey", "Δgroove", "copies", "genres")},
+                      "Δbpm", "Δkey", "Δgroove", "copies", "genres",
+                      "folder")},
         # Come per il menu: cambiata la sorgente o cresciuta la catena, le
         # righe sotto sono altre e le spunte di prima indicherebbero brani
         # che nessuno ha scelto.
