@@ -998,8 +998,8 @@ def render_progress() -> None:
 def render_add(store: MapStore, state) -> None:
     """Mettere brani sulla mappa: la parte lunga, che si fa una volta."""
     st.caption(
-        "About 8 seconds per track on one process, 3–4 with several — three "
-        "30-second windows analyzed instead of the whole file. A whole "
+        "About 5 seconds per track on one process, 2–3 with several — twelve "
+        "10-second windows analyzed instead of the whole file. A whole "
         "library is hours, which is what the background job is for: it "
         "survives closing this tab and picks up where it left off.")
 

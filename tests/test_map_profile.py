@@ -1,9 +1,11 @@
 import numpy as np
+import pytest
 
 from analysis.map_profile import (
     ProfileSettings,
     gain_for_target,
     onset_regularity,
+    rhythm_offset,
     segment_offsets,
     select_labels,
 )
@@ -11,29 +13,47 @@ from analysis.map_profile import (
 SETTINGS = ProfileSettings()
 
 
-def test_three_windows_on_a_normal_track():
+def test_twelve_windows_spread_over_the_whole_track():
     starts = segment_offsets(400, SETTINGS)
-    assert len(starts) == 3
-    # Al 25/50/75% della durata, centrate sulla finestra da 30 s.
-    assert starts == [85.0, 185.0, 285.0]
+    assert len(starts) == 12
+    # Centrate a 1/24, 3/24, 5/24... della durata: la prima sta nell'intro,
+    # l'ultima nella coda, che con tre finestre ai quarti non si vedevano.
+    assert starts[0] == pytest.approx(400 * 0.5 / 12 - 5)
+    assert starts[-1] == pytest.approx(400 * 11.5 / 12 - 5)
     assert all(start + SETTINGS.segment_seconds <= 400 for start in starts)
+    gaps = {round(b - a, 4) for a, b in zip(starts, starts[1:])}
+    assert len(gaps) == 1                       # equidistanti
+
+
+def test_the_rhythm_window_sits_in_the_middle_and_is_longer():
+    # Non è una delle finestre dell'embedding: quelle sono da 10 s, e un
+    # rilevatore di tempo su 10 s non trova abbastanza battute.
+    assert SETTINGS.rhythm_seconds > SETTINGS.segment_seconds
+    assert rhythm_offset(400, SETTINGS) == 185.0
+    assert rhythm_offset(400, SETTINGS) + SETTINGS.rhythm_seconds <= 400
+
+
+def test_a_track_shorter_than_the_rhythm_window_is_taken_whole():
+    assert rhythm_offset(20, SETTINGS) == 0.0
 
 
 def test_windows_never_hang_off_the_end():
     starts = segment_offsets(70, SETTINGS)
-    assert all(0 <= s <= 40 for s in starts)
+    assert all(0 <= s <= 70 - SETTINGS.segment_seconds for s in starts)
 
 
 def test_a_track_shorter_than_one_window_is_analyzed_once():
-    assert segment_offsets(20, SETTINGS) == [0.0]
-    assert segment_offsets(30, SETTINGS) == [0.0]
+    assert segment_offsets(8, SETTINGS) == [0.0]
+    assert segment_offsets(10, SETTINGS) == [0.0]
 
 
 def test_overlapping_windows_are_not_analyzed_twice():
-    # Su un brano corto le tre posizioni cadono quasi nello stesso punto:
-    # analizzarlo tre volte darebbe tre volte lo stesso vettore.
+    # Su un brano corto le posizioni si accavallano: analizzare due volte lo
+    # stesso pezzo lo peserebbe il doppio nella media.
     starts = segment_offsets(35, SETTINGS)
-    assert len(starts) < 3
+    assert len(starts) < 12
+    assert all(b - a > SETTINGS.segment_seconds / 4
+               for a, b in zip(starts, starts[1:]))
 
 
 def test_gain_brings_a_quiet_track_up_and_a_loud_one_down():

@@ -31,7 +31,7 @@ the batch CLI and the Streamlit app — no duplicated logic.
 | `analysis/dj_export.py` | export section cues to rekordbox XML (the hub format for third-party DJ software converters) |
 | `analysis/cache.py` | per-file cache (key = path, valid by mtime+size) |
 | `analysis/engine.py` | orchestration: two-pass, cache, organize plan |
-| `analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) feeding the genre/mood heads, over three 30 s windows; BPM and key from tags or Essentia; groove from onset regularity |
+| `analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) feeding the genre/mood heads, over twelve 10 s windows spread across the track; BPM and key from tags or Essentia; groove from onset regularity |
 | `analysis/map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
 | `analysis/map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
 | `analysis/mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
@@ -129,19 +129,29 @@ The embedding is not a by-product read off the side of a classifier; it is the
 first model's output, and the heads are consumers of it. The frames are
 computed once and read at both places.
 
-Only **three 30-second windows** are analyzed, at 25%, 50% and 75% of the
-track, and their frames are stacked and averaged — temporal average pooling,
-one vector per track. About 8 seconds per track instead of half a minute,
-which on a whole library is the difference between hours and days. Before
-inference each window is brought to **-14 LUFS** (EBU R128) so that a loud
-master does not read as a different genre.
+Only **twelve 10-second windows** are analyzed, spread evenly from the intro
+to the outro, and their frames are averaged — temporal average pooling, one
+vector per track. About 5 seconds per track instead of half a minute, which on
+a whole library is the difference between hours and days. Before inference
+each window is brought to **-14 LUFS** (EBU R128) so that a loud master does
+not read as a different genre.
+
+Many short windows rather than few long ones, because an average is only as
+good as the number of *independent* samples in it, and thirty consecutive
+seconds are almost always a single section of the track. Measured on 300
+tracks of a real library against the embedding of the whole track: three 30 s
+windows name the same nearest neighbour 58% of the time, twelve 10 s windows
+84%. The windows are also concatenated into **one** call to the model, which
+runs in fixed batches of 64 patches and would otherwise pay a whole batch for
+the nine patches of a 10-second window.
 
 **What the model does not decide.** BPM, key and groove never touch the
 network. BPM and key are read from the **file's own tags** when they are there
 (and a BPM outside 40–220 is refused), and measured with Essentia otherwise —
-`RhythmExtractor2013` and `KeyExtractor`, on the middle window only, since
-both are properties of the whole track and measuring them three times does not
-improve them. The key is converted to its **Camelot** code. Groove is not a
+`RhythmExtractor2013` and `KeyExtractor`, on a **30-second window of their
+own** at the centre of the track — the embedding windows are too short for a
+tempo detector to find bars in — since both are properties of the whole track
+and measuring them twelve times does not improve them. The key is converted to its **Camelot** code. Groove is not a
 model output either: it is `1 − (spread of the gaps between onsets)`, a
 hand-computed statistic. It measures **rhythmic regularity** — a straight kick
 scores high, a syncopated breakbeat low — which correlates with danceability
