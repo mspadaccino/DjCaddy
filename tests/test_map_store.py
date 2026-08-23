@@ -235,6 +235,31 @@ def test_recomputing_after_a_duplicate_takes_effect(tmp_path):
     assert MapStore.load(tmp_path / "map").placed == 2
 
 
+def test_a_job_appending_does_not_undo_a_projection_made_meanwhile(tmp_path):
+    """Due processi sullo stesso `meta.json`.
+
+    Il job appende brani per ore e l'app ricalcola la proiezione nel mentre.
+    Il job si porta dietro dall'avvio la sua copia dei metadati: se
+    riscrivesse anche il segno delle coordinate, cancellerebbe quello del
+    ricalcolo e la mappa si spegnerebbe al brano successivo.
+    """
+    def _add(store, name, content=b"x"):
+        path = tmp_path / name
+        path.write_bytes(content)
+        store.append([_profile(path, 1.0)])
+
+    job = MapStore.load(tmp_path / "map")          # il job, aperto prima
+    _add(job, "0.mp3")
+    _add(job, "1.mp3")
+
+    app = MapStore.load(tmp_path / "map")          # l'app, aperta dopo
+    app.set_coords(np.array([[0.0, 0.0], [1.0, 1.0]]))
+    assert MapStore.load(tmp_path / "map").placed == 2
+
+    _add(job, "2.mp3")                             # il job continua
+    assert MapStore.load(tmp_path / "map").placed == 2
+
+
 def test_removing_a_track_takes_its_row_vector_and_place_with_it(tmp_path):
     store = MapStore.load(tmp_path / "map")
     for i in range(3):

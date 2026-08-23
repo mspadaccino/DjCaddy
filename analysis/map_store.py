@@ -35,6 +35,9 @@ from .map_profile import EMBEDDING_DIM, TrackProfile
 
 STORE_VERSION = 1
 
+# "non toccare": distingue "non passo il segno" da "il segno è None".
+_KEEP = object()
+
 
 def default_store_dir() -> Path:
     return Path.home() / ".cache" / "dj-library-tools" / "map"
@@ -262,15 +265,14 @@ class MapStore:
         binary_tmp.replace(self.embeddings_file)
 
         self.rows, self.embeddings, self.coords = rows, vectors, coords
-        # La fila è cambiata: il segno va rifatto, o continuerebbe a indicare
-        # un brano appena tolto.
-        self.coords_last = (_key(rows[len(coords) - 1]["path"])
-                            if coords is not None and len(coords) else None)
         if coords is None:
             self.coords_file.unlink(missing_ok=True)
         else:
             np.save(self.coords_file, coords)
-        self.write_meta()
+        # Anche togliere brani riscrive le coordinate, quindi anche qui il
+        # segno va rifatto: altrimenti indicherebbe un brano appena tolto.
+        self.write_meta(coords_last=_key(rows[len(coords) - 1]["path"])
+                        if coords is not None and len(coords) else None)
         return removed
 
     def relocate(self, old_prefix, new_prefix) -> tuple[int, int]:
@@ -328,9 +330,10 @@ class MapStore:
         # Anche il segno porta un percorso, e i percorsi sono cambiati: senza
         # rifarlo la mappa risulterebbe non proiettata dopo un trasloco che
         # le posizioni non le ha toccate.
-        if self.coords_last and self.coords_last.startswith(old):
-            self.coords_last = new + self.coords_last[len(old):]
-        self.write_meta()
+        moved_marker = self.coords_last
+        if moved_marker and moved_marker.startswith(old):
+            moved_marker = new + moved_marker[len(old):]
+        self.write_meta(coords_last=moved_marker)
         return moved, missing
 
     def set_coords(self, coords) -> None:
@@ -339,21 +342,38 @@ class MapStore:
             raise ValueError(
                 f"{len(coords)} coordinate per {len(self.rows)} brani")
         self.coords = coords
-        self.coords_last = (_key(self.rows[len(coords) - 1]["path"])
-                            if len(coords) else None)
         self.directory.mkdir(parents=True, exist_ok=True)
         np.save(self.coords_file, coords)
-        self.write_meta()
+        # Qui il segno si scrive davvero: è questo il momento in cui
+        # `coords.npy` cambia, ed è l'unico che ne ha titolo.
+        self.write_meta(coords_last=_key(self.rows[len(coords) - 1]["path"])
+                        if len(coords) else None)
 
-    def write_meta(self) -> None:
+    def write_meta(self, coords_last=_KEEP) -> None:
+        """Riscrive `meta.json`. Il segno delle coordinate si conserva.
+
+        Quel segno descrive `coords.npy`, e chi non scrive quel file non ha
+        titolo per cambiarlo — nemmeno per riscriverci il valore che si è
+        portato dietro dall'avvio. Qui lavorano due processi insieme: il job
+        appende brani per ore, l'app ricalcola la proiezione nel mentre. Se
+        l'append riscrivesse il segno con la copia che aveva in memoria,
+        cancellerebbe quello appena scritto dal ricalcolo e la mappa si
+        spegnerebbe da sola al brano successivo.
+        """
+        stored = {}
+        try:
+            stored = json.loads(self.meta_file.read_text())
+        except (OSError, ValueError):
+            pass
+        if coords_last is _KEEP:
+            coords_last = stored.get("coords_last")
+        self.coords_last = coords_last
         self.meta_file.write_text(json.dumps({
             "version": STORE_VERSION,
             "dim": EMBEDDING_DIM,
             "tracks": len(self.rows),
             "projected": bool(self.projected),
-            # Si scrive com'è: appartiene al file delle coordinate, e chi
-            # appende righe non lo cambia.
-            "coords_last": self.coords_last,
+            "coords_last": coords_last,
         }, indent=1))
 
     # --- interrogazione ---
