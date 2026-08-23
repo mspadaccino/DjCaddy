@@ -50,9 +50,15 @@ from views.graph_board import render_graph_builder
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
 # ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
-# una mappa da centomila punti si trascina a ogni zoom. Il campione è casuale
-# ma stabile (seme fisso), così la mappa non si rimescola a ogni rerun.
-MAX_POINTS = 20000
+# una mappa troppo fitta si trascina a ogni zoom. Il campione è casuale ma
+# stabile (seme fisso), così la mappa non si rimescola a ogni rerun.
+#
+# Era ventimila, ed era troppo prudente: su una libreria da quarantacinquemila
+# significava non disegnarne più della metà, e una mappa che mostra metà dei
+# brani non è la mappa della libreria. La soglia adesso è oltre le librerie
+# vere; resta perché a un certo punto il campione è meglio di una pagina che
+# non si muove, e se lo zoom diventasse pesante è questa la manopola.
+MAX_POINTS = 120000
 
 # Quanti gruppi ricevono un colore proprio nella legenda. Il modello conosce
 # 400 etichette: colorarle tutte darebbe una legenda illeggibile e una
@@ -106,10 +112,10 @@ PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
 SKIN = {
     "light": {"paper": "#ffffff", "plot": "#f4f6f9", "ink": "#1b1f27",
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
-              "halo": "rgba(255,255,255,0.75)"},
+              "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
-             "halo": "rgba(14,17,23,0.75)"},
+             "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff"},
 }
 
 # In sessione si tengono i PERCORSI, non le posizioni nella libreria. Una
@@ -261,7 +267,8 @@ def marker_sizes(frame: pd.DataFrame, column: str | None):
 
 
 def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
-                 playlist: list[int], seed: int | None) -> go.Figure:
+                 playlist: list[int], seed: int | None,
+                 seed_name: str | None = None) -> go.Figure:
     """La mappa: un tracciato per genere, più il percorso e il seme sopra.
 
     Un tracciato per genere e non uno solo con i colori dentro, perché così
@@ -330,6 +337,16 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             name="seed", showlegend=False, hoverinfo="skip",
             marker={"size": 20, "color": "rgba(0,0,0,0)",
                     "line": {"width": 2, "color": skin["ink"]}}))
+        # Il nome accanto al cerchio: da solo, il cerchio dice DOVE ma non
+        # CHE COSA, e dopo una ricerca per nome è proprio il "che cosa" che
+        # si sta verificando. Solo col seme singolo — su una selezione
+        # multipla non c'è un nome da scrivere.
+        if seed_name:
+            figure.add_annotation(
+                x=float(coords[seed][0]), y=float(coords[seed][1]),
+                text=f"<b>{seed_name[:46]}</b>", showarrow=False,
+                yshift=18, font={"size": 12, "color": skin["pin"]},
+                bgcolor=skin["halo"], borderpad=3)
 
     figure.update_layout(
         height=640, margin={"l": 0, "r": 0, "t": 0, "b": 0},
@@ -530,12 +547,28 @@ def render_map(store: MapStore) -> None:
             remember_seed(frame, by_name)
     seed = at_path.get(st.session_state.get(SEED))
 
+    # Sopra ventimila brani se ne disegna un campione, e il campione può non
+    # contenere proprio quello che la pagina sta indicando: il cerchio del
+    # seme finiva su una zona vuota, giusto di coordinate e senza il suo
+    # punto sotto. Chi è indicato torna dentro comunque — un cerchio attorno
+    # al nulla non è un dettaglio estetico, è la mappa che dice il falso.
+    if sampled:
+        pointed = [i for i in ([seed] if seed is not None else []) + playlist
+                   if i in visible.index and i not in drawn.index]
+        if pointed:
+            drawn = pd.concat([drawn, visible.loc[pointed]])
+
     drawn = drawn.assign(
         genre_key=drawn["top_genre"].map(lambda g: genre_level(g, level)))
     ranked = Counter(g for g in drawn["genre_key"] if g)
     top_genres = [g for g, _ in ranked.most_common(COLORED_GENRES)]
     st.plotly_chart(
-        build_figure(drawn, top_genres, store.coords, playlist, seed),
+        build_figure(drawn, top_genres, store.coords, playlist, seed,
+                     # Nessun nome quando la selezione è multipla: lì il
+                     # seme non è ciò che si sta guardando.
+                     seed_name=(frame.at[seed, "name"]
+                                if seed is not None and not lasso
+                                and len(picked) <= 1 else None)),
         key="map::chart", on_select="rerun",
         selection_mode=("points", "box", "lasso"),
         config={"displaylogo": False, "scrollZoom": True})
