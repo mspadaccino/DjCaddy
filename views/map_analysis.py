@@ -104,6 +104,11 @@ PLAYLIST = "map::playlist"
 # in fretta): sopra, si restringe coi filtri.
 SEED_PICKER_MAX = 2000
 
+# Quanti risultati di ricerca elencare. Oltre, non si sta più scegliendo fra
+# candidati: si sta scorrendo la libreria con parole troppo generiche, e la
+# risposta giusta è una parola in più, non una lista più lunga.
+SEED_MATCHES_MAX = 50
+
 # Quanti candidati proporre attorno a un brano. Venti è la partenza: bastano a
 # scegliere senza dover scorrere. Il tetto non è una soglia tecnica — cento
 # righe si disegnano in un lampo — ma il punto oltre il quale una lista smette
@@ -176,6 +181,30 @@ def read_selection() -> tuple[list[int], list]:
     picked = [int(p["customdata"][0]) for p in selection.get("points", [])
               if p.get("customdata")]
     return picked, list(selection.get("lasso") or [])
+
+
+def matching_tracks(frame: pd.DataFrame, pool, words: list[str]) -> list[int]:
+    """Le posizioni che contengono TUTTE le parole, nel nome o nella cartella.
+
+    A parole sparse e non a sottostringa: "madonna lucky" deve trovare
+    "Madonna - Lucky Star (Extended Dance Remix)", che una ricerca contigua
+    non trova. L'ordine non conta — chi cerca ricorda i pezzi di un titolo,
+    non come sono disposti.
+
+    Si guarda nel nome del file e nella cartella perché è lì che stanno
+    artista e titolo: la mappa non conserva i tag, e in una libreria da DJ il
+    nome del file li porta quasi sempre entrambi.
+    """
+    inside = frame.loc[list(pool)]
+    hay = (inside["name"].fillna("") + " "
+           + inside["folder"].fillna("")).str.casefold()
+    keep = pd.Series(True, index=hay.index)
+    for word in words:
+        # Anche le parole cercate, non solo il testo in cui si cerca: farlo
+        # fare a chi chiama vuol dire che la funzione è giusta solo finché
+        # tutti si ricordano di farlo.
+        keep &= hay.str.contains(word.casefold(), regex=False)
+    return keep[keep].index.tolist()
 
 
 def _path_points(shape: dict) -> list[tuple[float, float]]:
@@ -480,19 +509,38 @@ def render_map(store: MapStore) -> None:
     # parte da un brano deciso prima, cercarlo per nome è più veloce che
     # trovarne il puntino. Sopra qualche migliaio di voci l'elenco non si apre
     # più in fretta, e allora si chiede di restringere i filtri.
-    if len(visible) <= SEED_PICKER_MAX:
-        # Una scelta di prima che i filtri (o una rimozione) hanno fatto
-        # sparire dalle opzioni va tolta, o il menu si troverebbe addosso un
-        # valore che non può mostrare.
-        if st.session_state.get("map::seedpick") not in set(pool.tolist()):
-            st.session_state.pop("map::seedpick", None)
-        st.selectbox("Seed track", options=pool.tolist(), index=None,
-                     format_func=lambda i: frame.at[i, "name"],
-                     key="map::seedpick", placeholder="…or pick one by name")
+    query = st.text_input(
+        "Find a track", key="map::seedsearch",
+        placeholder="a few words in any order — artist, title, remix…",
+        help="Every word has to appear, in any order, in the file name or "
+             "the folder. Picking one makes it the seed, exactly as "
+             "clicking its point does.")
+    words = [word for word in query.casefold().split() if word]
+
+    if words:
+        found = matching_tracks(frame, pool, words)
+        options = found[:SEED_MATCHES_MAX]
+        st.caption(f"**{len(found):,}** match"
+                   + (f" — the first {len(options)} are listed."
+                      if len(found) > len(options) else "."))
+    elif len(pool) <= SEED_PICKER_MAX:
+        # Pochi brani: l'elenco intero si apre in fretta e cercare è inutile.
+        options = pool.tolist()
     else:
-        st.caption(f"{len(visible):,} tracks match — too many to list by name. "
-                   "Narrow the filters to pick a seed from a menu instead of "
-                   "from the map.")
+        options = []
+        st.caption(f"{len(visible):,} tracks on the map — type a few words "
+                   "above to pick one by name, or click its point.")
+
+    # Una scelta di prima che i filtri, una ricerca nuova o una rimozione
+    # hanno fatto sparire dalle opzioni va tolta PRIMA che il menu esista, o
+    # si troverebbe addosso un valore che non può mostrare.
+    if st.session_state.get("map::seedpick") not in set(options):
+        st.session_state.pop("map::seedpick", None)
+    if options:
+        st.selectbox("Seed track", options=options, index=None,
+                     format_func=lambda i: f"{frame.at[i, 'name']}  ·  "
+                                           f"{Path(frame.at[i, 'folder']).name}",
+                     key="map::seedpick", placeholder="…pick one")
 
 
     st.divider()
