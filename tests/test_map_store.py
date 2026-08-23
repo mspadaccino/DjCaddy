@@ -186,6 +186,55 @@ def test_coordinates_are_dropped_when_a_duplicate_shifts_the_order(tmp_path):
     assert again.placed == 0          # meglio niente che il posto di un altro
 
 
+def test_a_duplicate_after_the_coordinates_leaves_them_alone(tmp_path):
+    """Il caso che spegneva la mappa.
+
+    Le coordinate coprono un prefisso; se il duplicato riguarda una riga che
+    sta OLTRE quel prefisso, la fila coperta non si è mossa e le coordinate
+    valgono ancora. Prima bastava l'esistenza di un duplicato qualunque per
+    buttarle via, e da lì non si tornava indietro: ricalcolare le riscriveva,
+    il caricamento dopo le scartava di nuovo.
+    """
+    store = MapStore.load(tmp_path / "map")
+    for i in range(3):
+        path = tmp_path / f"{i}.mp3"
+        path.write_bytes(b"x")
+        store.append([_profile(path, float(i))])
+    store.set_coords(np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]]))
+
+    # L'ULTIMO brano cambia e viene rianalizzato: la fila non si accorcia nel
+    # mezzo, quindi ogni coordinata indica ancora il file per cui è stata
+    # calcolata. Quella del terzo è vecchia di un'analisi — il brano si è
+    # spostato un po' — ma è il brano giusto, e una posizione vecchia si
+    # aggiusta alla prossima proiezione. Una mappa spenta no.
+    third = tmp_path / "2.mp3"
+    third.write_bytes(b"different")
+    store.append([_profile(third, 9.0)])
+
+    again = MapStore.load(tmp_path / "map")
+    assert len(again) == 3
+    assert again.placed == 3
+    assert again.coords.tolist() == [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]]
+
+
+def test_recomputing_after_a_duplicate_takes_effect(tmp_path):
+    """Ricalcolare deve poter rimettere in piedi una mappa spenta."""
+    store = MapStore.load(tmp_path / "map")
+    for i in range(2):
+        path = tmp_path / f"{i}.mp3"
+        path.write_bytes(b"x")
+        store.append([_profile(path, float(i))])
+    store.set_coords(np.array([[0.0, 0.0], [1.0, 1.0]]))
+    first = tmp_path / "0.mp3"
+    first.write_bytes(b"different")
+    store.append([_profile(first, 9.0)])
+    assert MapStore.load(tmp_path / "map").placed == 0     # giustamente spenta
+
+    fresh = MapStore.load(tmp_path / "map")
+    fresh.set_coords(np.array([[5.0, 5.0], [6.0, 6.0]]))
+    assert MapStore.load(tmp_path / "map").placed == 2
+
+
 def test_removing_a_track_takes_its_row_vector_and_place_with_it(tmp_path):
     store = MapStore.load(tmp_path / "map")
     for i in range(3):

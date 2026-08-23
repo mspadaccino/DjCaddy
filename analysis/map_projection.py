@@ -46,9 +46,18 @@ def available() -> bool:
     return True
 
 
-def project(embeddings, settings: ProjectionSettings | None = None) -> np.ndarray:
-    """Le coordinate (N, 2) dei brani sulla mappa."""
+def project(embeddings, settings: ProjectionSettings | None = None,
+            on_step=None) -> np.ndarray:
+    """Le coordinate (N, 2) dei brani sulla mappa.
+
+    `on_step(label)` viene chiamata all'inizio di ogni fase, se data. Le fasi
+    sono poche e nominate perché è tutto ciò che si può dire onestamente: UMAP
+    non riferisce a che punto è, e una percentuale inventata su un'attesa di
+    minuti è peggio di nessuna percentuale. Dire QUALE lavoro è in corso, e
+    quanto è durato il precedente, si può.
+    """
     settings = settings or ProjectionSettings()
+    step = on_step or (lambda _label: None)
     matrix = np.asarray(embeddings, dtype=np.float32)
     if len(matrix) < 3:
         # Con due punti non c'è varietà da preservare: si mettono in fila e
@@ -61,9 +70,11 @@ def project(embeddings, settings: ProjectionSettings | None = None) -> np.ndarra
 
     reduced = matrix
     if matrix.shape[1] > PCA_DIM:
+        step(f"Reducing {matrix.shape[1]} dimensions to {PCA_DIM}")
         reduced = PCA(n_components=min(PCA_DIM, len(matrix) - 1),
                       random_state=settings.seed).fit_transform(matrix)
 
+    step(f"UMAP over {len(matrix):,} tracks")
     reducer = umap.UMAP(
         n_components=2,
         n_neighbors=min(settings.n_neighbors, len(matrix) - 1),

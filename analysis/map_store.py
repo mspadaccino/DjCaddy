@@ -52,6 +52,33 @@ def _key(path) -> str:
     return os.path.abspath(str(path))
 
 
+def _still_covers(rows: list[dict], count: int, marker: str | None,
+                  compacted: bool) -> bool:
+    """Se le coordinate salvate descrivono ancora le prime `count` righe.
+
+    Le coordinate stanno in fila come le righe e ne coprono un prefisso. Un
+    duplicato assorbito accorcia la fila nel punto in cui si trova: oltre il
+    prefisso non lo tocca, dentro sposta tutto ciò che segue e ogni
+    coordinata finisce a indicare il brano sbagliato.
+
+    Si confronta allora il percorso dell'ultima riga coperta con quello
+    scritto quando le coordinate sono state salvate. Serve davvero salvarlo:
+    dal solo file non si distingue una fila intatta da una già compattata al
+    momento del ricalcolo, che è il caso di ogni mappa rimessa in piedi dopo
+    un duplicato.
+
+    Una mappa fatta prima di questo controllo non porta il segno; allora vale
+    la regola di prima — fidarsi solo se nessuna riga è stata assorbita — e
+    il primo ricalcolo lo scrive e chiude la questione. Prima bastava un
+    duplicato QUALUNQUE per buttare via le coordinate, e quarantaquattro
+    righe su quarantacinquemila spegnevano la mappa senza rimedio:
+    ricalcolare le riscriveva, il caricamento dopo le scartava di nuovo.
+    """
+    if marker is None:
+        return not compacted
+    return _key(rows[count - 1]["path"]) == marker
+
+
 @dataclass
 class MapStore:
     """La mappa su disco, aperta in lettura e scrittura."""
@@ -60,6 +87,11 @@ class MapStore:
     rows: list[dict]
     embeddings: np.ndarray            # (N, EMBEDDING_DIM) float32
     coords: np.ndarray | None = None  # (N, 2) float32, None finché non si proietta
+    # Il percorso dell'ultima riga che `coords.npy` descrive. Racconta il
+    # FILE, non la memoria: appendere righe azzera `coords` qui dentro senza
+    # toccare il file, quindi questo resta — ed è ciò che al caricamento dice
+    # se le coordinate salvate valgono ancora.
+    coords_last: str | None = None
 
     # --- file della cartella ---
     @property
@@ -142,13 +174,28 @@ class MapStore:
         # Le coordinate stanno in fila come le righe, quindi ne coprono un
         # PREFISSO: i brani arrivati dopo l'ultima proiezione non ne hanno, e
         # va benissimo — la mappa continua a mostrare quelli che ce l'hanno
-        # mentre il job aggiunge gli altri. Se però una riga è stata assorbita
-        # come duplicato, la fila si è accorciata nel mezzo e la
-        # corrispondenza non vale più: meglio nessuna coordinata che le
-        # coordinate di un altro brano.
-        if store.coords_file.exists() and not compacted:
+        # mentre il job aggiunge gli altri.
+        #
+        # Il rischio è che una riga assorbita come duplicato accorci la fila
+        # NEL MEZZO: da lì in poi ogni coordinata indicherebbe il brano
+        # sbagliato. Si controlla allora l'unica cosa che lo rivela — che
+        # l'ultima riga coperta sia ancora quella per cui le coordinate sono
+        # state calcolate. Prima qui bastava che ci fosse un duplicato
+        # qualunque per buttarle via, e quarantaquattro righe su
+        # quarantacinquemila spegnevano la mappa per sempre: si ricalcolava,
+        # le coordinate nuove venivano scartate al giro dopo, e ricalcolare
+        # ancora non poteva cambiare niente.
+        try:
+            store.coords_last = json.loads(
+                store.meta_file.read_text()).get("coords_last")
+        except (OSError, ValueError):
+            store.coords_last = None
+
+        if store.coords_file.exists():
             coords = np.load(store.coords_file)
-            if len(coords) <= len(rows):
+            if len(coords) and len(coords) <= len(rows) \
+                    and _still_covers(rows, len(coords),
+                                      store.coords_last, compacted):
                 store.coords = coords.astype(np.float32)
         return store
 
@@ -215,6 +262,10 @@ class MapStore:
         binary_tmp.replace(self.embeddings_file)
 
         self.rows, self.embeddings, self.coords = rows, vectors, coords
+        # La fila è cambiata: il segno va rifatto, o continuerebbe a indicare
+        # un brano appena tolto.
+        self.coords_last = (_key(rows[len(coords) - 1]["path"])
+                            if coords is not None and len(coords) else None)
         if coords is None:
             self.coords_file.unlink(missing_ok=True)
         else:
@@ -274,6 +325,11 @@ class MapStore:
             "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in self.rows),
             encoding="utf-8")
         tmp.replace(self.rows_file)
+        # Anche il segno porta un percorso, e i percorsi sono cambiati: senza
+        # rifarlo la mappa risulterebbe non proiettata dopo un trasloco che
+        # le posizioni non le ha toccate.
+        if self.coords_last and self.coords_last.startswith(old):
+            self.coords_last = new + self.coords_last[len(old):]
         self.write_meta()
         return moved, missing
 
@@ -283,6 +339,8 @@ class MapStore:
             raise ValueError(
                 f"{len(coords)} coordinate per {len(self.rows)} brani")
         self.coords = coords
+        self.coords_last = (_key(self.rows[len(coords) - 1]["path"])
+                            if len(coords) else None)
         self.directory.mkdir(parents=True, exist_ok=True)
         np.save(self.coords_file, coords)
         self.write_meta()
@@ -293,6 +351,9 @@ class MapStore:
             "dim": EMBEDDING_DIM,
             "tracks": len(self.rows),
             "projected": bool(self.projected),
+            # Si scrive com'è: appartiene al file delle coordinate, e chi
+            # appende righe non lo cambia.
+            "coords_last": self.coords_last,
         }, indent=1))
 
     # --- interrogazione ---

@@ -372,9 +372,26 @@ def render_infos(store: MapStore) -> None:
              "easier to aim at with the mouse.")
     col_go.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
     if col_go.button("↻ Recompute the projection", width="stretch"):
-        with st.spinner(f"UMAP over {len(store):,} tracks…"):
-            store.set_coords(project(store.embeddings, ProjectionSettings(
-                n_neighbors=neighbors, min_dist=min_dist)))
+        # Su decine di migliaia di brani è un'attesa di minuti, e uno spinner
+        # muto non distingue "sta lavorando" da "si è piantato". Le fasi sono
+        # tre e si annunciano; la percentuale no, perché UMAP non dice a che
+        # punto è e inventarla sarebbe peggio.
+        started = time.perf_counter()
+        with st.status(f"Projecting {len(store):,} tracks…",
+                       expanded=True) as status:
+            def announce(label: str, _clock=[started]) -> None:
+                status.write(f"{label} — {_spelled(time.perf_counter() - _clock[0])} so far")
+
+            coords = project(store.embeddings,
+                             ProjectionSettings(n_neighbors=neighbors,
+                                                min_dist=min_dist),
+                             on_step=announce)
+            announce("Saving the coordinates")
+            store.set_coords(coords)
+            status.update(
+                label=f"{len(coords):,} tracks placed in "
+                      f"{_spelled(time.perf_counter() - started)}",
+                state="complete", expanded=False)
         _open_store.clear()
         st.rerun()
 
