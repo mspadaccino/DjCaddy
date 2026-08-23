@@ -39,7 +39,7 @@ AUDIO_FORMATS = {
 }
 
 OTHER = "OTHER"
-NO_EXTENSION = "(senza estensione)"
+NO_EXTENSION = "(no extension)"
 # Su volumi non-macOS (exFAT, FAT32, NTFS) il Finder non può scrivere gli
 # attributi estesi dentro al file e li mette in un file affiancato "._<nome>".
 # Portano l'estensione del brano ma sono AppleDouble da 4 KB: non sono audio,
