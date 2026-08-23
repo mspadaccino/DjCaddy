@@ -7,6 +7,7 @@ una libreria vera dura minuti. La seconda si lancia solo quando serve.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -20,7 +21,7 @@ from analysis.duplicates import (
     find_duplicates,
     write_csv,
 )
-from views.components import pick_folder, play_table
+from views.components import pick_folder, play_table, tick_all
 from analysis.mix_names import (
     DEFAULT_KEYWORDS,
     NOT_BY_DEFAULT,
@@ -30,8 +31,11 @@ from analysis.mix_names import (
 )
 from analysis.truncation import inspect
 from analysis.folder_scan import (
+    AUDIO_FORMATS,
     CHECK_THREADS,
+    NOT_JUNK,
     check_integrity,
+    delete_files,
     human_duration,
     read_durations,
     delete_sidecars,
@@ -43,9 +47,11 @@ from analysis.folder_scan import (
 st.title("📁 Folder analysis")
 st.caption(
     "Count what a folder actually contains, then look for duplicates. "
-    "Nothing here ever deletes a file: duplicates are reported, and the ones "
-    f"you tick are **moved** to a `{QUARANTINE_DIRNAME}/` folder that you "
-    "empty yourself once djay Pro still looks right."
+    "**No audio file is ever deleted here**: duplicates are reported, and the "
+    f"ones you tick are **moved** to a `{QUARANTINE_DIRNAME}/` folder that you "
+    "empty yourself once djay Pro still looks right. Only what is not music — "
+    "junk files, and whatever you pick out of the extension breakdown — can "
+    "be removed for good, and always after you confirm the list."
 )
 
 
@@ -93,12 +99,120 @@ st.dataframe(
     width="stretch", hide_index=True,
 )
 
-with st.expander(f"By extension ({len(scan.counts_by_extension())} distinct)"):
+by_ext = scan.counts_by_extension()
+ext_sizes = scan.size_by_extension()
+
+# Aperto se un'estensione e' gia' stata scelta: sceglierla fa ripartire la
+# pagina, e un expander riparte chiuso — cioe' il risultato del clic
+# scompariva proprio nell'atto di chiederlo.
+with st.expander(f"By extension ({len(by_ext)} distinct)",
+                 expanded=bool(st.session_state.get(f"ext_pick::{root}"))):
     st.dataframe(
-        pd.DataFrame([{"extension": e, "files": n}
-                      for e, n in scan.counts_by_extension().most_common()]),
+        pd.DataFrame([{"extension": e, "files": n, "size": human_size(ext_sizes[e])}
+                      for e, n in by_ext.most_common()]),
         width="stretch", hide_index=True,
     )
+
+    st.caption(
+        "Pick one to see the files themselves — where each sits, how big it "
+        "is, when it was last written — and 🔍 to reveal one in the Finder. "
+        "Whatever is not audio can also be **deleted** from here: artwork, "
+        "screenshots, `.nfo` notes, the leftovers a download brings along. "
+        "Same idea as **Junk files** below, but for the clutter that has no "
+        "fixed name to look for — a music drive fills up with it."
+    )
+
+    chosen_ext = st.selectbox(
+        "Show the files with extension",
+        [None, *[e for e, _ in by_ext.most_common()]],
+        format_func=lambda e: "—" if e is None
+        else f"{e} · {by_ext[e]:,} files · {human_size(ext_sizes[e])}",
+        key=f"ext_pick::{root}",
+    )
+
+    if chosen_ext:
+        listed = scan.files_with_extension(chosen_ext)
+        # L'estensione dice cos'e' il file, non un giudizio su di esso: i
+        # ".mp3" restano musica anche quando in mezzo c'e' un "._brano.mp3",
+        # che di suo non e' audio ma appartiene alla sezione Junk files. Qui
+        # basta che l'estensione sia audio perche' nessuna riga si possa
+        # spuntare: cancellare un brano non e' quello per cui si apre questo
+        # elenco, e `delete_files` lo rifiuterebbe comunque.
+        is_audio_ext = chosen_ext in AUDIO_FORMATS
+        listed_bytes = sum(f.size for f in listed)
+
+        table = pd.DataFrame([
+            {"Delete": False, "file": f.path.name, "folder": str(f.path.parent),
+             "size": human_size(f.size),
+             "modified": (datetime.fromtimestamp(f.mtime).strftime("%Y-%m-%d")
+                          if f.mtime else "—"),
+             "kind": f.fmt, "_path": str(f.path), "_bytes": f.size}
+            for f in listed])
+
+        columns = ["file", "folder", "size", "modified", "kind"]
+        config = {c: st.column_config.TextColumn(disabled=True) for c in columns}
+
+        if is_audio_ext:
+            st.caption(
+                f"**{len(listed):,} files**, {human_size(listed_bytes)} in all, "
+                "biggest first. These are music, so there is nothing to tick: "
+                "audio leaves by way of quarantine — the sections below — and "
+                "never from here.")
+            play_table(f"ext::{root}::{chosen_ext}", table.drop(columns=["Delete"]),
+                       columns, config, editable=False, reveal=True,
+                       editor_key=f"ext_editor::{root}::{chosen_ext}")
+        else:
+            if chosen_ext in NOT_JUNK:
+                st.warning(
+                    f"`{chosen_ext}` files hold no audio, but they are not "
+                    f"clutter either: {NOT_JUNK[chosen_ext]}. Look before you "
+                    "tick.")
+            col_note, col_ticks = st.columns([3, 2])
+            all_ticked, editor_key = tick_all(
+                f"ext::{root}::{chosen_ext}", into=col_ticks, default=False)
+            table["Delete"] = all_ticked
+            col_note.caption(
+                f"**{len(listed):,} files**, {human_size(listed_bytes)} in all, "
+                "biggest first. Tick what you want gone.")
+
+            edited = play_table(
+                f"ext::{root}::{chosen_ext}", table, ["Delete", *columns],
+                {"Delete": st.column_config.CheckboxColumn(
+                    "Delete", help="Tick the files to remove for good."),
+                 **config},
+                play=False, reveal=True, editor_key=editor_key)
+
+            picked = edited.loc[edited["Delete"]]
+            doomed = [Path(p) for p in picked["_path"]]
+            doomed_bytes = int(picked["_bytes"].sum()) if not picked.empty else 0
+            st.caption(
+                f"**{len(doomed):,}** of {len(table):,} ticked · "
+                f"**{human_size(doomed_bytes)}** would be freed")
+
+            if doomed:
+                # Cancellati e non messi in quarantena, come i sidecar: la
+                # quarantena sta sullo stesso disco, quindi spostarci mezzo
+                # giga di copertine non libera mezzo giga.
+                st.caption(
+                    "These are **deleted**, not moved to quarantine — putting "
+                    "them in a folder on the same drive would free nothing, "
+                    "and freeing space is the whole point. There is no undo.")
+                sure = st.checkbox(
+                    f"Delete these {len(doomed):,} files "
+                    f"({human_size(doomed_bytes)}) for good",
+                    key=f"ext_confirm::{root}::{chosen_ext}")
+                if st.button("Delete them", type="primary", disabled=not sure,
+                             key=f"ext_delete::{root}::{chosen_ext}"):
+                    removed, freed, errors = delete_files(doomed, dry_run=False)
+                    st.success(f"{removed:,} files deleted, "
+                               f"{human_size(freed)} freed.")
+                    if errors:
+                        st.warning(f"{len(errors)} skipped.")
+                        st.dataframe(
+                            pd.DataFrame([{"path": str(q), "reason": e}
+                                          for q, e in errors]),
+                            width="stretch", hide_index=True)
+                    st.session_state.pop(scan_key, None)
 
 if scan.unreadable:
     with st.expander(f"⚠️ {len(scan.unreadable)} unreadable entries"):
