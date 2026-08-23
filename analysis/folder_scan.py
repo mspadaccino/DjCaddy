@@ -39,6 +39,7 @@ AUDIO_FORMATS = {
 }
 
 OTHER = "OTHER"
+NO_EXTENSION = "(senza estensione)"
 # Su volumi non-macOS (exFAT, FAT32, NTFS) il Finder non può scrivere gli
 # attributi estesi dentro al file e li mette in un file affiancato "._<nome>".
 # Portano l'estensione del brano ma sono AppleDouble da 4 KB: non sono audio,
@@ -64,6 +65,12 @@ class ScannedFile:
     path: Path
     size: int
     fmt: str                      # etichetta di formato, oppure OTHER
+    # Quando il file e' stato scritto l'ultima volta. Costa nulla — la
+    # `stat()` che da' la dimensione la porta gia' con se' — e per decidere
+    # se un file di contorno serve ancora e' spesso l'unico indizio che c'e':
+    # una copertina scaricata anni fa insieme al brano e una salvata ieri si
+    # somigliano in tutto tranne che in questo.
+    mtime: float = 0.0
 
     @property
     def is_audio(self) -> bool:
@@ -87,7 +94,22 @@ class FolderScan:
         return Counter(f.fmt for f in self.files)
 
     def counts_by_extension(self) -> Counter:
-        return Counter(f.path.suffix.lower() or "(senza estensione)" for f in self.files)
+        return Counter(extension_of(f.path) for f in self.files)
+
+    def size_by_extension(self) -> Counter:
+        totals = Counter()
+        for f in self.files:
+            totals[extension_of(f.path)] += f.size
+        return totals
+
+    def files_with_extension(self, ext: str) -> list[ScannedFile]:
+        """I file di una sola estensione, dal piu' grosso al piu' piccolo.
+
+        L'ordine e' quello: da qui si decide cosa cancellare per fare posto,
+        e la domanda e' sempre "chi occupa di piu'".
+        """
+        return sorted((f for f in self.files if extension_of(f.path) == ext),
+                      key=lambda f: f.size, reverse=True)
 
     def size_by_format(self) -> Counter:
         totals = Counter()
@@ -108,6 +130,15 @@ def is_metadata_sidecar(path: Path) -> bool:
     l'unica cosa sensata è non guardarlo proprio.
     """
     return path.name.startswith("._")
+
+
+def extension_of(path: Path) -> str:
+    """L'estensione con cui il file viene contato ed elencato.
+
+    Sempre minuscola: ".JPG" e ".jpg" sono la stessa cosa, e contarle a parte
+    spezzerebbe in due mucchi quello che l'utente vede come uno solo.
+    """
+    return path.suffix.lower() or NO_EXTENSION
 
 
 def format_of(path: Path) -> str:
@@ -140,7 +171,9 @@ def scan_folder(root: Path, audio_only: bool = False, progress=None,
             fmt = format_of(path)
             if audio_only and fmt in (OTHER, APPLEDOUBLE):
                 continue
-            scan.files.append(ScannedFile(path=path, size=path.stat().st_size, fmt=fmt))
+            info = path.stat()
+            scan.files.append(ScannedFile(path=path, size=info.st_size, fmt=fmt,
+                                          mtime=info.st_mtime))
         except OSError as e:
             scan.unreadable.append((path, str(e)))
         seen += 1
@@ -253,6 +286,56 @@ def delete_sidecars(paths, dry_run: bool = True) -> tuple[int, int, list[tuple[P
         try:
             if not is_appledouble_content(path):
                 errors.append((path, "non è (più) un AppleDouble: saltato"))
+                continue
+            size = path.stat().st_size
+            if not dry_run:
+                path.unlink()
+            removed += 1
+            freed += size
+        except OSError as e:
+            errors.append((path, str(e)))
+    return removed, freed, errors
+
+
+# --------------------------------------------------------------------------
+# Cancellazione di quello che musica non e'
+# --------------------------------------------------------------------------
+
+# Estensioni che non contengono audio ma NON sono spazzatura: buttarle fa
+# danno, e il danno non si vede subito. Il valore dice perche', perche' "non
+# cancellare" senza una ragione e' un avviso che si impara a ignorare.
+NOT_JUNK = {
+    ".xml": "a rekordbox library export looks exactly like this",
+    ".nml": "a Traktor collection, cue points and loops included",
+    ".m3u": "a playlist", ".m3u8": "a playlist", ".pls": "a playlist",
+    ".cue": "a cue sheet says where to cut a continuous mix",
+    ".db": "an application's database (djay, rekordbox)",
+    ".edb": "a rekordbox database", ".pdb": "a rekordbox database",
+    ".json": "the analyses this very app writes are .json files",
+    ".asd": "Ableton's analysis: it comes back by itself, but slowly",
+}
+
+
+def delete_files(paths, dry_run: bool = True) -> tuple[int, int, list[tuple[Path, str]]]:
+    """Cancella file che non sono audio. Ritorna (quanti, byte, errori).
+
+    Il rifiuto di toccare un file audio sta QUI e non nella pagina che
+    chiama, ed e' voluto: la pagina decide cosa mostrare, ma la garanzia che
+    un brano non venga cancellato per sbaglio non puo' dipendere da quale
+    elenco l'ha proposto. Il formato viene riletto dal percorso subito prima
+    di cancellare, come i sidecar rileggono il proprio contenuto.
+
+    Si cancella davvero invece di mettere in quarantena — come per i sidecar
+    e per lo stesso motivo: la quarantena sta sullo stesso volume, quindi
+    spostarci una copertina da 2 MB non libera i 2 MB. Chi vuole ripensarci
+    ha la lista sotto gli occhi prima di confermare.
+    """
+    removed, freed, errors = 0, 0, []
+    for item in paths:
+        path = Path(getattr(item, "path", item))
+        try:
+            if format_of(path) not in (OTHER, APPLEDOUBLE):
+                errors.append((path, "e' un file audio: saltato"))
                 continue
             size = path.stat().st_size
             if not dry_run:

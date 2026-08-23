@@ -60,3 +60,52 @@ def test_empty_file_is_condemned_before_anything_else(tmp_path):
     vuoto.touch()
 
     assert check_readable(vuoto, deep=True) == "file vuoto"
+
+
+def test_deleting_never_touches_audio(tmp_path):
+    """La garanzia sta nel modulo, non nella pagina che lo chiama.
+
+    Un brano infilato per sbaglio nell'elenco delle cose da buttare — una
+    riga spuntata su un'estensione mista, una selezione rimasta in sessione —
+    non deve poter sparire.
+    """
+    from analysis.folder_scan import delete_files
+
+    cover = tmp_path / "folder.jpg"
+    cover.write_bytes(b"x" * 100)
+    track = tmp_path / "brano.mp3"
+    track.write_bytes(b"y" * 500)
+
+    removed, freed, errors = delete_files([cover, track], dry_run=False)
+
+    assert (removed, freed) == (1, 100)
+    assert not cover.exists()
+    assert track.exists()
+    assert [p for p, _ in errors] == [track]
+
+
+def test_dry_run_leaves_everything_where_it_is(tmp_path):
+    from analysis.folder_scan import delete_files
+
+    junk = tmp_path / "screenshot.png"
+    junk.write_bytes(b"z" * 42)
+
+    removed, freed, errors = delete_files([junk])
+
+    assert (removed, freed, errors) == (1, 42, [])
+    assert junk.exists()
+
+
+def test_extension_listing_is_case_insensitive_and_biggest_first(tmp_path):
+    from analysis.folder_scan import scan_folder
+
+    (tmp_path / "a.JPG").write_bytes(b"x" * 10)
+    (tmp_path / "b.jpg").write_bytes(b"x" * 30)
+    (tmp_path / "c.png").write_bytes(b"x")
+
+    scan = scan_folder(tmp_path)
+
+    assert scan.counts_by_extension()[".jpg"] == 2
+    assert scan.size_by_extension()[".jpg"] == 40
+    assert [f.path.name for f in scan.files_with_extension(".jpg")] == ["b.jpg", "a.JPG"]
+    assert scan.files_with_extension(".jpg")[0].mtime > 0
