@@ -64,10 +64,29 @@ def pick_folder(state_key: str, label: str = "Folder",
     return folder
 
 
+def reveal_in_finder(path: Path) -> str | None:
+    """Mostra il file nel Finder, già selezionato. None se è andata bene.
+
+    `open -R` e non `open`: aprire il file lo APRE — una copertina finirebbe
+    in Anteprima e un .xml in un editor — mentre qui la domanda è sempre
+    "dov'è", non "cos'è". Come per il selettore di cartelle qui sopra, ci si
+    può permettere di chiamare il Finder perché l'app gira in locale.
+    """
+    try:
+        out = subprocess.run(["open", "-R", str(path)],
+                             capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        return str(e)
+    if out.returncode == 0:
+        return None
+    return out.stderr.strip() or "il Finder non ha risposto"
+
+
 def play_table(section: str, table: pd.DataFrame, column_order: list[str],
                column_config: dict, editable: bool = True,
-               editor_key: str | None = None) -> pd.DataFrame:
-    """Tabella con una colonna ▶ per riga.
+               editor_key: str | None = None,
+               play: bool = True, reveal: bool = False) -> pd.DataFrame:
+    """Tabella con i pulsanti di riga: ▶ per sentire, 🔍 per mostrare nel Finder.
 
     Serve a sentire un file PRIMA di deciderne la sorte. Il clic sceglie il
     brano e basta: a suonarlo ci pensa `render_dock`, in fondo alla pagina.
@@ -75,26 +94,54 @@ def play_table(section: str, table: pd.DataFrame, column_order: list[str],
     Streamlit vorrebbe invece un URL per ogni riga, e generarli legge OGNI
     file per intero in memoria a ogni rerun (misurato: 2,5 ms e l'intero
     contenuto per riga, cioè giga di traffico su qualche centinaio di righe).
+
+    `play` si spegne dove il ▶ non vuol dire niente — un elenco di .jpg — e
+    `reveal` accende il 🔍 dove serve vedere il file dov'è.
     """
     order_key, click_key = f"order::{section}", f"click::{section}"
+    finder_key, trouble_key = f"finder::{section}", f"finder_error::{section}"
     st.session_state[order_key] = list(table["_path"])
 
-    def _on_play(order_key=order_key, click_key=click_key):
-        click = st.session_state.get(click_key)
+    def _clicked(which: str, order_key=order_key):
+        click = st.session_state.get(which)
         order = st.session_state.get(order_key, [])
         if click and 0 <= click.get("row", -1) < len(order):
-            st.session_state[NOW_PLAYING] = order[click["row"]]
+            return order[click["row"]]
+        return None
+
+    def _on_play(click_key=click_key):
+        chosen = _clicked(click_key)
+        if chosen is not None:
+            st.session_state[NOW_PLAYING] = chosen
+
+    def _on_reveal(finder_key=finder_key, trouble_key=trouble_key):
+        chosen = _clicked(finder_key)
+        if chosen is not None:
+            st.session_state[trouble_key] = reveal_in_finder(Path(chosen))
 
     shown = table.copy()
-    shown.insert(0, "Play", "▶")
-    config = {"Play": st.column_config.ButtonColumn(
-        "▶", on_click=_on_play, key=click_key, width="small"), **column_config}
+    config = dict(column_config)
+    buttons = []
+    if play:
+        buttons.append("Play")
+        shown.insert(len(buttons) - 1, "Play", "▶")
+        config["Play"] = st.column_config.ButtonColumn(
+            "▶", on_click=_on_play, key=click_key, width="small")
+    if reveal:
+        buttons.append("Finder")
+        shown.insert(len(buttons) - 1, "Finder", "🔍")
+        config["Finder"] = st.column_config.ButtonColumn(
+            "🔍", on_click=_on_reveal, key=finder_key, width="small",
+            help="Show this file in the Finder.")
 
     edited = st.data_editor(
         shown, key=editor_key, width="stretch", hide_index=True,
-        column_order=["Play", *column_order], column_config=config,
+        column_order=[*buttons, *column_order], column_config=config,
         **({} if editable else {"disabled": column_order}),
     )
+    problem = st.session_state.get(trouble_key)
+    if problem:
+        st.caption(f"⚠️ The Finder could not show it: {problem}")
     return edited
 
 
