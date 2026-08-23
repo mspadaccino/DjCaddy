@@ -54,10 +54,25 @@ from views.graph_board import render_graph_builder
 # ma stabile (seme fisso), così la mappa non si rimescola a ogni rerun.
 MAX_POINTS = 20000
 
-# Quanti generi ricevono un colore proprio nella legenda. Il modello ne
-# conosce 400: colorarli tutti darebbe una legenda illeggibile e una tavolozza
-# in cui due tinte vicine non vogliono dire niente.
-COLORED_GENRES = 12
+# Quanti gruppi ricevono un colore proprio nella legenda. Il modello conosce
+# 400 etichette: colorarle tutte darebbe una legenda illeggibile e una
+# tavolozza in cui due tinte vicine non vogliono dire niente.
+COLORED_GENRES = 18
+
+# Le etichette Discogs sono già gerarchiche — "Electronic - House",
+# "Funk / Soul - Disco" — quindi il macro genere non va inventato: sta nella
+# stringa, prima del trattino. La differenza sulla libreria è netta: 258
+# etichette foglia, di cui le prime dodici coprono il 64% e il resto finisce
+# in un grigio indistinto; contro 15 padri, di cui i primi dodici coprono il
+# 99,98%. Restano offerti tutti e due perché rispondono a domande diverse:
+# il padre dice di che musica è fatta la serata, la foglia dice quale house.
+GENRE_LEVELS = {"macro genre": "parent", "genre": "leaf"}
+
+
+def genre_level(genre: str, level: str) -> str:
+    """L'etichetta al livello scelto. Senza trattino i due coincidono."""
+    text = str(genre or "")
+    return text.split(" - ")[0] if level == "parent" else text
 
 # Oltre questi brani in playlist i numeri d'ordine sulla mappa diventano una
 # macchia: la linea basta a raccontare il percorso.
@@ -78,16 +93,23 @@ FLAT_SIZE = 7.0
 MIN_SIZE, MAX_SIZE = 4.0, 15.0
 
 PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
-           "#4dd0c4", "#c9b037", "#6f8fd6", "#d66f6f", "#7fbf3f", "#bf7fd6"]
+           "#4dd0c4", "#c9b037", "#6f8fd6", "#d66f6f", "#7fbf3f", "#bf7fd6",
+           # Sei in più: con le etichette foglia dodici colori lasciavano un
+           # terzo della libreria in grigio. Le tinte continuano a girare
+           # attorno alla ruota invece di scurirsi, o due gruppi vicini
+           # diventerebbero indistinguibili su punti da sette pixel.
+           "#3fb0bf", "#d68f3f", "#8fd63f", "#d63f8f", "#5f6fd6", "#bf5f3f"]
 
 # Due fondi e due inchiostri, uno per tema. Il fondo della mappa è staccato
 # di poco da quello della pagina: quel poco basta a dire dove finisce il
 # testo e comincia il territorio, senza farne un riquadro.
 SKIN = {
     "light": {"paper": "#ffffff", "plot": "#f4f6f9", "ink": "#1b1f27",
-              "other": "#9aa4b0", "label": "rgba(27,31,39,0.45)"},
+              "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
+              "halo": "rgba(255,255,255,0.75)"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
-             "other": "#6b7684", "label": "rgba(238,241,246,0.45)"},
+             "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
+             "halo": "rgba(14,17,23,0.75)"},
 }
 
 # In sessione si tengono i PERCORSI, non le posizioni nella libreria. Una
@@ -252,8 +274,8 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
     figure = go.Figure()
 
     for genre in top_genres + ["other"]:
-        part = (drawn[~drawn["top_genre"].isin(top_genres)] if genre == "other"
-                else drawn[drawn["top_genre"] == genre])
+        part = (drawn[~drawn["genre_key"].isin(top_genres)] if genre == "other"
+                else drawn[drawn["genre_key"] == genre])
         if not len(part):
             continue
         figure.add_trace(go.Scattergl(
@@ -276,13 +298,17 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
     # perché un brano isolato dall'altra parte della mappa non deve spostare
     # l'etichetta in mezzo al nulla.
     for genre in top_genres:
-        part = drawn[drawn["top_genre"] == genre]
+        part = drawn[drawn["genre_key"] == genre]
         if len(part) < 3:
             continue
+        # Piu' grande, piu' opaca e su un fondo suo: prima era al 45% di
+        # opacita' e spariva dentro il colore dei punti proprio dove i punti
+        # sono piu' fitti, cioe' dove l'etichetta serve.
         figure.add_annotation(
             x=float(part["x"].median()), y=float(part["y"].median()),
-            text=genre.split(" - ")[-1][:22], showarrow=False,
-            font={"size": 11, "color": skin["label"]})
+            text=f"<b>{genre.split(' - ')[-1][:22]}</b>", showarrow=False,
+            font={"size": 14, "color": skin["label"]},
+            bgcolor=skin["halo"], borderpad=3)
 
     if playlist:
         line = coords[playlist]
@@ -458,7 +484,13 @@ def render_map(store: MapStore) -> None:
 
     pool = visible["index"].to_numpy()
 
-    size_by = st.radio(
+    by_level, by_size = st.columns(2)
+    level = GENRE_LEVELS[by_level.radio(
+        "Colour by", list(GENRE_LEVELS), horizontal=True,
+        help="Discogs labels are already two-level. The macro genre leaves "
+             "almost nothing grey; the detailed one separates the house from "
+             "the disco, at the cost of a larger 'other'.")]
+    size_by = by_size.radio(
         "Point size", list(SIZE_FIELDS), horizontal=True,
         help="What the diameter of a point says. The position already says "
              "how a track sounds; this is room for a number you can read — "
@@ -498,7 +530,10 @@ def render_map(store: MapStore) -> None:
             remember_seed(frame, by_name)
     seed = at_path.get(st.session_state.get(SEED))
 
-    top_genres = [g for g, _ in genre_counts.most_common(COLORED_GENRES)]
+    drawn = drawn.assign(
+        genre_key=drawn["top_genre"].map(lambda g: genre_level(g, level)))
+    ranked = Counter(g for g in drawn["genre_key"] if g)
+    top_genres = [g for g, _ in ranked.most_common(COLORED_GENRES)]
     st.plotly_chart(
         build_figure(drawn, top_genres, store.coords, playlist, seed),
         key="map::chart", on_select="rerun",
