@@ -70,15 +70,22 @@ def _still_covers(rows: list[dict], count: int, marker: str | None,
     momento del ricalcolo, che è il caso di ogni mappa rimessa in piedi dopo
     un duplicato.
 
-    Una mappa fatta prima di questo controllo non porta il segno; allora vale
-    la regola di prima — fidarsi solo se nessuna riga è stata assorbita — e
-    il primo ricalcolo lo scrive e chiude la questione. Prima bastava un
-    duplicato QUALUNQUE per buttare via le coordinate, e quarantaquattro
-    righe su quarantacinquemila spegnevano la mappa senza rimedio:
-    ricalcolare le riscriveva, il caricamento dopo le scartava di nuovo.
+    Una mappa fatta prima di questo controllo non porta il segno, e allora si
+    accettano. Non è ottimismo: `set_coords` riceve gli embedding già
+    compattati, quindi le coordinate su disco sono SEMPRE state scritte per la
+    fila compattata — misurato su una mappa vera, l'83% dei vicini di un punto
+    condivide il suo macro genere leggendola così, contro il 49% leggendola
+    nell'ordine originale, che è quanto darebbe il caso.
+
+    Resta un rischio, per le sole mappe senza segno: un duplicato arrivato
+    DOPO l'ultimo ricalcolo sposta la fila e non abbiamo modo di accorgercene.
+    Si preferisce comunque, perché l'alternativa non è una mappa giusta ma una
+    mappa spenta — ed era spenta senza rimedio, visto che ricalcolare la
+    riaccendeva solo fino al caricamento successivo. Dal primo ricalcolo in
+    poi il segno c'è e la domanda ha una risposta esatta.
     """
     if marker is None:
-        return not compacted
+        return True
     return _key(rows[count - 1]["path"]) == marker
 
 
