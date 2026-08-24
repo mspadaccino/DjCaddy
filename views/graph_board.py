@@ -27,7 +27,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from analysis.duplicates import normalized_name
+from analysis.duplicates import normalized_name, song_key
 from analysis.graph_playlist import GraphPlaylist, suggestions
 from analysis.mixing import (BPM_TOLERANCE, TransitionCost, bpm_shift,
                              camelot_shift)
@@ -667,7 +667,8 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
     taken = {at_path[p] for p in graph.tracks if p in at_path}
     picks = suggestions(cost, source_idx, taken, k=FRONTIER_SIZE, pool=pool,
                         key_of=lambda i: normalized_name(
-                            Path(frame.at[i, "path"])))
+                            Path(frame.at[i, "path"])),
+                        song_of=lambda i: song_key(Path(frame.at[i, "path"])))
     if not picks:
         st.info("No candidate left that passes the filters.")
         return

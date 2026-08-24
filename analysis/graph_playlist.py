@@ -356,7 +356,8 @@ def _free_cell(taken) -> tuple[float, float] | None:
 
 
 def suggestions(cost: TransitionCost, seed: int, taken, k: int = 8,
-                pool=None, key_of=None) -> list[tuple[int, float, list[int]]]:
+                pool=None, key_of=None,
+                song_of=None) -> list[tuple[int, float, list[int]]]:
     """La rosa di brani da cui scegliere il prossimo, escluso il già preso.
 
     È `nearest` con una regola in più: quello che sta già sulla lavagna non
@@ -375,6 +376,15 @@ def suggestions(cost: TransitionCost, seed: int, taken, k: int = 8,
     vanno escluse tutte, o si costruisce un set con lo stesso brano due
     volte.
 
+    `song_of` risponde a una domanda diversa da `key_of`, e per questo è un
+    parametro suo: `key_of` dice quali file sono LO STESSO FILE e vanno in una
+    voce sola, `song_of` dice quali sono LA STESSA CANZONE e non vanno
+    riproposti se ce n'è già uno preso. Non coincidono — un pezzo numerato "07"
+    in una compilation e "04" in un'altra sono due file diversi con lo stesso
+    diritto di stare in rosa, ma averne preso uno rende l'altro inutile — e
+    tenerle separate evita di fondere in una riga cose che meritano una scelta.
+    Senza `song_of` si blocca su `key_of`, che è il comportamento di prima.
+
     Quale delle copie usare non si decide qui. Le copie restano tutte nella
     voce, e si sceglie al momento di prenderla: differiscono per cartella,
     per bitrate, per come è scritto il nome, e scartarle adesso vorrebbe dire
@@ -388,7 +398,8 @@ def suggestions(cost: TransitionCost, seed: int, taken, k: int = 8,
     # serve più largo ancora, perché le copie che si fondono in una voce non
     # ne aprono una nuova.
     reach = (2 * k if key_of else k) + len(taken)
-    blocked = {key_of(t) for t in taken} if key_of else set()
+    song_of = song_of or key_of
+    blocked = {song_of(t) for t in taken} if song_of else set()
 
     found: list[tuple[int, float, list[int]]] = []
     voices: dict = {}
@@ -400,9 +411,9 @@ def suggestions(cost: TransitionCost, seed: int, taken, k: int = 8,
             if len(found) == k:
                 break
             continue
-        name = key_of(track)
-        if name in blocked:
+        if song_of(track) in blocked:
             continue
+        name = key_of(track)
         if name in voices:
             # Una copia in più di una voce già aperta: si accoda anche a rosa
             # piena, perché è un modo di prendere quella voce, non una voce.

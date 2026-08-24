@@ -118,6 +118,35 @@ def normalized_name(path: Path) -> str:
     return re.sub(r"[^a-z0-9]+", " ", stem).strip()
 
 
+def song_key(path: Path) -> str:
+    """Che CANZONE è, ignorando come è stato scritto il file.
+
+    Più larga di `normalized_name`, e apposta: quella confronta due file per
+    decidere se uno si può cancellare, e sbagliare lì costa un brano; questa
+    serve solo a non riproporre in scaletta qualcosa che c'è già, e sbagliare
+    qui costa un candidato in meno. **Non usarla per cancellare niente.**
+
+    Toglie il numero di traccia in testa — "07 New Order - Ruined In A Day" e
+    "04 - New Order - Ruined In A Day" sono lo stesso disco numerato da due
+    compilation diverse — e quello che sta fra parentesi, che nella libreria
+    vera porta il mix, il BPM e la sigla del pool ("(lb layer mix)",
+    "(BPM 105)", "(105)"). Il mix quindi non distingue: due edit dello stesso
+    pezzo contano come lo stesso pezzo, perché in una serata suonarli tutti e
+    due è la cosa che si vuole evitare.
+
+    Se non resta niente — un titolo tutto fra parentesi, o tutto numeri — si
+    torna al nome intero, che è meglio di una chiave vuota buona per tutti.
+    """
+    stem = unicodedata.normalize("NFKD", path.stem).casefold()
+    stem = "".join(c for c in stem if not unicodedata.combining(c))
+    stem = re.sub(r"[\(\[][^)\]]*[\)\]]", " ", stem)
+    stem = re.sub(r"[^a-z0-9]+", " ", stem).strip()
+    stem = re.sub(r"^\d{1,3} ", "", stem)
+    # Un numero in coda è il BPM o la posizione in scaletta, mai il titolo.
+    stem = re.sub(r" \d{1,4}$", "", stem).strip()
+    return stem or normalized_name(path)
+
+
 def name_quality(path: Path) -> tuple:
     """Chiave d'ordinamento: il più piccolo è il nome "più pulito".
 

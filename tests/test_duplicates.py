@@ -818,3 +818,25 @@ def test_selection_rows_keep_the_order_they_are_given():
     assert list(got["key"]) == ["8B", "8A"]
     # un brano solo e' un caso come gli altri, non un caso a parte
     assert list(selection_rows(frame, [1])["file"]) == ["B.mp3"]
+
+
+def test_song_key_ignores_the_track_number_and_what_is_in_brackets():
+    from analysis.duplicates import song_key
+    same = {song_key(Path(n)) for n in [
+        "07 New Order - Ruined In A Day.mp3",
+        "04 - New Order - Ruined In A Day.mp3",
+        "new order - ruined in a day (lb layer mix).mp3"]}
+    assert len(same) == 1
+
+
+def test_song_key_still_tells_two_different_songs_apart():
+    from analysis.duplicates import song_key
+    assert song_key(Path("New Order - Blue Monday.mp3")) \
+        != song_key(Path("New Order - True Faith.mp3"))
+
+
+def test_song_key_falls_back_when_nothing_survives():
+    # Un titolo tutto fra parentesi non deve dare la chiave vuota, o due
+    # brani senza niente in comune finirebbero nello stesso gruppo.
+    from analysis.duplicates import song_key
+    assert song_key(Path("(1234).mp3")) == "1234"

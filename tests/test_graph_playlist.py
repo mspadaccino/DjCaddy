@@ -242,3 +242,27 @@ def test_suggestions_keep_collecting_copies_once_the_roster_is_full():
     found = suggestions(cost, seed=0, taken=set(), k=1, key_of=_COPIES.get)
     assert [i for i, _, _ in found] == [1]
     assert found[0][2] == [1, 2]
+
+
+# Quattro file: 1 e 2 sono lo stesso file scritto in due modi (stessa
+# `key_of`), 3 è un altro edit della stessa canzone — file diverso, disco
+# diverso, ma la stessa musica.
+_FILES = {0: "a", 1: "b", 2: "b", 3: "b edit"}
+_SONGS = {0: "a", 1: "b", 2: "b", 3: "b"}
+
+
+def test_another_edit_of_a_chosen_song_is_not_proposed_again():
+    cost = _library()
+    found = suggestions(cost, seed=0, taken={1}, k=3,
+                        key_of=_FILES.get, song_of=_SONGS.get)
+    assert found == []
+
+
+def test_two_edits_of_one_song_stay_two_voices_while_neither_is_taken():
+    # `song_of` esclude, non raggruppa: finché non se n'è preso nessuno i due
+    # edit restano due righe, perché quale suonare è una scelta da fare.
+    cost = _library()
+    found = suggestions(cost, seed=0, taken=set(), k=3,
+                        key_of=_FILES.get, song_of=_SONGS.get)
+    assert [i for i, _, _ in found] == [1, 3]
+    assert found[0][2] == [1, 2]
