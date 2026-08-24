@@ -20,6 +20,7 @@ import os
 import shlex
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -141,6 +142,23 @@ def stop_job(pid: int) -> bool:
     """Ferma il job per sempre. Quello che è sulla mappa ci resta, e la volta
     dopo si riparte da lì: è tutto il senso di scrivere man mano."""
     return _signal(pid, signal.SIGTERM)
+
+
+def caffeinated(command: list[str]) -> list[str]:
+    """Il comando, con la macchina tenuta sveglia per tutta la sua durata.
+
+    Un Mac che si addormenta CONGELA il job: resta vivo, non lavora, e al
+    risveglio riprende come se niente fosse. Misurato su una ricostruzione
+    della mappa: quindici ore di vita per meno di tre di lavoro.
+
+    `caffeinate` prende un comando come argomento e lascia cadere la sveglia
+    da solo appena quello finisce — non resta niente da spegnere a mano né
+    da sorvegliare. `-i` tiene a bada il sonno da inattività; il coperchio
+    chiuso dorme lo stesso, e non c'è modo di impedirlo.
+    """
+    if sys.platform != "darwin":
+        return command
+    return ["caffeinate", "-i", *command]
 
 
 def open_monitor(log: Path = DEFAULT_MAP_LOG) -> None:

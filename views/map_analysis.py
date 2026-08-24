@@ -38,8 +38,9 @@ import streamlit as st
 from analysis.dj_export import (build_m3u8, build_rekordbox_xml, read_m3u8,
                                 read_title_artist)
 from analysis.essentia_tags import MODEL_DIR, available, find_taggable, missing_models
-from analysis.map_job import (DEFAULT_MAP_LOG, load_map_state, open_monitor,
-                              pause_job, process_state, resume_job, stop_job)
+from analysis.map_job import (DEFAULT_MAP_LOG, caffeinated, load_map_state,
+                              open_monitor, pause_job, process_state,
+                              resume_job, stop_job)
 from analysis.map_profile import ProfileSettings, default_workers, profile_many
 from analysis.map_projection import ProjectionSettings
 from analysis.map_projection import available as umap_available
@@ -1300,6 +1301,12 @@ def render_add(store: MapStore, state) -> None:
         return
 
     blocked = not available() or bool(missing_models())
+    awake = st.checkbox(
+        "Keep the Mac awake until the job is done", value=True,
+        help="A sleeping Mac freezes the job: it stays alive without "
+             "working. One rebuild lived fifteen hours and analyzed for "
+             "three. Sleep is held off only while the job runs. Closing "
+             "the lid still sleeps.")
     col_job, col_now = st.columns(2)
     if col_job.button(f"▶ Add all {len(queue):,} in the background",
                       type="primary", width="stretch", disabled=blocked):
@@ -1307,6 +1314,8 @@ def render_add(store: MapStore, state) -> None:
         cmd = [sys.executable,
                str(Path(__file__).resolve().parent.parent / "map_cli.py"),
                str(root), "--workers", str(workers), "--project"]
+        if awake:
+            cmd = caffeinated(cmd)
         with open(log, "w") as out:
             subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True,

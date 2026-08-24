@@ -8,7 +8,8 @@ import os
 import subprocess
 import time
 
-from analysis.map_job import pause_job, process_state, resume_job, stop_job
+from analysis.map_job import (caffeinated, pause_job, process_state,
+                              resume_job, stop_job)
 
 
 def _sleeper() -> subprocess.Popen:
@@ -59,3 +60,23 @@ def test_a_pid_that_is_not_there_any_more():
     assert process_state(job.pid) == "gone"
     assert not stop_job(job.pid)      # niente da fermare, e nessuna eccezione
     assert process_state(0) == "gone"
+
+
+def test_the_job_holds_sleep_off_for_as_long_as_it_lasts(monkeypatch):
+    """Un Mac che si addormenta congela il job: resta vivo e non lavora.
+
+    `caffeinate` vuole il comando come argomento, non un pid da sorvegliare:
+    così la sveglia cade da sola quando il job finisce, comunque finisca.
+    """
+    import analysis.map_job as map_job
+
+    monkeypatch.setattr(map_job.sys, "platform", "darwin")
+    assert caffeinated(["python", "map_cli.py", "/Music"]) == [
+        "caffeinate", "-i", "python", "map_cli.py", "/Music"]
+
+
+def test_elsewhere_the_command_is_left_alone(monkeypatch):
+    import analysis.map_job as map_job
+
+    monkeypatch.setattr(map_job.sys, "platform", "linux")
+    assert caffeinated(["python", "map_cli.py"]) == ["python", "map_cli.py"]

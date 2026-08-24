@@ -43,10 +43,14 @@ def _human(seconds: float) -> str:
 
 
 def _report(state) -> None:
+    # Il ritmo si mostra accanto all'attesa perché è quello che la produce:
+    # senza, un'attesa che si allunga non si sa se venga da una macchina che
+    # ha rallentato o da un conteggio sballato.
+    ritmo = f" · {state.seconds_each:.2f}s a brano" if state.done > 2 else ""
     fine = f" · ~{_human(state.eta_seconds)} alla fine" if state.done > 2 else ""
     sys.stdout.write(
         f"\r  {state.done:,}/{state.total:,} · sulla mappa {state.written:,} "
-        f"· falliti {state.failed:,}{fine} · {state.current[:40]:40s}")
+        f"· falliti {state.failed:,}{ritmo}{fine} · {state.current[:40]:40s}")
     sys.stdout.flush()
 
 
