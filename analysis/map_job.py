@@ -55,7 +55,11 @@ def run_job(folder: Path, settings: ProfileSettings | None = None, workers: int 
     state.total = len(queue)
     state.save(state_file)
 
+    last = time.time()
     for profile in profile_many(queue, settings, workers=workers):
+        now = time.time()
+        state.tick(now - last)
+        last = now
         state.done += 1
         state.current = profile.path.name
         if profile.error is None:

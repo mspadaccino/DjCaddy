@@ -100,3 +100,66 @@ def test_the_queue_can_ignore_the_progress_file(tmp_path, monkeypatch):
     coda = tag_job.build_queue(tmp_path, TagSettings(), only_missing=False,
                                skip_done=False)
     assert coda == brani
+
+
+def test_the_eta_measures_recent_work_not_wall_clock(monkeypatch):
+    """Un job congelato — Mac addormentato, o Pause — resta vivo per ore
+    senza lavorare. Dividendo il tempo trascorso per i brani fatti l'attesa
+    dichiarata esplode: misurato su una ricostruzione della mappa, 4,73 s a
+    brano contro gli 0,85 veri, cioè 32 ore invece di 6.
+    """
+    import analysis.tag_job as tag_job
+
+    minuto = [1_000_000]
+    monkeypatch.setattr(tag_job.time, "time", lambda: minuto[0] * 60.0)
+
+    # Dodici ore a muro, ma solo dieci brani da un secondo l'uno.
+    stato = JobState(pid=1, total=110, done=10, started_at=0.0,
+                     updated_at=12 * 3600.0)
+    for _ in range(10):
+        stato.tick(1.0)
+
+    assert stato.seconds_each == 1.0
+    assert stato.eta_seconds == 100.0           # non 12 ore per 100 brani
+
+
+def test_the_hours_asleep_are_not_mistaken_for_a_slow_track(monkeypatch):
+    import analysis.tag_job as tag_job
+
+    monkeypatch.setattr(tag_job.time, "time", lambda: 60_000_000.0)
+    stato = JobState(pid=1, total=10, done=3)
+    stato.tick(2.0)
+    stato.tick(9 * 3600.0)          # qui in mezzo la macchina dormiva
+    stato.tick(2.0)
+
+    assert stato.seconds_each == 2.0
+
+
+def test_only_the_last_half_hour_of_work_counts(monkeypatch):
+    """Se il ritmo cambia, la stima deve seguirlo invece di ricordarsi per
+    sempre com'era all'inizio."""
+    import analysis.tag_job as tag_job
+
+    minuto = [1_000_000]
+    monkeypatch.setattr(tag_job.time, "time", lambda: minuto[0] * 60.0)
+
+    stato = JobState(pid=1, total=100, done=0)
+    for _ in range(40):             # quaranta minuti lenti, uno per minuto
+        stato.tick(10.0)
+        minuto[0] += 1
+    assert len(stato.recent) == tag_job.RECENT_MINUTES
+    for _ in range(30):             # poi mezz'ora veloce
+        stato.tick(1.0)
+        minuto[0] += 1
+
+    assert stato.seconds_each == 1.0        # dei dieci secondi non resta nulla
+
+
+def test_an_old_state_file_still_says_how_long_it_took():
+    """Chi legge lo stato di un job partito prima che il ritmo si misurasse
+    non deve trovarsi un'attesa di zero."""
+    stato = JobState(pid=1, total=10, done=4, started_at=100.0,
+                     updated_at=140.0)
+    assert stato.recent == []
+    assert stato.seconds_each == 10.0
+    assert stato.eta_seconds == 60.0

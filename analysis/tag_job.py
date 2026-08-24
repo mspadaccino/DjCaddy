@@ -31,6 +31,13 @@ from .tag_tracking import ProcessedTracker
 
 DEFAULT_STATE_FILE = Path(__file__).resolve().parent.parent / ".wavecut_tag_job.json"
 
+# Fra un brano e il successivo non passa un minuto nemmeno sul file più
+# ostico: se è passato, la macchina dormiva o il job era in pausa, e quel
+# tempo non va contato come lavoro.
+MAX_TRACK_SECONDS = 60.0
+# Su quanti minuti di lavoro si fa la media che stima quanto manca.
+RECENT_MINUTES = 30
+
 
 @dataclass
 class JobState:
@@ -48,6 +55,8 @@ class JobState:
     current: str = ""
     errors: list[dict] = field(default_factory=list)
     stopped_reason: str | None = None
+    # Il ritmo recente in secchielli da un minuto: [minuto, brani, secondi].
+    recent: list[list[float]] = field(default_factory=list)
 
     @property
     def running(self) -> bool:
@@ -64,8 +73,38 @@ class JobState:
             return False
         return True
 
+    def tick(self, seconds: float) -> None:
+        """Un brano è finito, ed è costato `seconds`.
+
+        Serve perché la media dall'inizio non è una misura del ritmo: conta
+        anche le ore in cui il job era congelato. Su una ricostruzione della
+        mappa dava 4,73 s a brano contro gli 0,85 reali — il Mac aveva
+        dormito, e l'attesa dichiarata era di 32 ore invece di 6.
+        """
+        if seconds > MAX_TRACK_SECONDS:
+            return                          # dormiva: non è tempo di lavoro
+        minute = int(time.time() // 60)
+        if self.recent and self.recent[-1][0] == minute:
+            self.recent[-1][1] += 1
+            self.recent[-1][2] += seconds
+        else:
+            self.recent.append([minute, 1, seconds])
+        # Gli ultimi trenta minuti IN CUI HA LAVORATO, non gli ultimi trenta
+        # dell'orologio: dopo una notte di sonno il ritmo di ieri sera è
+        # ancora la stima migliore che abbiamo.
+        del self.recent[:-RECENT_MINUTES]
+
     @property
     def seconds_each(self) -> float:
+        """Secondi per brano sul lavoro recente.
+
+        Si ripiega sulla media dall'inizio solo finché non c'è abbastanza
+        storia — o quando si legge lo stato di un job vecchio, scritto prima
+        che questo esistesse.
+        """
+        tracks = sum(r[1] for r in self.recent)
+        if tracks:
+            return sum(r[2] for r in self.recent) / tracks
         elapsed = (self.finished_at or self.updated_at) - self.started_at
         return elapsed / self.done if self.done else 0.0
 
@@ -131,7 +170,11 @@ def run_job(folder: Path, settings: TagSettings, workers: int = 1,
     state.total = len(queue)
     state.save(state_file)
 
+    last = time.time()
     for path, tags, error in analyze_many(queue, settings, workers=workers):
+        now = time.time()
+        state.tick(now - last)
+        last = now
         state.done += 1
         state.current = path.name
         if error is None:
