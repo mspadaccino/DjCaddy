@@ -202,21 +202,20 @@ genre name has already thrown away.
 - **box-select a group** and let **magic sort** order it: the cheapest path
   that visits every track once (an open travelling-salesman problem, solved
   nearest-neighbour then 2-opt), so each track melts into the next;
-- **grow a set one track at a time** in the graph builder, below;
+- **grow a set one track at a time** in the Chain Maker, below;
 - export the result as **M3U8** or **rekordbox XML**.
 
-Both the selection and the graph builder write to the same **playlist**,
-which is why it has a section of its own below them rather than living inside
-either.
+Both the selection and the Chain Maker write to the same **playlist**, which
+is why it has a section of its own below them rather than living inside
+either — and why the board that draws a set as cards lives down there too.
 
-#### The graph builder
+#### The Chain Maker
 
 Magic sort answers *put these in the best order*. This answers the other
 question — *what comes next?* — one track at a time, which is how a set is
 actually decided.
 
-**Two tables give the orders, the board shows the result.** On the left the
-chain as it stands; on the right the candidates that mix out of whichever
+**Two tables give the orders.** On the left the chain as it stands; on the right the candidates that mix out of whichever
 track you are standing on, ranked by the same transition cost. Tick one or
 several, add them, and they go on **one behind the other** — ticking three
 means "then these three", not three branches off the same track. Both tables
@@ -230,17 +229,24 @@ warm for rising and cool for falling. It is deliberately **not** in the
 ranking — a set climbs, holds and lets go, and sorting by direction would be
 choosing which of the three on the DJ's behalf.
 
-**The board is a picture, not a control.** Left to right the cards follow the
-playlist order; how high a card sits is a measure you pick with a radio —
-tempo, key or groove — so a set that climbs looks like a climb. Each scale is
-fixed rather than stretched over the chain: the wheel for keys, the library's
-deciles for groove, and for tempo the pitch fader's ±6% around where the
-chain sits. Stretching a chain over its own range turns one BPM of drift into
-half the board, and this cost proposes tracks at the same tempo — a chain of
-eight here often spans about a single BPM. With fixed scales two chains can
-be compared, and a flat row honestly means the measure does not move. Cards
-can be dragged off the rule and stay off it; picking a measure again puts
-everything back.
+#### The board
+
+**The board draws the playlist, not the chain**, and it sits in the playlist
+section for that reason: a set is assembled from several places — an M3U8
+opened, a lasso on the map, a chain built here — and the shape worth seeing
+is the shape of the whole thing.
+
+Left to right the cards follow the playlist order; how high a card sits is a
+measure you pick with a radio — tempo, key or groove — so a set that climbs
+looks like a climb. Each scale is fixed rather than stretched over the set:
+the wheel for keys, the library's deciles for groove, and for tempo the pitch
+fader's ±6% around where the set sits. Stretching a set over its own range
+turns one BPM of drift into half the board, and this cost proposes tracks at
+the same tempo — a chain of eight often spans about a single BPM. With fixed
+scales two sets can be compared, and a flat row honestly means the measure
+does not move. Cards can be dragged off the rule and stay off it; picking a
+measure again puts everything back, and the bin under a selected card takes
+that track out of the playlist.
 
 **Copies are one entry.** A track filed in four folders has the same tempo
 and key in all four, so it has the same cost from anywhere and would take
@@ -249,11 +255,11 @@ putting one down blocks the rest — a set should not take the same record
 twice. Which copy is a real question, so the roster names them by folder and
 lets you choose rather than picking for you.
 
-The builder has **its own filters**, not the map's: a clickable **Camelot
+The Chain Maker has **its own filters**, not the map's: a clickable **Camelot
 wheel** (two rings, major outside and minor inside, the way the players draw
 it, because harmonic mixing is a question about neighbours and a list of
 twenty-four codes hides exactly the adjacency that matters), plus genres, BPM
-and groove ranges. Tracks already on the board are never filtered away —
+and groove ranges. Tracks already in the chain are never filtered away —
 a filter is about what to propose next, not about breaking a chain someone
 has built.
 

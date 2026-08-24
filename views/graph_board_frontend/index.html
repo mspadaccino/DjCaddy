@@ -4,24 +4,52 @@
 <meta charset="utf-8" />
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
-  #wrap { position: relative; }
+  #wrap { position: relative; font-family: -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif; }
   svg { display: block; width: 100%; touch-action: none; user-select: none; }
   #wrap.panning svg { cursor: grabbing; }
-  .node { cursor: grab; }
-  .node.dragging { cursor: grabbing; }
-  .card-text {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    pointer-events: none;
-  }
+  .node { cursor: pointer; }
+  .board-text { pointer-events: none; }
   .trash { cursor: pointer; }
+
+  /* La scheda esce dal disegno e diventa un cartellino che compare sotto il
+     dito. Sulla lavagna resta la forma del set; i numeri arrivano quando si
+     guarda un brano, che è quando servono. */
+  #tip {
+    position: absolute; pointer-events: none; opacity: 0;
+    transition: opacity .12s ease; transform: translate(-50%, -100%);
+    min-width: 170px; max-width: 250px; padding: 10px 12px 11px;
+    border-radius: 12px; border: 1px solid var(--edge);
+    background: var(--card); color: var(--ink);
+    box-shadow: 0 10px 26px var(--shade);
+    font-size: 11px; line-height: 1.35; z-index: 3;
+  }
+  #tip.on { opacity: 1; }
+  #tip .head { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  #tip .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  #tip .pos { font-size: 10px; font-weight: 700; opacity: .5; }
+  #tip .title { font-size: 12px; font-weight: 700; margin-bottom: 2px;
+                word-break: break-word; }
+  #tip .genre { font-size: 10px; opacity: .6; margin-bottom: 8px; }
+  #tip .rows { display: flex; gap: 6px; }
+  #tip .cell { flex: 1; text-align: center; border-radius: 8px;
+               padding: 4px 2px 5px; background: var(--chip); }
+  #tip .cell .k { font-size: 8.5px; text-transform: uppercase;
+                  letter-spacing: .04em; opacity: .55; }
+  #tip .cell .v { font-size: 12px; font-weight: 700; }
+  #tip .cell .d { font-size: 9.5px; font-weight: 700; }
+
   #zoom {
-    position: absolute; left: 10px; bottom: 10px;
-    display: flex; flex-direction: column; gap: 4px;
+    position: absolute; right: 10px; top: 10px;
+    display: flex; gap: 5px; z-index: 2;
   }
   #zoom button {
     width: 26px; height: 26px; padding: 0; line-height: 1;
-    border-radius: 6px; cursor: pointer; font-size: 13px;
+    border-radius: 8px; cursor: pointer; font-size: 13px;
+    border: 1px solid var(--edge); background: var(--card); color: var(--ink);
+    transition: background .12s ease;
   }
+  #zoom button:hover { background: var(--edge); }
   /* A tutto schermo il riquadro non è più alto quanto la sua proporzione ma
      quanto lo schermo, e la lavagna ci si adagia dentro senza deformarsi. */
   #wrap:fullscreen { display: flex; align-items: center; justify-content: center; }
@@ -31,10 +59,11 @@
 <body>
 <div id="wrap">
   <svg id="board"></svg>
+  <div id="tip"></div>
   <div id="zoom">
     <button id="zin" title="Zoom in">+</button>
     <button id="zout" title="Zoom out">−</button>
-    <button id="zfit" title="Fit the board">⤢</button>
+    <button id="zfit" title="Fit the whole set">⤢</button>
     <button id="zfull" title="Full screen">⛶</button>
   </div>
 </div>
@@ -42,30 +71,36 @@
 (function () {
   "use strict";
 
-  var W = 1100, H = 520;
-  // Il nodo è una scheda, non un pallino: djoid mostra copertina, titolo e
-  // i numeri su cui si decide un mix, e senza quei numeri il grafo va
-  // riletto altrove per capirlo.
-  var CARD_W = 108, ART_H = 84, BODY_H = 70, CARD_H = ART_H + BODY_H;
-  var MIN_Z = 0.35, MAX_Z = 2.6;
+  var W = 1100, H = 420;
+  // Un brano è un punto sulla linea, non una scheda. Le schede dicevano
+  // tutto di ognuno e per questo non lasciavano vedere il set: dieci
+  // riquadri da centocinquanta pixel riempiono la lavagna, e la forma —
+  // che è ciò per cui la lavagna esiste — spariva dietro i dettagli. I
+  // dettagli ora stanno nel cartellino, che compare quando si guarda un
+  // brano; e trenta punti ci stanno dove dieci schede non ci stavano.
+  var R = 11, R_SEL = 15;
+  var LANE = 46;
+  var PAD_TOP = 46, PAD_BOTTOM = 62, GUTTER = 66;
+  var MIN_Z = 0.22, MAX_Z = 3.2;
 
   var svg = document.getElementById("board");
   var wrap = document.getElementById("wrap");
+  var tip = document.getElementById("tip");
   svg.setAttribute("viewBox", "0 0 " + W + " " + H);
 
-  // La mappina in basso a destra: dove sta ogni scheda su tutta la lavagna, e
+  // La mappina in basso a destra: dove sta ogni punto su tutta la lavagna, e
   // il rettangolo di quanto se ne sta guardando. Serve appena si zooma, che è
   // il momento in cui si perde il resto di vista.
-  var MAP_W = 170, MAP_H = 88;
+  var MAP_W = 170, MAP_H = 54;
   var MAP_X = W - MAP_W - 12, MAP_Y = H - MAP_H - 12;
 
-  var state = { nodes: [], links: [], selected: null, dark: false };
+  var state = { nodes: [], ticks: [], selected: null, dark: false };
   var view = { z: 1, tx: 0, ty: 0 };
-  var drag = null;    // trascinamento di un nodo
-  var pan = null;     // trascinamento dello sfondo
+  var pan = null;      // trascinamento dello sfondo
   var roaming = false; // trascinamento dentro la mappina
   var pending = null;  // un render arrivato a gesto in corso
-  var scene = null, edgeGroup = null, minimap = null, skin = null;
+  var fittedFor = null;
+  var scene = null, minimap = null, skin = null;
 
   // `isStreamlitMessage` non è decorazione: Streamlit scarta senza guardare
   // ogni messaggio che non ce l'ha. Senza, il riquadro resta alto zero e non
@@ -77,9 +112,9 @@
 
   // L'altezza da chiedere è quella che il disegno occupa DAVVERO, non quella
   // del viewBox. L'SVG è largo quanto la colonna e tiene la sua proporzione,
-  // quindi sotto i millecento pixel è più basso di 520 — chiederne 520 lascia
-  // una fascia vuota sotto la lavagna, che su una pagina stretta è la maggior
-  // parte del riquadro. Si misura dopo che il browser ha impaginato.
+  // quindi sotto i millecento pixel è più basso — chiederne 420 lascia una
+  // fascia vuota sotto la lavagna. Si misura dopo che il browser ha
+  // impaginato.
   function setHeight() {
     if (document.fullscreenElement) return;   // lì l'altezza è lo schermo
     var drawn = Math.round(svg.getBoundingClientRect().height);
@@ -105,21 +140,7 @@
     return pt.matrixTransform(ctm.inverse());
   }
 
-  // Il punto sotto il mouse in coordinate della scena, cioè al netto di
-  // zoom e spostamento: è lì che stanno i nodi.
-  function scenePoint(evt) {
-    var p = svgPoint(evt);
-    return { x: (p.x - view.tx) / view.z, y: (p.y - view.ty) / view.z };
-  }
-
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-  function nodeById(id) {
-    for (var i = 0; i < state.nodes.length; i++) {
-      if (state.nodes[i].id === id) return state.nodes[i];
-    }
-    return null;
-  }
 
   function el(tag, attrs) {
     var e = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -128,37 +149,55 @@
   }
 
   function text(str, attrs) {
-    var t = el("text", Object.assign({ class: "card-text" }, attrs));
+    var t = el("text", Object.assign({ class: "board-text" }, attrs));
     t.textContent = str == null ? "" : String(str);
     return t;
   }
 
   // -- geometria ---------------------------------------------------------
 
-  // Le posizioni salvate sono il CENTRO della scheda: la scheda si disegna
-  // attorno, e gli agganci stanno sui fianchi all'altezza in cui finisce la
-  // copertina, come in djoid.
-  function corner(n) {
-    return { x: n.x * W - CARD_W / 2, y: n.y * H - CARD_H / 2 };
+  // La lavagna è larga quanto il set lo richiede. Non si comprime la fila
+  // per farla stare nel riquadro: per guardare tutto c'è lo zoom, che parte
+  // già aperto sul set intero.
+  function boardWidth() {
+    return Math.max(W, GUTTER + state.nodes.length * LANE + GUTTER);
   }
 
-  function anchors(n) {
-    var c = corner(n);
-    return { left: { x: c.x, y: c.y + ART_H }, right: { x: c.x + CARD_W, y: c.y + ART_H } };
+  // Il posto di un brano: l'ordine decide la x, la misura la y. Nessuna
+  // eccezione — è questo che rende la figura leggibile come un grafico.
+  function spot(i) {
+    var n = state.nodes[i];
+    var h = (n.height === null || n.height === undefined) ? 0.5 : n.height;
+    return { x: GUTTER + (i + 0.5) * LANE,
+             y: PAD_TOP + (H - PAD_TOP - PAD_BOTTOM) * (1 - h) };
   }
 
-  // Curva orizzontale fra il fianco destro di chi sta a sinistra e il
-  // fianco sinistro dell'altro. I punti di controllo sono orizzontali, non
-  // perpendicolari: è quello che rende la linea "morbida" invece di
-  // gonfiarla in un arco quando i due nodi sono su altezze diverse.
-  function edgePath(a, b) {
-    var left = a, right = b;
-    if (corner(a).x > corner(b).x) { left = b; right = a; }
-    var s = anchors(left).right, e = anchors(right).left;
-    var bend = Math.max(30, Math.abs(e.x - s.x) * 0.45);
-    return "M " + s.x + " " + s.y +
-           " C " + (s.x + bend) + " " + s.y + ", " +
-                   (e.x - bend) + " " + e.y + ", " + e.x + " " + e.y;
+  // Un nastro solo che passa per tutti i punti, invece di un arco per
+  // coppia: la scaletta è una linea sola, e vederla intera è metà del motivo
+  // per cui si guarda la lavagna. Catmull-Rom convertita in Bézier — passa
+  // PER i punti, mentre una spline qualunque ci passerebbe accanto.
+  // La stessa curva chiusa in basso: è il riempimento che la fa leggere
+  // come un'onda invece che come una spezzata. Senza, la linea dice le
+  // stesse cose ma sembra un grafico di borsa.
+  function wave() {
+    var d = ribbon();
+    if (!d) return "";
+    var first = spot(0), last = spot(state.nodes.length - 1);
+    var floor = H - PAD_BOTTOM + 26;
+    return d + " L " + last.x + " " + floor + " L " + first.x + " " + floor + " Z";
+  }
+
+  function ribbon() {
+    if (state.nodes.length < 2) return "";
+    var p = state.nodes.map(function (_, i) { return spot(i); });
+    var d = "M " + p[0].x + " " + p[0].y;
+    for (var i = 0; i < p.length - 1; i++) {
+      var p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p[i + 1];
+      d += " C " + (p1.x + (p2.x - p0.x) / 6) + " " + (p1.y + (p2.y - p0.y) / 6) +
+           ", " + (p2.x - (p3.x - p1.x) / 6) + " " + (p2.y - (p3.y - p1.y) / 6) +
+           ", " + p2.x + " " + p2.y;
+    }
+    return d;
   }
 
   function applyView() {
@@ -171,25 +210,39 @@
 
   // Quale porzione della lavagna sta nel riquadro, in frazioni di lavagna.
   function seen() {
-    return { x0: -view.tx / (view.z * W), x1: (W - view.tx) / (view.z * W),
+    var bw = boardWidth();
+    return { x0: -view.tx / (view.z * bw), x1: (W - view.tx) / (view.z * bw),
              y0: -view.ty / (view.z * H), y1: (H - view.ty) / (view.z * H) };
   }
 
   function centreOn(nx, ny) {
-    view.tx = W / 2 - view.z * nx * W;
+    view.tx = W / 2 - view.z * nx * boardWidth();
     view.ty = H / 2 - view.z * ny * H;
+    applyView();
+  }
+
+  // Tutto il set nel riquadro. È la vista che ha senso all'apertura: la
+  // forma prima, i dettagli con lo zoom.
+  function fitAll() {
+    var bw = boardWidth();
+    view.z = clamp(W / bw, MIN_Z, 1);
+    view.tx = (W - view.z * bw) / 2;
+    view.ty = (H - view.z * H) / 2;
     applyView();
   }
 
   function drawMinimap() {
     if (!minimap || !skin) return;
     while (minimap.firstChild) minimap.removeChild(minimap.firstChild);
-    minimap.appendChild(el("rect", {
-      x: MAP_X, y: MAP_Y, width: MAP_W, height: MAP_H, rx: 6,
-      fill: skin.card, "fill-opacity": 0.94,
-      stroke: skin.ink, "stroke-opacity": 0.25 }));
-
+    // Serve solo quando non si vede già tutto.
     var box = seen();
+    if (box.x0 <= 0.001 && box.x1 >= 0.999) return;
+
+    minimap.appendChild(el("rect", {
+      x: MAP_X, y: MAP_Y, width: MAP_W, height: MAP_H, rx: 8,
+      fill: skin.card, "fill-opacity": 0.95,
+      stroke: skin.ink, "stroke-opacity": 0.18 }));
+
     var x0 = clamp(box.x0, 0, 1), x1 = clamp(box.x1, 0, 1);
     var y0 = clamp(box.y0, 0, 1), y1 = clamp(box.y1, 0, 1);
     minimap.appendChild(el("rect", {
@@ -197,127 +250,116 @@
       width: Math.max(3, (x1 - x0) * MAP_W),
       height: Math.max(3, (y1 - y0) * MAP_H),
       fill: skin.ink, "fill-opacity": 0.08,
-      stroke: skin.ink, "stroke-opacity": 0.5, rx: 2 }));
+      stroke: skin.ink, "stroke-opacity": 0.45, rx: 3 }));
 
-    state.nodes.forEach(function (n) {
-      minimap.appendChild(el("rect", {
-        x: MAP_X + n.x * MAP_W - 3, y: MAP_Y + n.y * MAP_H - 2.5,
-        width: 6, height: 5, rx: 1.5, fill: n.color,
-        "fill-opacity": n.id === state.selected ? 1 : 0.7 }));
+    var bw = boardWidth();
+    state.nodes.forEach(function (n, i) {
+      var s = spot(i);
+      minimap.appendChild(el("circle", {
+        cx: MAP_X + (s.x / bw) * MAP_W, cy: MAP_Y + (s.y / H) * MAP_H,
+        r: n.id === state.selected ? 2.6 : 1.8, fill: n.color,
+        "fill-opacity": n.id === state.selected ? 1 : 0.75 }));
     });
   }
+
+  // -- il cartellino -----------------------------------------------------
+
+  function cell(key, value, shift) {
+    var d = shift ? '<div class="d" style="color:' + wayInk(shift[1]) + '">'
+                    + escape_(shift[0]) + '</div>' : '<div class="d">&nbsp;</div>';
+    return '<div class="cell"><div class="k">' + key + '</div><div class="v">'
+           + escape_(value) + '</div>' + d + '</div>';
+  }
+
+  function escape_(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  function showTip(i, group) {
+    var n = state.nodes[i];
+    var shift = n.shift || {};
+    var cells = "";
+    if (n.bpm) cells += cell("bpm", n.bpm, shift.bpm);
+    if (n.camelot) cells += cell("key", n.camelot, shift.key);
+    if (n.dance) cells += cell("groove", n.dance, shift.dance);
+    tip.innerHTML =
+      '<div class="head"><span class="dot" style="background:' + escape_(n.color)
+      + '"></span><span class="pos">#' + escape_(n.n) + '</span></div>'
+      + '<div class="title">' + escape_(n.label) + '</div>'
+      + (n.genre ? '<div class="genre">' + escape_(n.genre) + '</div>' : "")
+      + (cells ? '<div class="rows">' + cells + '</div>' : "");
+
+    // Dal punto sullo schermo, non dalla scena: fra le due ci sono lo zoom,
+    // lo spostamento e quanto il browser ha rimpicciolito l'SVG per farlo
+    // stare nella colonna.
+    var box = group.getBoundingClientRect();
+    var host = wrap.getBoundingClientRect();
+    var x = box.left - host.left + box.width / 2;
+    var top = box.top - host.top;
+
+    // Il riquadro del componente taglia quello che ne esce, quindi il
+    // cartellino non può stare "sempre sopra": sul primo punto in alto — che
+    // è il più alto del set, cioè uno di quelli che si guardano — resterebbe
+    // mezzo fuori. Si mette sotto quando sopra non ci sta, e si tiene dentro
+    // i bordi laterali.
+    tip.classList.add("on");
+    var high = tip.offsetHeight, wide = tip.offsetWidth;
+    var below = top < high + 14;
+    tip.style.transform = below ? "translate(-50%, 0)" : "translate(-50%, -100%)";
+    tip.style.top = (below ? top + box.height + 10 : top - 10) + "px";
+    tip.style.left = clamp(x, wide / 2 + 6, host.width - wide / 2 - 6) + "px";
+  }
+
+  function hideTip() { tip.classList.remove("on"); }
 
   // -- disegno -----------------------------------------------------------
 
-  // Il nome arriva già accorciato, ma su una misura di caratteri, e la
-  // scheda ha una larghezza in pixel: quanto ci sta lo sa solo chi la
-  // disegna, o il titolo esce dal riquadro.
-  function fit(str, most) {
-    str = String(str == null ? "" : str);
-    return str.length <= most ? str : str.slice(0, most - 1) + "…";
+  // Che inchiostro regge su questo fondo. Le tinte dei generi arrivano da una
+  // tavolozza fatta per dei puntini, non per scriverci sopra: sceglierlo a
+  // occhio vorrebbe dire un numero illeggibile ogni tanto.
+  function readable(hex) {
+    var m = /^#([0-9a-f]{6})$/i.exec(String(hex || ""));
+    if (!m) return "#1b1f27";
+    var v = parseInt(m[1], 16);
+    var lum = (0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255)
+               + 0.114 * (v & 255)) / 255;
+    return lum > 0.62 ? "rgba(20,24,31,0.9)" : "rgba(255,255,255,0.95)";
   }
 
-  function chip(label, fill, ink) {
-    var g = el("g", {});
-    var w = 7 * String(label).length + 10;
-    g.appendChild(el("rect", { x: 0, y: 0, width: w, height: 14, rx: 4, fill: fill }));
-    g.appendChild(text(label, { x: w / 2, y: 10.5, "text-anchor": "middle",
-                                "font-size": 9, "font-weight": 600, fill: ink }));
-    g.dataset.width = w;
-    return g;
-  }
+  function drawNode(i, sel) {
+    var n = state.nodes[i];
+    var s = spot(i);
+    var g = el("g", { class: "node", "data-id": n.id,
+                      transform: "translate(" + s.x + "," + s.y + ")" });
+    var r = sel ? R_SEL : R;
 
-  function drawCard(n, sel, skin) {
-    var c = corner(n);
-    var g = el("g", { class: "node", "data-id": n.id });
-    // Il selezionato si stacca dagli altri ingrandendosi e alzandosi, non
-    // con un anello attorno: è così che si distingue a colpo d'occhio in
-    // una fila di schede tutte uguali.
-    var lift = sel ? "translate(" + (c.x + CARD_W / 2) + "," + (c.y + CARD_H / 2 - 8) + ") " +
-                     "scale(1.12) translate(" + (-CARD_W / 2) + "," + (-CARD_H / 2) + ")"
-                   : "translate(" + c.x + "," + c.y + ")";
-    g.setAttribute("transform", lift);
+    // Un alone del colore del brano sotto il punto: da lontano è quello che
+    // fa vedere dove il set cambia colore, cioè dove cambia musica.
+    g.appendChild(el("circle", { r: r + 7, fill: n.color, "fill-opacity": 0.16 }));
+    if (sel) {
+      g.appendChild(el("circle", { r: r + 4, fill: "none", stroke: skin.ink,
+                                   "stroke-opacity": 0.6, "stroke-width": 1.4 }));
+    }
+    g.appendChild(el("circle", { r: r, fill: n.color, stroke: skin.paper,
+                                 "stroke-width": 2, filter: "url(#resting)" }));
+    // Il numero d'ordine dentro il punto: davanti a una fila la prima
+    // domanda è "questo quando suona".
+    g.appendChild(text(n.n, { x: 0, y: sel ? 4.5 : 3.5, "text-anchor": "middle",
+                              "font-size": sel ? 12 : 10, "font-weight": 700,
+                              fill: readable(n.color) }));
 
     if (sel) {
-      g.appendChild(el("rect", { x: -3, y: -3, width: CARD_W + 6, height: CARD_H + 6,
-                                 rx: 9, fill: "none", stroke: skin.ink,
-                                 "stroke-opacity": 0.85, "stroke-width": 1.5 }));
-    }
-    g.appendChild(el("rect", { x: 0, y: 0, width: CARD_W, height: CARD_H, rx: 7,
-                               fill: skin.card }));
-    // Niente copertine nella libreria: al posto dell'artwork il blocco di
-    // colore del genere, che è la stessa codifica della mappa qui sopra.
-    g.appendChild(el("path", {
-      d: "M 7 0 H " + (CARD_W - 7) + " A 7 7 0 0 1 " + CARD_W + " 7 V " + ART_H +
-         " H 0 V 7 A 7 7 0 0 1 7 0 Z", fill: n.color }));
-
-    g.appendChild(text(fit(n.label, 15), { x: 8, y: ART_H + 15, "font-size": 10.5,
-                                           "font-weight": 700, fill: skin.ink }));
-
-    // Due righe che condividono le colonne: sopra i valori, sotto come si
-    // muovono rispetto alla scheda prima di questa nella scaletta. Le celle
-    // le posiziona un giro solo, o le due righe si disallineerebbero appena
-    // a un brano manca un dato.
-    var values = el("g", { transform: "translate(8," + (ART_H + 21) + ")" });
-    var shifts = el("g", { transform: "translate(8," + (ART_H + 46) + ")" });
-    var at = 0;
-
-    var shift = n.shift || {};
-
-    function column(cell, width, moved) {
-      cell.setAttribute("transform", "translate(" + at + ",0)");
-      values.appendChild(cell);
-      if (moved) {
-        shifts.appendChild(text(moved[0], {
-          x: at, y: 0, "font-size": 8.5, "font-weight": 600,
-          fill: wayInk(moved[1], skin) }));
-      }
-      at += width + 4;
-    }
-
-    if (n.bpm) {
-      var tempo = el("g", {});
-      tempo.appendChild(text(n.bpm, { x: 0, y: 10.5, "font-size": 9,
-                                      fill: skin.dim }));
-      column(tempo, 7 * String(n.bpm).length + 2, shift.bpm);
-    }
-    if (n.camelot) {
-      var k = chip(n.camelot, n.keyColor, "#1b1f27");
-      column(k, Number(k.dataset.width), shift.key);
-    }
-    if (n.dance) {
-      var d = chip(n.dance, driveFill(n.drive, skin), skin.ink);
-      column(d, Number(d.dataset.width), shift.dance);
-    }
-    g.appendChild(values);
-    g.appendChild(shifts);
-
-    if (n.genre) {
-      var genre = fit(n.genre, 19);
-      var gw = Math.min(CARD_W - 16, 4.6 * genre.length + 12);
-      var pill = el("g", { transform: "translate(8," + (ART_H + 52) + ")" });
-      pill.appendChild(el("rect", { x: 0, y: 0, width: gw, height: 12, rx: 6,
-                                    fill: skin.chip }));
-      pill.appendChild(text(genre, { x: gw / 2, y: 9, "text-anchor": "middle",
-                                     "font-size": 8, fill: skin.dim }));
-      g.appendChild(pill);
-    }
-
-    [anchors(n).left, anchors(n).right].forEach(function (a) {
-      var local = sel
-        ? { x: (a.x - c.x - CARD_W / 2) / 1.12 + CARD_W / 2,
-            y: (a.y - c.y - CARD_H / 2) / 1.12 + CARD_H / 2 }
-        : { x: a.x - c.x, y: a.y - c.y };
-      g.appendChild(el("circle", { cx: local.x, cy: local.y, r: 3,
-                                   fill: skin.paper, stroke: skin.ink,
-                                   "stroke-opacity": 0.6, "stroke-width": 1.2 }));
-    });
-
-    if (sel) {
+      // Il titolo del solo selezionato, sotto il punto: uno per volta si
+      // legge, tutti insieme sarebbero una siepe di testo sovrapposto.
+      g.appendChild(text(n.label, { x: 0, y: r + 20, "text-anchor": "middle",
+                                    "font-size": 10.5, "font-weight": 700,
+                                    fill: skin.ink }));
       var trash = el("g", { class: "trash",
-                            transform: "translate(" + (CARD_W / 2) + "," + (CARD_H + 16) + ")" });
-      trash.appendChild(el("circle", { r: 10, fill: skin.card, stroke: skin.ink,
-                                       "stroke-opacity": 0.35 }));
+                            transform: "translate(0," + (r + 40) + ")" });
+      trash.appendChild(el("circle", { r: 11, fill: skin.card, stroke: skin.ink,
+                                       "stroke-opacity": 0.3 }));
       trash.appendChild(el("path", {
         d: "M -4 -3 H 4 M -3 -3 V 4 H 3 V -3 M -1.5 -3 V -5 H 1.5 V -3",
         fill: "none", stroke: skin.danger, "stroke-width": 1.3,
@@ -329,11 +371,11 @@
       g.appendChild(trash);
     }
 
+    g.addEventListener("pointerenter", function () { showTip(i, g); });
+    g.addEventListener("pointerleave", hideTip);
     g.addEventListener("pointerdown", function (evt) {
       evt.stopPropagation();
-      drag = { id: n.id, moved: false, group: g };
-      g.setPointerCapture(evt.pointerId);
-      g.classList.add("dragging");
+      sendValue({ type: "click", id: n.id });
     });
     return g;
   }
@@ -341,71 +383,98 @@
   function skinOf() {
     return state.dark
       ? { ink: "#eef1f6", dim: "rgba(238,241,246,0.55)", paper: "#0e1117",
-          card: "#1b1f27", chip: "rgba(238,241,246,0.10)",
-          faint: "rgba(238,241,246,0.16)", danger: "#e0503b",
+          card: "#1b1f27", chip: "rgba(238,241,246,0.09)",
+          faint: "rgba(238,241,246,0.14)", danger: "#e0503b",
+          shadow: "#000000", shade: "rgba(0,0,0,0.55)", rest: 0.45,
+          swell: 0.20,
           // Caldo sale, freddo scende. Non verde e rosso: salire non è
           // giusto e scendere non è un errore — un set fa entrambe le cose.
-          rise: "#e0a260", fall: "#7fb4e0",
-          tone: [238, 241, 246], top: 0.26 }
+          rise: "#e0a260", fall: "#7fb4e0" }
       : { ink: "#1b1f27", dim: "rgba(27,31,39,0.55)", paper: "#ffffff",
-          card: "#f4f6f9", chip: "rgba(27,31,39,0.07)",
-          faint: "rgba(27,31,39,0.14)", danger: "#c0392b",
-          rise: "#a8600f", fall: "#25689e",
-          tone: [27, 31, 39], top: 0.34 };
+          card: "#ffffff", chip: "rgba(27,31,39,0.06)",
+          faint: "rgba(27,31,39,0.12)", danger: "#c0392b",
+          shadow: "#1b1f27", shade: "rgba(27,31,39,0.18)", rest: 0.2,
+          swell: 0.13,
+          rise: "#a8600f", fall: "#25689e" };
   }
 
-  // La danceability tinge il suo chip invece di stare in un grigio fisso:
-  // scorrendo la catena si vede dove il ritmo si irrigidisce senza leggere
-  // i decimali. Senza tinta propria, però — il colore lo dà l'inchiostro del
-  // tema, più o meno carico: due chip vicini con due tinte diverse
-  // litigherebbero con la ruota Camelot, che di tinte vive.
-  function driveFill(drive, skin) {
-    if (drive === null || drive === undefined) return skin.chip;
-    var alpha = 0.06 + (skin.top - 0.06) * drive;
-    return "rgba(" + skin.tone.join(",") + "," + alpha.toFixed(3) + ")";
-  }
-
-  function wayInk(way, skin) {
+  function wayInk(way) {
     return way > 0 ? skin.rise : (way < 0 ? skin.fall : skin.dim);
+  }
+
+  // Le tacche della misura, con la loro riga: senza, l'altezza è una forma
+  // senza unità e la didascalia sotto deve dire a parole ciò che il disegno
+  // può scrivere da sé.
+  function drawScale() {
+    var g = el("g", {});
+    var room = H - PAD_TOP - PAD_BOTTOM;
+    var wide = boardWidth();
+    state.ticks.forEach(function (t) {
+      var y = PAD_TOP + room * (1 - t.at);
+      g.appendChild(el("line", { x1: GUTTER - 26, y1: y, x2: wide, y2: y,
+                                 stroke: skin.ink, "stroke-opacity": 0.12,
+                                 "stroke-width": 1, "stroke-dasharray": "1 7",
+                                 "stroke-linecap": "round" }));
+      g.appendChild(text(t.label, { x: GUTTER - 32, y: y + 3.5,
+                                    "text-anchor": "end", "font-size": 9.5,
+                                    "font-weight": 600, fill: skin.ink,
+                                    "fill-opacity": 0.45 }));
+    });
+    return g;
   }
 
   function render() {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
+    hideTip();
     skin = skinOf();
     // A tutto schermo il riquadro deborda dalla lavagna: senza un fondo suo
     // resterebbe il bianco del browser attorno.
     wrap.style.background = skin.paper;
+    wrap.style.setProperty("--ink", skin.ink);
+    wrap.style.setProperty("--card", skin.card);
+    wrap.style.setProperty("--chip", skin.chip);
+    wrap.style.setProperty("--edge", skin.faint);
+    wrap.style.setProperty("--shade", skin.shade);
 
     var defs = el("defs", {});
-    var pattern = el("pattern", { id: "dots", width: 26, height: 26,
-                                  patternUnits: "userSpaceOnUse" });
-    pattern.appendChild(el("circle", { cx: 2, cy: 2, r: 1.1, fill: skin.faint }));
-    defs.appendChild(pattern);
+    var f = el("filter", { id: "resting", x: "-60%", y: "-60%",
+                           width: "220%", height: "220%" });
+    f.appendChild(el("feDropShadow", { dx: 0, dy: 1.5, stdDeviation: 2,
+                                       "flood-color": skin.shadow,
+                                       "flood-opacity": skin.rest }));
+    defs.appendChild(f);
+    var swell = el("linearGradient", { id: "swell", x1: 0, y1: 0, x2: 0, y2: 1 });
+    swell.appendChild(el("stop", { offset: "0%", "stop-color": skin.ink,
+                                   "stop-opacity": skin.swell }));
+    swell.appendChild(el("stop", { offset: "100%", "stop-color": skin.ink,
+                                   "stop-opacity": 0 }));
+    defs.appendChild(swell);
     svg.appendChild(defs);
-    svg.appendChild(el("rect", { x: 0, y: 0, width: W, height: H, fill: skin.paper }));
+    svg.appendChild(el("rect", { x: 0, y: 0, width: W, height: H,
+                                 fill: skin.paper }));
 
     scene = el("g", {});
-    // I puntini stanno DENTRO la scena e ne debordano: spostandola si trova
-    // ancora fondo, invece di scoprire il bianco fuori dal riquadro.
-    scene.appendChild(el("rect", { x: -2 * W, y: -2 * H, width: 5 * W, height: 5 * H,
-                                   fill: "url(#dots)" }));
+    scene.appendChild(drawScale());
 
-    edgeGroup = el("g", { stroke: skin.ink, "stroke-opacity": 0.35,
-                          "stroke-width": 1.6, fill: "none" });
-    state.links.forEach(function (link) {
-      var a = nodeById(link.a), b = nodeById(link.b);
-      if (!a || !b) return;
-      edgeGroup.appendChild(el("path", { d: edgePath(a, b), "data-a": link.a,
-                                         "data-b": link.b }));
-    });
-    scene.appendChild(edgeGroup);
+    // Il nastro passa DIETRO i punti: è il filo che li tiene insieme, non un
+    // tratto da leggere.
+    if (state.nodes.length > 1) {
+      scene.appendChild(el("path", { d: wave(), fill: "url(#swell)",
+                                     stroke: "none" }));
+      scene.appendChild(el("path", { d: ribbon(), fill: "none",
+                                     stroke: skin.ink, "stroke-opacity": 0.55,
+                                     "stroke-width": 2,
+                                     "stroke-linecap": "round",
+                                     "stroke-linejoin": "round" }));
+    }
 
     // Il selezionato per ultimo, così sta sopra ai vicini che sfiora.
-    state.nodes.forEach(function (n) {
-      if (n.id !== state.selected) scene.appendChild(drawCard(n, false, skin));
+    var chosen = -1;
+    state.nodes.forEach(function (n, i) {
+      if (n.id === state.selected) { chosen = i; return; }
+      scene.appendChild(drawNode(i, false));
     });
-    var sel = nodeById(state.selected);
-    if (sel) scene.appendChild(drawCard(sel, true, skin));
+    if (chosen >= 0) scene.appendChild(drawNode(chosen, true));
 
     svg.appendChild(scene);
 
@@ -413,26 +482,16 @@
     // quello che racconta.
     minimap = el("g", { id: "minimap" });
     svg.appendChild(minimap);
-    applyView();
-  }
 
-  // Durante il trascinamento si ridisegna solo quel che si muove: rifare
-  // l'intera scena a ogni pixel significa ricostruire dieci elementi per
-  // scheda, e sotto il dito si sente.
-  function redrawDragged() {
-    var n = nodeById(drag.id);
-    var c = corner(n);
-    var sel = n.id === state.selected;
-    drag.group.setAttribute("transform", sel
-      ? "translate(" + (c.x + CARD_W / 2) + "," + (c.y + CARD_H / 2 - 8) + ") " +
-        "scale(1.12) translate(" + (-CARD_W / 2) + "," + (-CARD_H / 2) + ")"
-      : "translate(" + c.x + "," + c.y + ")");
-    Array.prototype.forEach.call(edgeGroup.childNodes, function (path) {
-      var a = path.getAttribute("data-a"), b = path.getAttribute("data-b");
-      if (a === n.id || b === n.id) {
-        path.setAttribute("d", edgePath(nodeById(a), nodeById(b)));
-      }
-    });
+    // Si riapre sul set intero quando il set cambia lunghezza, non a ogni
+    // giro: chi ha zoomato su un passaggio non se lo vede portare via da un
+    // click su un punto.
+    if (fittedFor !== state.nodes.length) {
+      fittedFor = state.nodes.length;
+      fitAll();
+    } else {
+      applyView();
+    }
   }
 
   // -- mouse -------------------------------------------------------------
@@ -450,10 +509,10 @@
   }
 
   svg.addEventListener("pointerdown", function (evt) {
-    if (drag) return;
+    hideTip();
     // Premere sulla mappina porta lo sguardo lì invece di trascinare la
     // lavagna sotto: è una cartina, non una parte del foglio.
-    if (inMinimap(evt)) {
+    if (inMinimap(evt) && minimap && minimap.firstChild) {
       roaming = true;
       svg.setPointerCapture(evt.pointerId);
       roamTo(evt);
@@ -466,50 +525,24 @@
 
   svg.addEventListener("pointermove", function (evt) {
     if (roaming) { roamTo(evt); return; }
-    if (drag) {
-      var n = nodeById(drag.id);
-      if (!n) return;
-      var p = scenePoint(evt);
-      // Mezza scheda per lato: queste sono le coordinate del CENTRO, e
-      // fermarle al bordo del foglio ci lascia dentro solo metà scheda.
-      n.x = clamp(p.x / W, CARD_W / W / 2, 1 - CARD_W / W / 2);
-      n.y = clamp(p.y / H, CARD_H / H / 2, 1 - CARD_H / H / 2);
-      drag.moved = true;
-      redrawDragged();
-    } else if (pan) {
+    if (pan) {
       view.tx = pan.tx + (evt.clientX - pan.x);
       view.ty = pan.ty + (evt.clientY - pan.y);
       applyView();
     }
   });
 
-  function endDrag() {
+  function endPan() {
     wrap.classList.remove("panning");
     pan = null;
     roaming = false;
-    var spoke = false;
-    if (drag) {
-      var n = nodeById(drag.id);
-      drag.group.classList.remove("dragging");
-      if (n) {
-        // Premere e rilasciare senza spostare è una scelta, non uno
-        // spostamento da zero pixel: sono i due gesti dello stesso tasto.
-        if (drag.moved) sendValue({ type: "move", id: n.id, x: n.x, y: n.y });
-        else sendValue({ type: "click", id: n.id });
-        spoke = true;
-      }
-      drag = null;
-    }
-    // Se abbiamo appena parlato, Python risponderà con un render aggiornato:
-    // quello messo da parte è più vecchio del gesto e rimetterebbe la scheda
-    // dov'era. Dopo un gesto muto — spostare la vista — nessuno risponde, e
-    // allora quel render è l'unica notizia che abbiamo.
-    if (pending && !spoke) accept(pending);
-    pending = null;
+    // Spostare la vista non fa parlare nessuno, quindi un render messo da
+    // parte durante il gesto è ancora l'ultima notizia che abbiamo.
+    if (pending) { accept(pending); pending = null; }
   }
 
-  svg.addEventListener("pointerup", endDrag);
-  svg.addEventListener("pointercancel", endDrag);
+  svg.addEventListener("pointerup", endPan);
+  svg.addEventListener("pointercancel", endPan);
 
   function zoomAt(factor, cx, cy) {
     var next = clamp(view.z * factor, MIN_Z, MAX_Z);
@@ -524,6 +557,7 @@
 
   svg.addEventListener("wheel", function (evt) {
     evt.preventDefault();
+    hideTip();
     var p = svgPoint(evt);
     zoomAt(evt.deltaY < 0 ? 1.12 : 1 / 1.12, p.x, p.y);
   }, { passive: false });
@@ -534,14 +568,11 @@
   document.getElementById("zout").addEventListener("click", function () {
     zoomAt(1 / 1.25, W / 2, H / 2);
   });
-  document.getElementById("zfit").addEventListener("click", function () {
-    view = { z: 1, tx: 0, ty: 0 };
-    applyView();
-  });
+  document.getElementById("zfit").addEventListener("click", fitAll);
   document.getElementById("zfull").addEventListener("click", function () {
     // Streamlit concede `fullscreen` al riquadro, quindi si chiede a tutto
-    // schermo il contenitore e non il documento: lo sfondo e la mappina
-    // devono venire con la lavagna.
+    // schermo il contenitore e non il documento: lo sfondo, il cartellino e
+    // la mappina devono venire con la lavagna.
     if (document.fullscreenElement) document.exitFullscreen();
     else if (wrap.requestFullscreen) wrap.requestFullscreen();
   });
@@ -549,7 +580,7 @@
   function accept(data) {
     var args = data.args || {};
     state.nodes = args.nodes || [];
-    state.links = args.links || [];
+    state.ticks = args.ticks || [];
     state.selected = args.selected || null;
     state.dark = !!args.dark;
     render();
@@ -559,12 +590,10 @@
   window.addEventListener("message", function (event) {
     var data = event.data || {};
     if (data.type !== "streamlit:render") return;
-    // Col dito ancora giù non si ricostruisce niente. Streamlit rimanda le
-    // sue proprietà a ogni giro di pagina, e un giro qualsiasi — l'aggiunta
-    // di una scheda, un filtro — può capitare a metà di un trascinamento:
-    // rifare la scena butta via il gesto in corso e la scheda torna dov'era.
-    // Si mette da parte e si decide alla fine.
-    if (drag || pan || roaming) { pending = data; return; }
+    // Col dito ancora giù non si ricostruisce niente: Streamlit rimanda le
+    // sue proprietà a ogni giro di pagina, e un giro qualsiasi può capitare
+    // a metà di uno spostamento della vista.
+    if (pan || roaming) { pending = data; return; }
     accept(data);
   });
 

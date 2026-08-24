@@ -48,7 +48,7 @@ from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
 from views.components import fill_dock, pick_folder, play_table, tick_all
-from views.graph_board import TICKED, render_graph_builder
+from views.graph_board import TICKED, render_board, render_chain_maker
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
 # ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
@@ -719,7 +719,7 @@ def render_map(store: MapStore) -> None:
 
     st.divider()
 
-    # La sezione sta in un blocco a scomparsa suo, separata dalla lavagna:
+    # La sezione sta in un blocco a scomparsa suo, separata dal Chain Maker:
     # sono due modi diversi di costruire un set e mescolarli in una colonna
     # sola voleva dire non vedere mai per intero ne' l'uno ne' l'altro. Si
     # apre da se' quando c'e' qualcosa da farci — una selezione o una
@@ -825,8 +825,8 @@ def render_magic_playlist(frame: pd.DataFrame, cost: TransitionCost, pool,
 def render_playlist_section(store: MapStore) -> None:
     """La playlist, sotto le due sezioni che la riempiono.
 
-    Stava in fondo a Magic Playlist, ed era il posto sbagliato: anche la
-    lavagna ci scrive, e la lavagna sta più giù. Chi mandava una catena da
+    Stava in fondo a Magic Playlist, ed era il posto sbagliato: anche il
+    Chain Maker ci scrive, e sta più giù. Chi mandava una catena da
     laggiù non vedeva succedere niente — il risultato compariva sopra, in
     un'altra sezione, che poteva benissimo essere chiusa. Una cosa scritta da
     due posti si mostra dopo entrambi.
@@ -901,7 +901,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             # Le tre parti del costo, non tre scarti: dicono QUANTO due brani
             # sono lontani su ciascun asse, da 0 a 1, non da che parte. Il
             # nome "Δ" prometteva un segno che qui non c'è — e da quando la
-            # lavagna mostra scarti veri, prometterlo confondeva le due cose.
+            # Chain Maker mostra scarti veri, prometterlo confondeva le due cose.
             "sound": round(cost.parts(seed, i)["map"], 3),
             "bpm cost": round(cost.parts(seed, i)["bpm"], 2),
             "key cost": round(cost.parts(seed, i)["key"], 2),
@@ -1070,6 +1070,18 @@ def render_playlist_loader(frame: pd.DataFrame, at_path: dict[str, int],
         st.rerun()
 
 
+def _drop_from_playlist(frame: pd.DataFrame, playlist: list[int],
+                        doomed: int) -> None:
+    """Toglie un brano dalla playlist e ridisegna la pagina.
+
+    Il giro intero e non il solo frammento: la tabella qui sopra e la linea
+    sulla mappa mostrano la stessa playlist, e ridisegnare la sola lavagna le
+    lascerebbe indietro di un brano.
+    """
+    remember_playlist(frame, [i for i in playlist if i != doomed])
+    st.rerun()
+
+
 def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
                     playlist: list[int], at_path: dict[str, int]) -> None:
     """La playlist come sta, come portarsela via e come riprenderne una.
@@ -1119,6 +1131,12 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     worst = max((c for c in costs if c is not None), default=0)
     st.caption(f"Roughest transition: **{worst:.3f}**. Magic sort is what "
                "brings that number down.")
+
+    # La lavagna guarda la playlist intera, da dovunque i brani siano
+    # arrivati: è qui che si vede la forma del set, e non nella sezione che
+    # ne scrive un pezzo.
+    render_board(frame, at_path, playlist,
+                 drop=lambda i: _drop_from_playlist(frame, playlist, i))
 
     p1, p2, p3, p4 = st.columns(4)
     if p1.button("✨ Magic sort", width="stretch", disabled=len(playlist) < 3):
@@ -1176,9 +1194,9 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
 
 
 def graph_seeds(at_path: dict[str, int]) -> list[int]:
-    """I brani selezionati sulla mappa, come candidati ad aprire la lavagna.
+    """I brani selezionati sulla mappa, come candidati ad aprire la catena.
 
-    La lavagna sta in fondo alla pagina e chiusa: senza portarle la selezione
+    Il Chain Maker sta in fondo alla pagina e chiuso: senza portargli la selezione
     qui sopra, sceglierne il primo brano vuol dire cercarlo per nome davanti a
     una figura che lo sta già mostrando.
 
@@ -1197,18 +1215,18 @@ def graph_seeds(at_path: dict[str, int]) -> list[int]:
 
 
 @st.fragment
-def render_graph_section(store: MapStore) -> None:
-    """La lavagna: costruire un percorso un brano alla volta.
+def render_chain_section(store: MapStore) -> None:
+    """Il Chain Maker: costruire un percorso un brano alla volta.
 
-    È un frammento perché ogni gesto sulla lavagna — spostare una scheda,
-    prenderne una dalla rosa — fa ripartire lo script, e ripartire per intero
-    vuol dire ridisegnare la mappa da ventimila punti per aver mosso una
-    scheda di dieci pixel. Da frammento si ridisegna solo questa sezione, e il
-    gesto smette di aspettare la mappa.
+    È un frammento perché ogni gesto — spuntare un candidato, riordinare una
+    riga — fa ripartire lo script, e ripartire per intero vuol dire
+    ridisegnare la mappa da ottantamila punti per aver spuntato una casella.
+    Da frammento si ridisegna solo questa sezione, e il gesto smette di
+    aspettare la mappa.
 
     Lavora sui brani piazzati per intero, non su quelli filtrati dalla
-    sezione sopra: la lavagna è un secondo modo di scegliere, non un'
-    estensione del primo, e i suoi filtri sono suoi.
+    sezione sopra: è un secondo modo di scegliere, non un'estensione del
+    primo, e i suoi filtri sono suoi.
     """
     if not len(store) or not store.placed:
         return
@@ -1220,11 +1238,11 @@ def render_graph_section(store: MapStore) -> None:
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
     pool = frame["index"].to_numpy()
     chosen = [i for i in graph_seeds(at_path) if i < placed]
-    render_graph_builder(
+    render_chain_maker(
         frame, cost, pool, at_path, chosen,
         set_playlist=lambda idxs: remember_playlist(frame, idxs),
         add_to_playlist=lambda idxs: append_playlist(frame, idxs))
-    # Il lettore in fondo se lo ridisegna la lavagna, non app.py: un ▶ nelle
+    # Il lettore in fondo se lo ridisegna questa sezione, non app.py: un ▶ nelle
     # sue tabelle fa ripartire solo questo frammento, e il dock disegnato
     # fuori resterebbe sul brano di prima. Va chiamata anche nel giro intero,
     # o Streamlit non riserva il posto per le ripartenze.
@@ -1420,19 +1438,19 @@ with st.container():
 
 st.divider()
 
-# La lavagna sta chiusa e in fondo: se c'è una selezione sulla mappa e nessuna
-# lavagna ancora, si apre da sé e lo dice nel titolo. Altrimenti selezionare un
-# punto qui sopra non produce niente di visibile là sotto, e il collegamento
-# fra le due sezioni resta un segreto.
-_running_board = bool(st.session_state.get("map::graph"))
-_waiting = [] if _running_board else graph_seeds(
+# Il Chain Maker sta chiuso e in fondo: se c'è una selezione sulla mappa e
+# nessuna catena ancora, si apre da sé e lo dice nel titolo. Altrimenti
+# selezionare un punto qui sopra non produce niente di visibile là sotto, e il
+# collegamento fra le due sezioni resta un segreto.
+_running_chain = bool(st.session_state.get("map::graph"))
+_waiting = [] if _running_chain else graph_seeds(
     {row["path"]: i for i, row in enumerate(store.rows[:store.placed])})
 with st.expander(
-        "🕸️ Graph builder — grow a set one track at a time"
+        "🔗 Chain Maker — grow a set one track at a time"
         + (f" · start from the {len(_waiting)} track(s) selected above"
            if _waiting else ""),
-        expanded=_running_board or bool(_waiting)):
-    render_graph_section(store)
+        expanded=_running_chain or bool(_waiting)):
+    render_chain_section(store)
 
 # Dopo entrambe le sezioni che la riempiono, e fuori da tutte e due: la
 # playlist è il risultato, e il risultato non sta dentro uno dei due modi di

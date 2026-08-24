@@ -1,19 +1,24 @@
-"""La lavagna: un set che cresce un brano alla volta.
+"""Il Chain Maker e la lavagna: le due metà di come si mette insieme un set.
 
 `analysis.graph_playlist.GraphPlaylist` tiene la logica — brani, posizioni,
-collegamenti. Questo modulo è lo strato sopra.
+collegamenti. Questo modulo è lo strato sopra, e fa due cose che stanno in
+due posti diversi della pagina.
 
-**Si comanda dalle tabelle e si guarda la lavagna.** A sinistra la catena
-com'è finora, a destra i candidati che escono dal brano su cui si sta: si
-spunta, si aggiunge, e il disegno sotto si aggiorna. Prima la rosa era una
-griglia di schede da cliccare, e non funzionava — la stessa informazione che
-in colonna si legge e si ordina, lì stava in riquadri da cento pixel, e ogni
-scelta passava per un componente disegnato a mano.
+**Si comanda dalle tabelle.** A sinistra la catena com'è finora, a destra i
+candidati che escono dal brano su cui si sta: si spunta, si aggiunge, e la
+catena cresce. Prima la rosa era una griglia di schede da cliccare, e non
+funzionava — la stessa informazione che in colonna si legge e si ordina, lì
+stava in riquadri da cento pixel, e ogni scelta passava per un componente
+disegnato a mano.
 
-Alla lavagna resta il mestiere che sa fare, che è mostrare la forma: la
-catena, i colori dei generi, gli scarti fra un brano e il precedente. Ci si
-trascinano le schede per disporle e c'è il cestino per toglierne una, ma
-niente di ciò che vi si costruisce nasce lì.
+**E si guarda la lavagna**, che sta in fondo, nella sezione della playlist, e
+disegna la PLAYLIST: la forma di un set è la forma del set intero — quello
+aperto da un M3U8, quello ordinato dal magic sort e la catena che ci si
+appende — non del solo pezzo che si sta scrivendo in questo momento. Il
+mestiere che sa fare è mostrare quella forma: l'ordine, i colori dei generi,
+gli scarti fra un brano e il precedente. Ci si trascinano le schede per
+disporle e c'è il cestino per toglierne una, ma niente di ciò che ci sta
+dentro nasce lì.
 """
 
 from __future__ import annotations
@@ -55,10 +60,13 @@ GRAPH_STATE = "map::graph"
 GRAPH_SOURCE = "map::graph_source"
 GRAPH_KEYS = "map::graph_keys"
 GRAPH_KEYS_EVENT = "map::graph_keys_event"
+
+# --- la lavagna, che ora disegna la playlist e non più la sola catena ------
 # L'ultimo gesto già eseguito. Vedi `sendValue` nel frontend: il componente
 # ridà lo stesso valore a ogni rerun, e senza ricordarsene un click sulla
 # lavagna si rieseguirebbe all'infinito.
-GRAPH_EVENT = "map::graph_event"
+BOARD_EVENT = "map::board_event"
+BOARD_PICKED = "map::board_picked"
 
 # Sopra questa quantità di brani il menu per nome non si apre più in fretta:
 # si cerca prima, si sceglie dopo.
@@ -138,10 +146,6 @@ def _some(row, column: str):
 # dall'ordine della scaletta, che non è negoziabile; l'altezza invece è libera
 # e può portare la misura che in quel momento racconta il set.
 HEIGHT_FIELDS = {"BPM": "bpm", "key": "camelot", "groove": "danceability"}
-GRAPH_AXIS = "map::graph_axis"
-# I brani che qualcuno ha spostato a mano, e che la regola non tocca più
-# finché non si sceglie una misura da capo.
-GRAPH_MOVED = "map::graph_moved"
 
 
 def _measured(frame: pd.DataFrame, at_path: dict[str, int],
@@ -200,32 +204,6 @@ def _heights(frame: pd.DataFrame, at_path: dict[str, int],
         return {path: 0.5 for path in values}
     return {path: min(1.0, max(0.0, (value - low) / (high - low)))
             for path, value in values.items()}
-
-
-def _place_on_axis(graph: GraphPlaylist, frame: pd.DataFrame,
-                   at_path: dict[str, int], keep_manual: bool = True) -> None:
-    """Rimette i brani dove la regola in vigore li vuole.
-
-    Tutti, non solo gli ultimi arrivati. Spaziare la catena vuol dire dividere
-    la larghezza per quanti sono, quindi ogni brano in più sposta anche gli
-    altri: dare il posto nuovo soltanto a chi arriva significa metterlo dove
-    c'è già qualcuno — con cinque brani il quinto nasceva esattamente sopra il
-    quarto.
-
-    Chi è stato spostato a mano non si tocca, ed è l'unica eccezione: il posto
-    scelto da qualcuno vale più di quello calcolato. `keep_manual=False`
-    toglie anche quella, ed è cosa fa il click su una misura.
-    """
-    axis = st.session_state.get(GRAPH_AXIS)
-    if axis not in HEIGHT_FIELDS:
-        return
-    spread = GraphPlaylist(places=dict(graph.places), links=list(graph.links),
-                           order=list(graph.order))
-    spread.arrange(_heights(frame, at_path, graph.walk(), axis))
-    by_hand = set(st.session_state.get(GRAPH_MOVED) or []) if keep_manual else set()
-    for track in graph.walk():
-        if track not in by_hand and track in spread.places:
-            graph.places[track] = spread.places[track]
 
 
 def _reordered(walk: list[str], moves: dict[int, float]) -> list[str]:
@@ -450,152 +428,61 @@ def _label(name: str) -> str:
     return name if len(name) <= 22 else name[:21] + "…"
 
 
-def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
-                         at_path: dict[str, int], chosen: list[int],
-                         set_playlist, add_to_playlist) -> None:
-    """La sezione lavagna: parte da due brani, poi cresce un passo alla volta.
+def render_chain_maker(frame: pd.DataFrame, cost: TransitionCost, pool,
+                       at_path: dict[str, int], chosen: list[int],
+                       set_playlist, add_to_playlist) -> None:
+    """Una catena che cresce un brano alla volta, in due tabelle.
 
     `set_playlist` prende una lista di indici (nello stesso `frame`) e la
     rende la playlist della pagina — lo stesso canale che usa il resto della
     mappa, così "manda alla playlist" qui sotto finisce nello stesso posto
     del disegno a lazo qui sopra. `add_to_playlist` la aggiunge in coda
-    invece di sostituirla: la lavagna è un modo di far crescere un set, e un
-    set cominciato altrove — caricato da un M3U8, o messo insieme qui sopra —
-    non deve sparire perché gli si manda una catena.
+    invece di sostituirla: questa è un modo di far crescere un set, e un set
+    cominciato altrove — caricato da un M3U8, o messo insieme qui sopra — non
+    deve sparire perché gli si manda una catena.
+
+    La lavagna non sta più qui: disegna la playlist, in fondo alla pagina.
+    Guardare la forma di ciò che si sta costruendo ha senso su TUTTO il set —
+    quello caricato da un file, quello ordinato dal magic sort, e la catena
+    che ci si appende — non sul solo pezzo che si sta scrivendo adesso.
     """
     st.caption(
-        "Put one track on the board and grow the set a step at a time: pick "
-        "a card, look at what mixes out of it, take one. Cards can be "
-        "dragged anywhere; the line between two of them records which "
-        "suggestion came from where, and is not decoration.")
+        "Grow a set one track at a time: on the left the chain as it stands, "
+        "on the right what mixes out of the track you are standing on. Tick, "
+        "add, repeat — and send it to the playlist, where the board shows the "
+        "shape the whole set is taking.")
 
     graph = _graph()
-    dark = _dark()
     pool = _render_filters(frame, pool)
 
     if not len(graph):
         _render_start(frame, pool, chosen)
         return
 
-    # Il gesto della lavagna si applica PRIMA di disegnare qualsiasi cosa.
-    # Il valore del componente sta in sessione sotto la sua chiave, quindi si
-    # può leggere in cima al giro: chiederlo al componente vorrebbe dire
-    # averlo già disegnato, e disegnarlo con le posizioni di prima del gesto
-    # significa rimandargli indietro la scheda dove stava — che è come si
-    # perde uno spostamento appena fatto.
-    event = st.session_state.get("graph_board_widget")
-    if event and event.get("at") != st.session_state.get(GRAPH_EVENT):
-        st.session_state[GRAPH_EVENT] = event.get("at")
-        moved = event.get("id")
-        if event.get("type") == "move" and moved in graph:
-            graph.move(moved, event["x"], event["y"])
-            # Da qui in poi quel brano se lo tiene, il suo posto.
-            st.session_state[GRAPH_MOVED] = list(
-                {*(st.session_state.get(GRAPH_MOVED) or []), moved})
-            _save(graph)
-        elif event.get("type") == "click" and moved in graph:
-            st.session_state[GRAPH_SOURCE] = moved
-        elif event.get("type") == "remove" and moved in graph:
-            graph.remove(moved)
-            _save(graph)
-            if st.session_state.get(GRAPH_SOURCE) == moved:
-                st.session_state[GRAPH_SOURCE] = (graph.tracks[-1]
-                                                  if graph.tracks else None)
-
-    color_of = _color_map(frame)
-    other = OTHER_COLOR["dark" if dark else "light"]
-    selected = st.session_state.get(GRAPH_SOURCE)
-
-    # Ogni scheda si confronta con quella che la precede NELLA SCALETTA, non
-    # con quella da cui è stata scelta: è l'ordine in cui il set uscirà, e
+    # Ogni brano si confronta con quello che lo precede NELLA SCALETTA, non
+    # con quello da cui è stato scelto: è l'ordine in cui il set uscirà, e
     # quindi l'unico rispetto a cui "sale" o "scende" vuol dire qualcosa.
     walk = graph.walk()
     before = {track: walk[n - 1] for n, track in enumerate(walk) if n}
-    span = _drive_span(frame)
 
     _render_tables(frame, cost, pool, at_path, graph, walk, before)
 
-    axis = st.radio("Height means", list(HEIGHT_FIELDS), horizontal=True,
-                    key="graph_axis_pick",
-                    help="Left to right is always the playlist order. This "
-                         "picks what the vertical axis says.")
-    # Quanto si muove davvero la misura, e su che scala la si sta leggendo.
-    # Senza, una riga piatta sembra un guasto invece di una notizia — ed è
-    # una notizia: su questa libreria una catena copre spesso un BPM scarso.
-    values = _measured(frame, at_path, walk, axis)
-    if values:
-        low, high = _span_of(axis, values, frame)
-        digits = 0 if axis == "key" else (1 if axis == "BPM" else 2)
-        st.caption(f"{axis} runs {min(values.values()):.{digits}f} to "
-                   f"{max(values.values()):.{digits}f} on this chain, drawn "
-                   f"against {low:.{digits}f}–{high:.{digits}f}. A flat row "
-                   "means the measure does not move.")
-    # Si ridispone quando si sceglie una misura diversa, non a ogni giro:
-    # altrimenti uno spostamento a mano durerebbe fino al primo click su
-    # qualunque cosa, che è come non poterlo fare.
-    if axis != st.session_state.get(GRAPH_AXIS):
-        st.session_state[GRAPH_AXIS] = axis
-        # Scegliere una misura è dire "rimetti tutto in riga", spostamenti a
-        # mano compresi: è l'unico modo per disfarli, ed è dichiarato.
-        st.session_state[GRAPH_MOVED] = []
-        _place_on_axis(graph, frame, at_path, keep_manual=False)
-        _save(graph)
-
-    nodes = []
-    for path in graph.tracks:
-        idx = at_path.get(path)
-        row = frame.iloc[idx] if idx is not None else None
-        previous = at_path.get(before.get(path))
-        came_from = frame.iloc[previous] if previous is not None else None
-        name = row["name"] if row is not None else Path(path).stem
-        genre = row["top_genre"] if row is not None else None
-        camelot = _some(row, "camelot")
-        bpm, dance = _some(row, "bpm"), _some(row, "danceability")
-        x, y = graph.places[path]
-        nodes.append({
-            "id": path, "x": x, "y": y, "label": _label(name),
-            "color": color_of.get(genre, other),
-            "bpm": f"{bpm:.0f}" if bpm is not None else "",
-            "camelot": camelot or "",
-            "keyColor": _camelot_color(camelot),
-            "dance": f"{dance:.2f}" if dance is not None else "",
-            "drive": _drive(dance, span),
-            "genre": _label(genre) if genre else "",
-            "shift": _card_shifts(came_from, row) if row is not None else {},
-        })
-    links = [{"a": a, "b": b} for a, b in graph.links]
-
-    _graph_board(nodes=nodes, links=links, selected=selected,
-                 dark=dark, key="graph_board_widget", default=None)
-
-    st.caption("Left to right the cards follow the playlist; how high they "
-               "sit is the measure below. **Drag** one to break the rule "
-               "where it suits you — picking a measure again puts them all "
-               "back on it. The **bin** under the selected card removes it, "
-               "**scroll** zooms, and **⛶** goes full screen.")
-
-    c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
-    if c1.button("↺ Restart the board", width="stretch"):
+    c1, c2, c3 = st.columns(3)
+    if c1.button("↺ Start over", width="stretch",
+                 help="Empties the chain. The playlist is not touched."):
         st.session_state[GRAPH_STATE] = None
         st.session_state[GRAPH_SOURCE] = None
-        st.session_state[GRAPH_MOVED] = []
-        st.rerun(scope="fragment")
-    if c2.button("⇥ Straighten", width="stretch",
-                 help="Line the cards up in the order the playlist will read."):
-        graph.straighten()
-        _save(graph)
         st.rerun(scope="fragment")
     # I due escono dalla sezione: la playlist si disegna fuori, e un rerun
     # del solo frammento la lascerebbe indietro di una mossa.
-    if c3.button("➡️ Append to playlist", type="primary", width="stretch",
+    if c2.button("➡️ Append to playlist", type="primary", width="stretch",
                  help="The chain goes after what the playlist already holds."):
-        add_to_playlist([at_path[p] for p in graph.walk() if p in at_path])
+        add_to_playlist([at_path[p] for p in walk if p in at_path])
         st.rerun()
-    if c4.button("↺ Send as a new playlist", width="stretch",
+    if c3.button("↺ Send as a new playlist", width="stretch",
                  help="Starts over: what is in the playlist now is dropped."):
-        set_playlist([at_path[p] for p in graph.walk() if p in at_path])
+        set_playlist([at_path[p] for p in walk if p in at_path])
         st.rerun()
-    st.caption(f"{len(graph)} track(s) on the board.")
 
     _render_by_hand(frame, pool, at_path, graph)
 
@@ -625,6 +512,111 @@ def _spelled(row, source) -> dict:
         # guardando.
         "folder": row["folder"],
     }
+
+
+def _ticks(axis: str, values: dict[str, float],
+           frame: pd.DataFrame) -> list[dict]:
+    """Le tacche della scala verticale, dal basso in alto.
+
+    Senza, l'altezza è una forma senza unità: si vede che sale, non da dove a
+    dove. Tre bastano — fondo, mezzo, cima — e il numero è quello vero della
+    misura, non una percentuale.
+    """
+    if not values:
+        return []
+    low, high = _span_of(axis, values, frame)
+    if high <= low:
+        return []
+    digits = 0 if axis in ("key", "BPM") else 2
+    return [{"at": at, "label": f"{low + (high - low) * at:.{digits}f}"}
+            for at in (0.0, 0.5, 1.0)]
+
+
+@st.fragment
+def render_board(frame: pd.DataFrame, at_path: dict[str, int],
+                 playlist: list[int], drop) -> None:
+    """La playlist come lavagna: una scheda per brano, in fila come suonerà.
+
+    Prima disegnava la sola catena del Chain Maker, ed era troppo poco: un
+    set si mette insieme da più parti — un M3U8 aperto, un lazo sulla mappa,
+    una catena costruita a mano — e la forma che conta è quella del set
+    intero. Qui la lavagna guarda la playlist, quindi mostra tutto ciò che ci
+    è finito dentro, da qualunque parte sia arrivato.
+
+    **Le schede non si spostano più a mano.** Si guadagna la cosa per cui una
+    lavagna esiste: se il posto di ogni scheda lo decide solo la regola —
+    ordine in orizzontale, misura in verticale — allora la figura si legge
+    come un grafico, con la sua scala scritta a lato, e due set si
+    confrontano. Con le schede spostabili quella lettura non si poteva
+    promettere: bastava un trascinamento perché l'altezza smettesse di voler
+    dire quello che diceva la didascalia.
+
+    È un frammento perché un click su una scheda fa ripartire lo script, e
+    ripartire per intero vuol dire ridisegnare la mappa da ottantamila punti.
+    """
+    paths = [frame.at[i, "path"] for i in playlist]
+    if not paths:
+        return
+
+    # Il gesto si applica PRIMA di disegnare qualsiasi cosa. Il valore del
+    # componente sta in sessione sotto la sua chiave, quindi si può leggere
+    # in cima al giro, invece di scoprirlo dopo aver già disegnato la scena
+    # com'era prima.
+    event = st.session_state.get("playlist_board_widget")
+    if event and event.get("at") != st.session_state.get(BOARD_EVENT):
+        st.session_state[BOARD_EVENT] = event.get("at")
+        who, kind = event.get("id"), event.get("type")
+        if kind == "click" and who in paths:
+            st.session_state[BOARD_PICKED] = who
+        elif kind == "remove" and who in at_path:
+            # Togliere una scheda toglie il brano dalla PLAYLIST: la lavagna
+            # non ha più una copia sua da cui cancellarlo.
+            drop(at_path[who])
+            return
+
+    axis = st.radio("Height means", list(HEIGHT_FIELDS), horizontal=True,
+                    key="board_axis_pick",
+                    help="Left to right is always the playlist order. This "
+                         "picks what the vertical axis says.")
+
+    values = _measured(frame, at_path, paths, axis)
+    heights = _heights(frame, at_path, paths, axis)
+    color_of = _color_map(frame)
+    other = OTHER_COLOR["dark" if _dark() else "light"]
+    span = _drive_span(frame)
+    before = {path: paths[n - 1] for n, path in enumerate(paths) if n}
+
+    nodes = []
+    for position, path in enumerate(paths, start=1):
+        row = frame.iloc[at_path[path]] if path in at_path else None
+        previous = at_path.get(before.get(path))
+        came_from = frame.iloc[previous] if previous is not None else None
+        name = row["name"] if row is not None else Path(path).stem
+        genre = row["top_genre"] if row is not None else None
+        camelot = _some(row, "camelot")
+        bpm, dance = _some(row, "bpm"), _some(row, "danceability")
+        nodes.append({
+            "id": path, "n": position, "height": heights.get(path, 0.5),
+            "label": _label(name),
+            "color": color_of.get(genre, other),
+            "bpm": f"{bpm:.0f}" if bpm is not None else "",
+            "camelot": camelot or "",
+            "keyColor": _camelot_color(camelot),
+            "dance": f"{dance:.2f}" if dance is not None else "",
+            "drive": _drive(dance, span),
+            "genre": _label(genre) if genre else "",
+            "shift": _card_shifts(came_from, row) if row is not None else {},
+        })
+
+    _graph_board(nodes=nodes, ticks=_ticks(axis, values, frame),
+                 selected=st.session_state.get(BOARD_PICKED),
+                 dark=_dark(), key="playlist_board_widget", default=None)
+
+    st.caption("Left to right the set plays; how high a track sits is the "
+               "measure above, on the scale at the left. **Hover** a point "
+               "for its numbers, **click** it to pick it — the **bin** "
+               "underneath takes it out of the playlist. **Scroll** zooms, "
+               "dragging the background moves, and **⛶** goes full screen.")
 
 
 def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
@@ -677,7 +669,6 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
             # scritta a mano È una fila, e un grafo ramificato non
             # sopravviverebbe comunque a un ordine che lo appiattisce.
             graph = GraphPlaylist().start(*order)
-            _place_on_axis(graph, frame, at_path, keep_manual=False)
             _save(graph)
             st.session_state[GRAPH_SOURCE] = order[-1]
             st.rerun(scope="fragment")
@@ -766,10 +757,6 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
         for i in wanted:
             graph.add(previous, frame.at[i, "path"])
             previous = frame.at[i, "path"]
-        # Rispaziare tutta la catena, non solo gli arrivati: un brano in più
-        # stringe i posti di tutti, e chi non si sposta resta dove il posto
-        # non è più suo.
-        _place_on_axis(graph, frame, at_path)
         _save(graph)
         st.session_state[GRAPH_SOURCE] = previous
         st.rerun(scope="fragment")
