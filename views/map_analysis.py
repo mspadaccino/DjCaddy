@@ -204,6 +204,41 @@ def remember_playlist(frame: pd.DataFrame, indices) -> None:
     st.session_state[PLAYLIST] = [frame.at[i, "path"] for i in indices]
 
 
+def append_playlist(frame: pd.DataFrame, indices) -> None:
+    """In coda a quello che c'è già, saltando chi c'è già.
+
+    Si lavora sui percorsi e non sulle posizioni perché in sessione ci stanno
+    i percorsi: tradurre avanti e indietro per aggiungere due brani vorrebbe
+    dire che ogni chiamante deve prima ricostruirsi la playlist com'è adesso,
+    ed è esattamente il passaggio che qualcuno dimentica — la playlist
+    caricata da file spariva così, sostituita da quello che le si voleva
+    aggiungere.
+    """
+    current = list(st.session_state.get(PLAYLIST, []))
+    for i in indices:
+        path = frame.at[i, "path"]
+        if path not in current:
+            current.append(path)
+    st.session_state[PLAYLIST] = current
+
+
+def sorted_after(cost: TransitionCost, playlist: list[int],
+                 group: list[int]) -> list[int]:
+    """Il gruppo ordinato per attaccarsi a quello che c'è già.
+
+    Magic sort da solo sceglie da dove partire, e va bene finché la playlist
+    comincia lì. In coda a una playlist esistente no: il primo del gruppo
+    finisce dietro all'ultimo di prima, e se lo si lascia scegliere alla
+    cieca quella giuntura è l'unico salto della serata. Si parte dal brano
+    del gruppo che costa meno raggiungere da lì.
+    """
+    if not playlist:
+        return magic_sort(cost, group)
+    tail = playlist[-1]
+    return magic_sort(cost, group,
+                      start=min(group, key=lambda i: cost.between(tail, i)))
+
+
 def remember_seed(frame: pd.DataFrame, index: int) -> None:
     st.session_state[SEED] = frame.at[index, "path"]
 
@@ -751,21 +786,32 @@ def render_magic_playlist(frame: pd.DataFrame, cost: TransitionCost, pool,
             "transition cheap — the travelling-salesman path over the cost "
             "below. It is the answer to a folder of tracks in no order.")
         _selection_table(frame, selected, "picked")
-        c1, c2, c3 = st.columns(3)
-        if c1.button("✨ Magic sort them into the playlist", type="primary",
-                     width="stretch", disabled=len(selected) < 2):
+        c1, c2, c3, c4 = st.columns(4)
+        if c1.button("✨ Magic sort and append", type="primary",
+                     width="stretch", disabled=len(selected) < 2,
+                     help="Sorted among themselves, then added after what "
+                          "the playlist already holds."):
             with st.spinner(f"Sorting {len(selected)} tracks…"):
-                remember_playlist(frame, magic_sort(cost, selected))
+                append_playlist(frame, sorted_after(cost, playlist, selected))
             st.rerun()
         if c2.button("➕ Append them, unsorted", width="stretch"):
-            remember_playlist(frame, playlist + [i for i in selected
-                                                 if i not in playlist])
+            append_playlist(frame, selected)
+            st.rerun()
+        # Sostituire resta possibile, ma va chiesto: era il comportamento del
+        # pulsante primario, e una playlist caricata da file spariva al primo
+        # gruppo che le si mandava.
+        if c3.button("↺ Sort as a new playlist", width="stretch",
+                     disabled=len(selected) < 2 or not playlist,
+                     help="Starts over: what is in the playlist now is "
+                          "dropped."):
+            with st.spinner(f"Sorting {len(selected)} tracks…"):
+                remember_playlist(frame, magic_sort(cost, selected))
             st.rerun()
         # Il grafico non può più dire "non ho più niente selezionato" — la
         # selezione vive in sessione apposta per sopravvivergli — quindi
         # lasciarla andare è un gesto che va offerto, o i cerchi restano
         # addosso a un gruppo di cui non ci si occupa più.
-        if c3.button("✖ Clear the selection", width="stretch"):
+        if c4.button("✖ Clear the selection", width="stretch"):
             st.session_state[SELECTION] = []
             st.rerun()
 
@@ -1174,8 +1220,10 @@ def render_graph_section(store: MapStore) -> None:
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
     pool = frame["index"].to_numpy()
     chosen = [i for i in graph_seeds(at_path) if i < placed]
-    render_graph_builder(frame, cost, pool, at_path, chosen,
-                         set_playlist=lambda idxs: remember_playlist(frame, idxs))
+    render_graph_builder(
+        frame, cost, pool, at_path, chosen,
+        set_playlist=lambda idxs: remember_playlist(frame, idxs),
+        add_to_playlist=lambda idxs: append_playlist(frame, idxs))
     # Il lettore in fondo se lo ridisegna la lavagna, non app.py: un ▶ nelle
     # sue tabelle fa ripartire solo questo frammento, e il dock disegnato
     # fuori resterebbe sul brano di prima. Va chiamata anche nel giro intero,

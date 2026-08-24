@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from views.map_analysis import (SKIN, build_figure, matching_tracks,
-                                playlist_positions)
+                                playlist_positions, sorted_after)
 
 
 def _library() -> pd.DataFrame:
@@ -156,3 +156,26 @@ def test_the_playlist_ring_does_not_need_a_selection():
                           seed=None, selected=[], ticked=[])
     assert list(_ring(figure, "in the playlist").x) == [1.0]
     assert _ring(figure, "selected") is None
+
+
+def _line_cost():
+    """Quattro brani in fila su una retta: il costo è la distanza."""
+    from analysis.mixing import TransitionCost
+    coords = np.column_stack([np.arange(4.0), np.zeros(4)])
+    return TransitionCost(coords, [120] * 4, ["8A"] * 4)
+
+
+def test_a_group_appended_starts_from_what_the_tail_reaches_cheapest():
+    """La giuntura con quello che c'è già non si lascia al caso: il primo del
+    gruppo è quello che costa meno raggiungere dall'ultimo della playlist."""
+    cost = _line_cost()
+    assert sorted_after(cost, [0], [3, 1, 2]) == [1, 2, 3]
+
+
+def test_a_group_sorted_onto_nothing_picks_its_own_start():
+    """Senza niente prima, non c'è una giuntura da rispettare: resta magic
+    sort, che sceglie da dove partire e lascia una catena senza salti."""
+    cost = _line_cost()
+    order = sorted_after(cost, [], [2, 0, 1])
+    assert sorted(order) == [0, 1, 2]
+    assert all(abs(b - a) == 1 for a, b in zip(order, order[1:]))

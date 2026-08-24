@@ -452,13 +452,16 @@ def _label(name: str) -> str:
 
 def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
                          at_path: dict[str, int], chosen: list[int],
-                         set_playlist) -> None:
+                         set_playlist, add_to_playlist) -> None:
     """La sezione lavagna: parte da due brani, poi cresce un passo alla volta.
 
     `set_playlist` prende una lista di indici (nello stesso `frame`) e la
     rende la playlist della pagina — lo stesso canale che usa il resto della
     mappa, così "manda alla playlist" qui sotto finisce nello stesso posto
-    del disegno a lazo qui sopra.
+    del disegno a lazo qui sopra. `add_to_playlist` la aggiunge in coda
+    invece di sostituirla: la lavagna è un modo di far crescere un set, e un
+    set cominciato altrove — caricato da un M3U8, o messo insieme qui sopra —
+    non deve sparire perché gli si manda una catena.
     """
     st.caption(
         "Put one track on the board and grow the set a step at a time: pick "
@@ -582,13 +585,17 @@ def render_graph_builder(frame: pd.DataFrame, cost: TransitionCost, pool,
         graph.straighten()
         _save(graph)
         st.rerun(scope="fragment")
-    if c3.button("➡️ Send to playlist", type="primary", width="stretch"):
-        order = [at_path[p] for p in graph.walk() if p in at_path]
-        set_playlist(order)
-        # L'unico che esce dalla sezione: la playlist si disegna fuori, e un
-        # rerun del solo frammento la lascerebbe indietro di una mossa.
+    # I due escono dalla sezione: la playlist si disegna fuori, e un rerun
+    # del solo frammento la lascerebbe indietro di una mossa.
+    if c3.button("➡️ Append to playlist", type="primary", width="stretch",
+                 help="The chain goes after what the playlist already holds."):
+        add_to_playlist([at_path[p] for p in graph.walk() if p in at_path])
         st.rerun()
-    c4.caption(f"{len(graph)} track(s) on the board.")
+    if c4.button("↺ Send as a new playlist", width="stretch",
+                 help="Starts over: what is in the playlist now is dropped."):
+        set_playlist([at_path[p] for p in graph.walk() if p in at_path])
+        st.rerun()
+    st.caption(f"{len(graph)} track(s) on the board.")
 
     _render_by_hand(frame, pool, at_path, graph)
 
