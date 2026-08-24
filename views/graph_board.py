@@ -36,7 +36,7 @@ from analysis.duplicates import normalized_name, song_key
 from analysis.graph_playlist import GraphPlaylist, suggestions
 from analysis.mixing import (BPM_TOLERANCE, TransitionCost, bpm_shift,
                              camelot_shift)
-from views.components import play_table
+from views.components import NOW_PLAYING, fill_dock, play_table
 
 _FRONTEND_DIR = Path(__file__).parent / "graph_board_frontend"
 _graph_board = components.declare_component("graph_board", path=str(_FRONTEND_DIR))
@@ -568,6 +568,8 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
         who, kind = event.get("id"), event.get("type")
         if kind == "click" and who in paths:
             st.session_state[BOARD_PICKED] = who
+        elif kind == "play" and who in paths:
+            st.session_state[NOW_PLAYING] = who
         elif kind == "remove" and who in at_path:
             # Togliere una scheda toglie il brano dalla PLAYLIST: la lavagna
             # non ha più una copia sua da cui cancellarlo.
@@ -614,9 +616,17 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
 
     st.caption("Left to right the set plays; how high a track sits is the "
                "measure above, on the scale at the left. **Hover** a point "
-               "for its numbers, **click** it to pick it — the **bin** "
-               "underneath takes it out of the playlist. **Scroll** zooms, "
-               "dragging the background moves, and **⛶** goes full screen.")
+               "for its numbers, **click** it to pick it — underneath, **▶** "
+               "listens to it and the **bin** takes it out of the playlist. "
+               "**Scroll** zooms, dragging the background moves, and **⛶** "
+               "goes full screen.")
+
+    # Il lettore in fondo alla pagina se lo ridisegna questa sezione. Un ▶
+    # qui dentro fa ripartire il solo frammento: `app.py` non viene
+    # rieseguito, e il lettore resterebbe sul brano di prima. Va chiamata
+    # anche nel giro intero, o Streamlit non riserva il posto per le
+    # ripartenze.
+    fill_dock("board")
 
 
 def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,

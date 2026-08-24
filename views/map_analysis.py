@@ -515,15 +515,15 @@ def render_infos(store: MapStore) -> None:
 def render_map(store: MapStore) -> None:
     """La mappa, la selezione e la playlist: il cuore della pagina."""
     if not len(store):
-        st.info("The map is empty. Open **Add tracks to the map** at the "
-                "bottom of this page and point it at a folder.")
+        st.info("The map is empty. Open **Map settings** above and point "
+                "*Add tracks to the map* at a folder.")
         return
     placed = store.placed
     if not placed:
         st.warning(
             f"{len(store):,} tracks are analyzed but none has a place yet — "
             "the projection has never been computed (or was dropped). "
-            "**Map infos** above has the button.")
+            "**Map settings** above has the button.")
         return
 
     # Si lavora sui brani PIAZZATI, che sono i primi `placed`. Gli altri sono
@@ -666,7 +666,7 @@ def render_map(store: MapStore) -> None:
     if waiting:
         st.caption(
             f"➕ **{waiting:,} track(s)** analyzed since the last projection "
-            "are not placed yet. Recompute it in **Map infos** to bring them "
+            "are not placed yet. Recompute it in **Map settings** to bring them "
             "in — no need to wait for the job to end.")
 
     st.caption(
@@ -1052,8 +1052,8 @@ def render_playlist_loader(frame: pd.DataFrame, at_path: dict[str, int],
         # così, la mossa successiva è chiara — e sta in fondo a questa pagina.
         with st.expander(f"⚠️ {len(missing)} track(s) not on the map — "
                          "they cannot go in the playlist"):
-            st.caption("Add their folder under *Add tracks to the map* at the "
-                       "bottom of this page, then load the playlist again.")
+            st.caption("Add their folder under *Map settings* at the top of "
+                       "this page, then load the playlist again.")
             st.dataframe(pd.DataFrame({"file": missing}), width="stretch",
                          hide_index=True)
 
@@ -1421,8 +1421,19 @@ store_dir = default_store_dir()
 store = _open_store(str(store_dir), _stamp(store_dir))
 job = load_map_state()
 
-with st.expander("Map infos", expanded=not store.placed):
+# Tutto quello che riguarda la mappa COME OGGETTO — quanto è grande, come si
+# proietta, come la si allarga — sta in un blocco solo. Erano due, uno in
+# cima e uno in fondo, e la distanza fra i due non corrispondeva a niente:
+# aggiungere brani e riproiettarli sono i due tempi dello stesso gesto, e chi
+# aveva appena analizzato una cartella doveva risalire tutta la pagina per
+# premere il bottone che rende visibile ciò che aveva appena fatto.
+running = job is not None and job.running
+with st.expander("⚙️ Map settings" + (" — ▶ job running" if running else ""),
+                 expanded=not store.placed or running):
     render_infos(store)
+    st.divider()
+    st.markdown("#### Add tracks to the map")
+    render_add(store, job)
 
 # Dentro a un contenitore, e non sciolto nella pagina: il frammento che
 # aggiorna il job qui sotto ridisegna solo sé stesso, e per farlo si ricorda
@@ -1457,13 +1468,4 @@ with st.expander(
 # ottenerlo. Si disegna da sé solo quando c'è qualcosa dentro.
 render_playlist_section(store)
 
-st.divider()
 
-# In fondo e chiusa: si apre da sé finché la mappa è vuota (senza, non c'è
-# nient'altro da fare in questa pagina) e mentre un job sta lavorando, perché
-# allora c'è qualcosa da guardare.
-running = job is not None and job.running
-label = ("Add tracks to the map — ▶ job running"
-         if running else "Add tracks to the map")
-with st.expander(label, expanded=not len(store) or running):
-    render_add(store, job)
