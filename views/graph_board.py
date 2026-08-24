@@ -228,6 +228,26 @@ def _place_on_axis(graph: GraphPlaylist, frame: pd.DataFrame,
             graph.places[track] = spread.places[track]
 
 
+def _reordered(walk: list[str], moves: dict[int, float]) -> list[str]:
+    """L'ordine della catena dopo che una riga ha cambiato numero.
+
+    Si toglie il brano da dov'è e lo si rimette dove è stato chiesto, come
+    una carta sfilata dal mazzo e reinfilata: gli altri scorrono e nessuno
+    sparisce. Scambiare i due brani invece che spostarne uno sarebbe più
+    facile da scrivere e sbagliato da usare — chi scrive 1 sull'ultima riga
+    vuole quel brano in apertura, non l'apertura in fondo.
+    """
+    order = list(walk)
+    for row, place in sorted(moves.items()):
+        if not 0 <= row < len(walk):
+            continue
+        track = walk[row]
+        target = max(1, min(len(order), int(place))) - 1
+        order.remove(track)
+        order.insert(target, track)
+    return order
+
+
 def _read_only(*columns: str) -> dict:
     """Colonne che si guardano e basta.
 
@@ -623,17 +643,45 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
                         if path in before and before[path] in at_path else None),
              "_path": path}
             for n, path in enumerate(walk) if path in at_path])
+        # La firma della catena: chi porta questa nella propria chiave
+        # rinasce appena l'ordine cambia. Per la tabella è l'unico modo di
+        # dimenticare la riga appena spostata, che altrimenti resterebbe
+        # scritta nello stato del widget e si riapplicherebbe a ogni giro.
+        signature = "|".join(walk)
+        chain_key = f"graph_chain_editor::{signature}"
         play_table("graph_chain", table,
-                   ["#", "file", "BPM", "key", "groove",
-                    "Δbpm", "Δkey", "Δgroove", "genres", "folder"],
-                   _read_only("#", "file", "BPM", "key", "groove",
-                              "Δbpm", "Δkey", "Δgroove", "genres", "folder"),
-                   editable=False, editor_key="graph_chain_editor")
+                   ["#", "BPM", "key", "groove",
+                    "Δbpm", "Δkey", "Δgroove", "file", "genres", "folder"],
+                   {"#": st.column_config.NumberColumn(
+                       "#", min_value=1, max_value=max(len(walk), 1), step=1,
+                       help="Write the position you want this track in: the "
+                            "row moves there and the others slide."),
+                    **_read_only("file", "BPM", "key", "groove",
+                                 "Δbpm", "Δkey", "Δgroove", "genres",
+                                 "folder")},
+                   editor_key=chain_key)
+
+        moves = {int(row): values["#"]
+                 for row, values in st.session_state.get(chain_key, {})
+                 .get("edited_rows", {}).items() if "#" in values}
+        order = _reordered(walk, moves) if moves else walk
+        if order != walk:
+            # Ricostruire invece di ricucire i collegamenti: una sequenza
+            # scritta a mano È una fila, e un grafo ramificato non
+            # sopravviverebbe comunque a un ordine che lo appiattisce.
+            graph = GraphPlaylist().start(*order)
+            _place_on_axis(graph, frame, at_path, keep_manual=False)
+            _save(graph)
+            st.session_state[GRAPH_SOURCE] = order[-1]
+            st.rerun(scope="fragment")
         # La sorgente di default è l'ultimo arrivato, che è da dove si
         # continua nove volte su dieci; cambiarla serve a ramificare.
-        # La chiave porta dentro la lunghezza della catena: finché non
-        # cambia, la scelta fatta a mano resta; appena cresce, il menu è un
-        # altro menu e riparte dal fondo — che è dove si è appena arrivati.
+        # La chiave porta dentro la catena intera: finché non cambia, la
+        # scelta fatta a mano resta; appena cambia, il menu è un altro menu e
+        # riparte dal fondo — che è dove si è appena arrivati. Ci vuole
+        # l'ordine e non solo la lunghezza: riordinando le righe la lunghezza
+        # resta quella, e il menu continuava a nominare un brano mentre la
+        # rosa ne lavorava un altro.
         # Riscrivere il valore di un widget già creato Streamlit lo vieta, e
         # cancellarne la chiave a metà pagina lasciava il menu a indicare un
         # brano diverso da quello su cui la rosa stava lavorando.
@@ -641,7 +689,7 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
             "Branch from", walk, index=len(walk) - 1,
             format_func=lambda p: frame.at[at_path[p], "name"]
             if p in at_path else Path(p).stem,
-            key=f"graph_branch_from::{len(walk)}")
+            key=f"graph_branch_from::{signature}")
         if st.button("🗑 Remove it from the chain", width="stretch",
                      disabled=len(walk) < 2):
             graph.remove(here)
@@ -685,8 +733,8 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
 
     edited = play_table(
         "graph_roster", table,
-        ["Add", "cost", "file", "BPM", "key", "groove",
-         "Δbpm", "Δkey", "Δgroove", "copies", "genres", "folder"],
+        ["Add", "cost", "BPM", "key", "groove",
+         "Δbpm", "Δkey", "Δgroove", "file", "copies", "genres", "folder"],
         {"Add": st.column_config.CheckboxColumn(
             "Add", help="Tick what you want next, then the button below."),
          **_read_only("cost", "file", "BPM", "key", "groove",
