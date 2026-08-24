@@ -46,6 +46,11 @@ PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
            "#4dd0c4", "#c9b037", "#6f8fd6", "#d66f6f", "#7fbf3f", "#bf7fd6"]
 OTHER_COLOR = {"light": "#9aa4b0", "dark": "#6b7684"}
 
+# I brani spuntati in questo momento, in una tabella qualunque della pagina.
+# La mappa li cerchia di giallo. Sta qui e non in `views.map_analysis` perché
+# quel modulo importa questo: definirla di là chiuderebbe il giro.
+TICKED = "map::ticked"
+
 GRAPH_STATE = "map::graph"
 GRAPH_SOURCE = "map::graph_source"
 GRAPH_KEYS = "map::graph_keys"
@@ -692,6 +697,10 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
         editor_key=f"graph_roster_editor::{source_path}::{len(graph)}")
 
     wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
+    # La mappa sta più in alto e si disegna prima di questa tabella: la
+    # spunta si annota qui e viene cerchiata al giro successivo, che è quello
+    # che parte da sola appena si spunta.
+    st.session_state[TICKED] = wanted
     if st.button(f"➕ Add {len(wanted)} to the chain", type="primary",
                  width="stretch", disabled=not wanted):
         # In fila uno dietro l'altro: spuntarne tre vuol dire "poi questi

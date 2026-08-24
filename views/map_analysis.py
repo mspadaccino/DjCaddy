@@ -23,6 +23,7 @@ e poi la si lascia lavorare, quindi sta in fondo, chiusa.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -34,7 +35,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from analysis.dj_export import build_m3u8, build_rekordbox_xml, read_title_artist
+from analysis.dj_export import (build_m3u8, build_rekordbox_xml, read_m3u8,
+                                read_title_artist)
 from analysis.essentia_tags import MODEL_DIR, available, find_taggable, missing_models
 from analysis.map_job import (DEFAULT_MAP_LOG, load_map_state, open_monitor,
                               pause_job, process_state, resume_job, stop_job)
@@ -46,7 +48,7 @@ from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import (TransitionCost, along_path, closed_shape,
                              magic_sort, nearest)
 from views.components import pick_folder, play_table, tick_all
-from views.graph_board import render_graph_builder
+from views.graph_board import TICKED, render_graph_builder
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
 # ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
@@ -112,10 +114,12 @@ PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
 SKIN = {
     "light": {"paper": "#ffffff", "plot": "#f4f6f9", "ink": "#1b1f27",
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
-              "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0"},
+              "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
+              "ticked": "#e8a300", "kept": "#1f9d55"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
-             "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff"},
+             "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
+             "ticked": "#ffc233", "kept": "#3ddc84"},
 }
 
 # In sessione si tengono i PERCORSI, non le posizioni nella libreria. Una
@@ -268,7 +272,8 @@ def marker_sizes(frame: pd.DataFrame, column: str | None):
 
 def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                  playlist: list[int], seed: int | None,
-                 seed_name: str | None = None) -> go.Figure:
+                 seed_name: str | None = None,
+                 ticked: list[int] | None = None) -> go.Figure:
     """La mappa: un tracciato per genere, più il percorso e il seme sopra.
 
     Un tracciato per genere e non uno solo con i colori dentro, perché così
@@ -330,6 +335,20 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             marker={"size": 9, "color": skin["paper"],
                     "line": {"width": 1.5, "color": skin["ink"]}},
             hoverinfo="skip"))
+
+    # Verde per quello che è già in playlist, giallo per quello che si sta
+    # spuntando adesso: sulla nuvola la differenza fra "l'ho preso" e "lo sto
+    # guardando" è proprio quella che serve mentre si sceglie.
+    for name, marks, color in (("in the playlist", playlist, skin["kept"]),
+                               ("being picked", ticked or [], skin["ticked"])):
+        spots = [i for i in marks if i is not None and i < len(coords)]
+        if not spots:
+            continue
+        figure.add_trace(go.Scattergl(
+            x=coords[spots][:, 0], y=coords[spots][:, 1], mode="markers",
+            name=name, showlegend=False, hoverinfo="skip",
+            marker={"size": 15, "color": "rgba(0,0,0,0)",
+                    "line": {"width": 2.5, "color": color}}))
 
     if seed is not None and seed < len(coords):
         figure.add_trace(go.Scattergl(
@@ -568,7 +587,8 @@ def render_map(store: MapStore) -> None:
                      # seme non è ciò che si sta guardando.
                      seed_name=(frame.at[seed, "name"]
                                 if seed is not None and not lasso
-                                and len(picked) <= 1 else None)),
+                                and len(picked) <= 1 else None),
+                     ticked=st.session_state.get(TICKED) or []),
         key="map::chart", on_select="rerun",
         selection_mode=("points", "box", "lasso"),
         config={"displaylogo": False, "scrollZoom": True})
@@ -790,7 +810,7 @@ def render_playlist_section(store: MapStore) -> None:
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
     playlist = [at_path[p] for p in st.session_state.get(PLAYLIST, [])
                 if p in at_path]
-    render_playlist(frame, cost, playlist)
+    render_playlist(frame, cost, playlist, at_path)
 
 
 def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore,
@@ -879,6 +899,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                               "bpm cost", "key cost", "genres", "folder")},
                 editor_key=mix_key)
             wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
+            st.session_state[TICKED] = wanted
             if st.button(f"➕ Add {len(wanted)} to the playlist",
                          disabled=not wanted, type="primary"):
                 remember_playlist(frame, playlist + [i for i in wanted
@@ -930,19 +951,112 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                 st.rerun()
 
 
+def playlist_positions(paths, at_path: dict[str, int]) -> tuple[list[int], list[str]]:
+    """Da una playlist letta da file alle posizioni sulla mappa.
+
+    Il percorso scritto nel file e quello registrato sulla mappa possono non
+    coincidere pur essendo lo stesso brano — un disco montato con un'altra
+    lettera, la libreria spostata, una playlist salvata da un altro programma
+    con percorsi relativi — quindi dopo il percorso si prova il nome del file.
+    È il ripiego che salva il caso normale (la libreria è una sola, i nomi
+    dentro sono unici) senza pretendere di indovinare: se due cartelle
+    contengono lo stesso nome, vince la prima, e resta un brano da spostare a
+    mano invece di una playlist che non si carica.
+
+    Chi non si trova torna indietro per nome: sono i brani che sulla mappa non
+    ci sono ancora, e la playlist non può indicarli perché una posizione che
+    non esiste non è un brano.
+    """
+    by_name: dict[str, int] = {}
+    for path, i in at_path.items():
+        by_name.setdefault(os.path.basename(path), i)
+
+    found: list[int] = []
+    missing: list[str] = []
+    for path in paths:
+        i = at_path.get(os.path.abspath(path))
+        if i is None:
+            i = by_name.get(os.path.basename(path))
+        if i is None:
+            missing.append(path)
+        elif i not in found:
+            found.append(i)
+    return found, missing
+
+
+def render_playlist_loader(frame: pd.DataFrame, at_path: dict[str, int],
+                           playlist: list[int]) -> None:
+    """Riprendere in mano una playlist già fatta.
+
+    Senza questo, la pagina sa solo cominciare da zero: una scaletta iniziata
+    ieri — o esportata da qui la settimana scorsa — andrebbe ricostruita brano
+    per brano prima di poterle aggiungere il primo brano nuovo. Caricata,
+    invece, diventa la playlist su cui lavorano tutte e due le sezioni qui
+    sopra.
+
+    Si legge il CONTENUTO del file, non il file: della playlist servono i
+    percorsi che porta dentro, e quelli valgono da dovunque arrivi.
+    """
+    uploaded = st.file_uploader(
+        "Playlist file", type=["m3u8", "m3u"], key="map::playlist_file",
+        help="The .m3u8 this page exports, or one saved by rekordbox, "
+             "Serato, Traktor, djay… Only the track order is read.")
+    if uploaded is None:
+        return
+
+    paths = read_m3u8(uploaded.getvalue().decode("utf-8", "replace"))
+    found, missing = playlist_positions(paths, at_path)
+    if not paths:
+        st.error("No tracks in that file.")
+        return
+
+    st.caption(f"**{len(found)}** of {len(paths)} track(s) are on the map.")
+    if missing:
+        # Non è un errore del file: è la mappa che non li ha ancora. Detto
+        # così, la mossa successiva è chiara — e sta in fondo a questa pagina.
+        with st.expander(f"⚠️ {len(missing)} track(s) not on the map — "
+                         "they cannot go in the playlist"):
+            st.caption("Add their folder under *Add tracks to the map* at the "
+                       "bottom of this page, then load the playlist again.")
+            st.dataframe(pd.DataFrame({"file": missing}), width="stretch",
+                         hide_index=True)
+
+    c1, c2 = st.columns(2)
+    if c1.button("➕ Use it as the playlist", type="primary", width="stretch",
+                 disabled=not found, key="map::playlist_load"):
+        remember_playlist(frame, found)
+        st.rerun()
+    if c2.button("➕ Append it to the playlist", width="stretch",
+                 disabled=not found or not playlist,
+                 key="map::playlist_append"):
+        remember_playlist(frame, playlist + [i for i in found
+                                             if i not in playlist])
+        st.rerun()
+
+
 def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
-                    playlist: list[int]) -> None:
-    """La playlist come sta, e come portarsela via.
+                    playlist: list[int], at_path: dict[str, int]) -> None:
+    """La playlist come sta, come portarsela via e come riprenderne una.
 
     Le posizioni arrivano già risolte e già ripulite da chi ha disegnato la
     mappa: rileggerle qui dalla sessione vorrebbe dire rileggerle grezze, e
     puntare a brani che sulla mappa non ci sono più.
-    """
-    if not playlist:
-        return
 
+    Vuota, la sezione non spariva soltanto: portava via con sé l'unico posto
+    da cui si carica una playlist fatta prima, e chi voleva continuarne una
+    trovava una pagina che sa solo cominciare. Vuota adesso resta, e mostra
+    proprio quello.
+    """
     st.divider()
-    st.subheader(f"Playlist — {len(playlist)} track(s)")
+    st.subheader(f"Playlist — {len(playlist)} track(s)" if playlist
+                 else "Playlist")
+
+    if not playlist:
+        st.caption("Nothing in it yet: pick tracks in the two sections above, "
+                   "or open a playlist you already have and keep adding to it "
+                   "from there.")
+        render_playlist_loader(frame, at_path, playlist)
+        return
 
     costs = [None] + [cost.between(a, b) for a, b in zip(playlist, playlist[1:])]
     table = pd.DataFrame([{
@@ -1016,6 +1130,13 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
         "`rekordbox xml` tree in the sidebar, ready to drag into your "
         "collection. Only the XML carries the BPM and the cues, and it is "
         "what the third-party converters read.")
+
+    # Accanto a chi la porta via: sono lo stesso gesto in due direzioni, e la
+    # playlist che si ricarica qui è, il più delle volte, l'M3U8 uscito dal
+    # pulsante qui sopra. Chiuso, perché con una playlist in piedi caricarne
+    # un'altra è l'eccezione.
+    with st.expander("📂 Open a playlist you already have"):
+        render_playlist_loader(frame, at_path, playlist)
 
 
 def graph_seeds(at_path: dict[str, int]) -> list[int]:
@@ -1107,15 +1228,17 @@ def render_progress() -> None:
             resume_job(state.pid)
             st.rerun()
     elif b2.button("⏸ Pause", width="stretch",
-                   help="Stops the analysis where it is without losing it: "
-                        "the processes stay in memory with the models "
-                        "loaded, so resuming costs nothing."):
+                   help="Freezes the job where it is, models still loaded, "
+                        "so resuming is instant — but the processes keep "
+                        "holding their memory. For a break, not for the "
+                        "night."):
         pause_job(state.pid)
         st.rerun()
 
     if b3.button("⏹ Stop", width="stretch",
-                 help="Ends the job. What is already on the map stays there, "
-                      "and starting again picks up from the next track."):
+                 help="Ends the job and frees the memory. What is already "
+                      "on the map stays there, but starting again re-lists "
+                      "the folder and reloads the models."):
         stop_job(state.pid)
         time.sleep(0.5)
         _open_store.clear()
