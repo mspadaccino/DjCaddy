@@ -136,3 +136,23 @@ def test_no_ring_when_nothing_is_ticked():
     figure = build_figure(_drawn(), ["House"], coords, playlist=[], seed=None)
     assert _ring(figure, "being picked") is None
     assert _ring(figure, "in the playlist") is None
+
+
+def test_the_selected_group_gets_the_ink_ring():
+    """Lazo e riquadro cerchiano quello che hanno preso, col nero del seme:
+    è la stessa cosa detta al plurale — "sto lavorando su questi"."""
+    coords = np.column_stack([np.arange(4.0), np.zeros(4)])
+    figure = build_figure(_drawn(), ["House"], coords, playlist=[], seed=None,
+                          selected=[0, 3])
+    ring = _ring(figure, "selected")
+    assert list(ring.x) == [0.0, 3.0]
+    assert ring.marker.line.color == SKIN["light"]["ink"]
+
+
+def test_the_playlist_ring_does_not_need_a_selection():
+    """Il principio di fondo: quello che è in playlist si vede sempre."""
+    coords = np.column_stack([np.arange(4.0), np.zeros(4)])
+    figure = build_figure(_drawn(), ["House"], coords, playlist=[1],
+                          seed=None, selected=[], ticked=[])
+    assert list(_ring(figure, "in the playlist").x) == [1.0]
+    assert _ring(figure, "selected") is None

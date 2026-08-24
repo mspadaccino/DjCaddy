@@ -46,8 +46,7 @@ from analysis.map_projection import ProjectionSettings
 from analysis.map_projection import available as umap_available
 from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
-from analysis.mixing import (TransitionCost, along_path, closed_shape,
-                             magic_sort, nearest)
+from analysis.mixing import TransitionCost, magic_sort, nearest
 from views.components import fill_dock, pick_folder, play_table, tick_all
 from views.graph_board import TICKED, render_graph_builder
 
@@ -129,9 +128,18 @@ SKIN = {
 # sbagliate, che è peggio di un errore. Il percorso invece è il brano.
 SEED = "map::seed"
 PICKED = "map::seedpick_applied"
-LASSO_MODE = "map::lassomode"
-LASSO_KIND = "map::lassokind"
 PLAYLIST = "map::playlist"
+
+# La selezione fatta col lazo o col riquadro si tiene qui, e non la si chiede
+# al grafico quando serve. Non è comodità: Streamlit calcola l'identità del
+# grafico ANCHE sulla figura che gli si passa (`plotly_spec` entra nell'id
+# dell'elemento), quindi cerchiare i brani appena selezionati cambia la
+# figura, cambia l'id, e lo stato del widget — cioè la selezione — riparte
+# vuoto al giro dopo. Il lazo diventava inservibile: si disegnava, e un
+# istante dopo restava il seme di prima col suo cerchio, l'unica cosa che
+# qualcuno si era ricordato di salvare. Letta una volta e messa qui, la
+# selezione sopravvive a qualunque ridisegno.
+SELECTION = "map::selection"
 
 # Oltre queste voci il menu dei nomi smette di essere comodo (e di aprirsi
 # in fretta): sopra, si restringe coi filtri.
@@ -200,20 +208,23 @@ def remember_seed(frame: pd.DataFrame, index: int) -> None:
     st.session_state[SEED] = frame.at[index, "path"]
 
 
-def read_selection() -> tuple[list[int], list]:
-    """Cosa è selezionato sul grafico: gli indici dei brani e il tratto.
+def read_selection() -> list[int]:
+    """I brani selezionati sul grafico in QUESTO giro, se ce ne sono.
 
     Lo stato del grafico sta in sessione sotto la sua chiave. I punti dei
-    tracciati di servizio (il percorso della playlist, il cerchio del seme)
-    non portano `customdata` e vengono scartati: sono disegno, non brani.
+    tracciati di servizio (il percorso della playlist, i cerchi) non portano
+    `customdata` e vengono scartati: sono disegno, non brani.
+
+    Vuoto non vuol dire "niente selezionato": vuol dire "nessun gesto in
+    questo giro", perché al primo ridisegno il widget è un altro (vedi
+    `SELECTION`). Chi vuole sapere cosa è scelto lo chiede alla sessione.
     """
     state = st.session_state.get("map::chart")
     selection = state.get("selection") if state else None
     if not selection:
-        return [], []
-    picked = [int(p["customdata"][0]) for p in selection.get("points", [])
-              if p.get("customdata")]
-    return picked, list(selection.get("lasso") or [])
+        return []
+    return [int(p["customdata"][0]) for p in selection.get("points", [])
+            if p.get("customdata")]
 
 
 def matching_tracks(frame: pd.DataFrame, pool, words: list[str]) -> list[int]:
@@ -238,11 +249,6 @@ def matching_tracks(frame: pd.DataFrame, pool, words: list[str]) -> list[int]:
         # tutti si ricordano di farlo.
         keep &= hay.str.contains(word.casefold(), regex=False)
     return keep[keep].index.tolist()
-
-
-def _path_points(shape: dict) -> list[tuple[float, float]]:
-    xs, ys = shape.get("x") or [], shape.get("y") or []
-    return list(zip(xs, ys))
 
 
 # --------------------------------------------------------------------------
@@ -274,7 +280,8 @@ def marker_sizes(frame: pd.DataFrame, column: str | None):
 def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                  playlist: list[int], seed: int | None,
                  seed_name: str | None = None,
-                 ticked: list[int] | None = None) -> go.Figure:
+                 ticked: list[int] | None = None,
+                 selected: list[int] | None = None) -> go.Figure:
     """La mappa: un tracciato per genere, più il percorso e il seme sopra.
 
     Un tracciato per genere e non uno solo con i colori dentro, perché così
@@ -338,24 +345,35 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             hoverinfo="skip"))
 
     # Verde per quello che è già in playlist, giallo per quello che si sta
-    # spuntando adesso: sulla nuvola la differenza fra "l'ho preso" e "lo sto
-    # guardando" è proprio quella che serve mentre si sceglie.
-    for name, marks, color in (("in the playlist", playlist, skin["kept"]),
-                               ("being picked", ticked or [], skin["ticked"])):
+    # spuntando adesso, inchiostro per il gruppo appena preso dalla mappa:
+    # sulla nuvola la differenza fra "l'ho preso", "lo sto guardando" e "sto
+    # lavorando su questi" è proprio quella che serve mentre si sceglie. Il
+    # verde non dipende da nessuna selezione: la playlist si vede sempre, che
+    # è il modo di sapere dove si è già stati.
+    # Diametri diversi, e non per gusto: un brano può stare in due insiemi
+    # insieme — lo si è appena selezionato ED è già in playlist — e con lo
+    # stesso diametro l'anello disegnato per ultimo coprirebbe l'altro
+    # esattamente. Concentrici, si vedono tutti e due.
+    for name, marks, color, size in (
+            ("in the playlist", playlist, skin["kept"], 15),
+            ("being picked", ticked or [], skin["ticked"], 19),
+            ("selected", selected or [], skin["ink"], 23)):
         spots = [i for i in marks if i is not None and i < len(coords)]
         if not spots:
             continue
         figure.add_trace(go.Scattergl(
             x=coords[spots][:, 0], y=coords[spots][:, 1], mode="markers",
             name=name, showlegend=False, hoverinfo="skip",
-            marker={"size": 15, "color": "rgba(0,0,0,0)",
+            marker={"size": size, "color": "rgba(0,0,0,0)",
                     "line": {"width": 2.5, "color": color}}))
 
     if seed is not None and seed < len(coords):
         figure.add_trace(go.Scattergl(
             x=[coords[seed][0]], y=[coords[seed][1]], mode="markers",
             name="seed", showlegend=False, hoverinfo="skip",
-            marker={"size": 20, "color": "rgba(0,0,0,0)",
+            # Lo stesso diametro del gruppo selezionato: seme e gruppo sono
+            # la stessa cosa detta al singolare e al plurale, e si escludono.
+            marker={"size": 23, "color": "rgba(0,0,0,0)",
                     "line": {"width": 2, "color": skin["ink"]}}))
         # Il nome accanto al cerchio: da solo, il cerchio dice DOVE ma non
         # CHE COSA, e dopo una ricerca per nome è proprio il "che cosa" che
@@ -556,16 +574,32 @@ def render_map(store: MapStore) -> None:
     # aggiornato all'inizio del giro: leggerlo qui vuol dire che il cerchio
     # del seme è addosso al punto appena cliccato, invece che al punto di
     # prima fino al clic successivo.
-    picked, lasso = read_selection()
-    picked = [i for i in picked if i < placed]
-    if len(picked) == 1 and not lasso:
-        remember_seed(frame, picked[0])
+    picked = [i for i in read_selection() if i < placed]
+    if picked:
+        # Un punto solo è un seme comunque lo si sia preso: un riquadro
+        # attorno a un brano solo è un brano, non un gruppo. Da due in su è
+        # un gruppo, e allora il seme di prima se ne va — tenerlo vorrebbe
+        # dire un cerchio che sopravvive al gesto successivo e indica una
+        # scelta che non si sta più facendo. Le due cose si escludono: sulla
+        # mappa c'è o un brano indicato, o un gruppo.
+        if len(picked) == 1:
+            remember_seed(frame, picked[0])
+            st.session_state[SELECTION] = []
+        else:
+            st.session_state[SELECTION] = [frame.at[i, "path"] for i in picked]
+            st.session_state.pop(SEED, None)
+        # Le spunte erano quelle della scelta di prima: cerchiarle di giallo
+        # attorno a un seme che non c'è più vuol dire indicare il nulla.
+        st.session_state[TICKED] = []
     by_name = st.session_state.get("map::seedpick")
     if by_name is not None and by_name < placed:
         if frame.at[by_name, "path"] != st.session_state.get(PICKED):
             st.session_state[PICKED] = frame.at[by_name, "path"]
             remember_seed(frame, by_name)
-    seed = at_path.get(st.session_state.get(SEED))
+            st.session_state[SELECTION] = []
+    selected = [at_path[p] for p in st.session_state.get(SELECTION, [])
+                if p in at_path]
+    seed = None if selected else at_path.get(st.session_state.get(SEED))
 
     # Sopra ventimila brani se ne disegna un campione, e il campione può non
     # contenere proprio quello che la pagina sta indicando: il cerchio del
@@ -573,7 +607,8 @@ def render_map(store: MapStore) -> None:
     # punto sotto. Chi è indicato torna dentro comunque — un cerchio attorno
     # al nulla non è un dettaglio estetico, è la mappa che dice il falso.
     if sampled:
-        pointed = [i for i in ([seed] if seed is not None else []) + playlist
+        pointed = [i for i in ([seed] if seed is not None else [])
+                   + selected + playlist
                    if i in visible.index and i not in drawn.index]
         if pointed:
             drawn = pd.concat([drawn, visible.loc[pointed]])
@@ -584,12 +619,10 @@ def render_map(store: MapStore) -> None:
     top_genres = [g for g, _ in ranked.most_common(COLORED_GENRES)]
     st.plotly_chart(
         build_figure(drawn, top_genres, store.coords, playlist, seed,
-                     # Nessun nome quando la selezione è multipla: lì il
-                     # seme non è ciò che si sta guardando.
                      seed_name=(frame.at[seed, "name"]
-                                if seed is not None and not lasso
-                                and len(picked) <= 1 else None),
-                     ticked=st.session_state.get(TICKED) or []),
+                                if seed is not None else None),
+                     ticked=st.session_state.get(TICKED) or [],
+                     selected=selected),
         key="map::chart", on_select="rerun",
         selection_mode=("points", "box", "lasso"),
         config={"displaylogo": False, "scrollZoom": True})
@@ -608,8 +641,8 @@ def render_map(store: MapStore) -> None:
         + (f" — {MAX_POINTS:,} of them drawn, a stable random sample; the "
            "suggestions still consider every one." if sampled else "")
         + " · **Click** a point to make it the seed. In the toolbar above, "
-          "the **lasso** draws a path through the clusters and the **box** "
-          "grabs a group to be sorted. Scroll to zoom.")
+          "the **lasso** and the **box** grab the group they enclose, to be "
+          "sorted into a set. Scroll to zoom.")
 
     # Il seme si sceglie cliccando un punto, ma non solo: quando la serata
     # parte da un brano deciso prima, cercarlo per nome è più veloce che
@@ -656,20 +689,21 @@ def render_map(store: MapStore) -> None:
     # sola voleva dire non vedere mai per intero ne' l'uno ne' l'altro. Si
     # apre da se' quando c'e' qualcosa da farci — una selezione o una
     # playlist gia' iniziata — perche' chiusa e vuota non direbbe nulla.
-    _has_choice = bool(lasso or len(picked) or seed is not None)
+    _has_choice = bool(selected or seed is not None)
     with st.expander(
             "✨ Magic Playlist — turn a selection into an ordered set"
             + (f" · {len(playlist)} track(s) so far" if playlist else ""),
             expanded=_has_choice or bool(playlist)):
-        render_magic_playlist(frame, cost, pool, store, seed, picked,
-                              lasso, playlist)
+        render_magic_playlist(frame, cost, pool, store, seed, selected,
+                              playlist)
 
 
 def selection_rows(frame: pd.DataFrame, indices) -> pd.DataFrame:
     """Le righe da mostrare per i brani selezionati, nell'ordine dato.
 
-    L'ordine e' quello che arriva e non si tocca: da un lasso aperto e'
-    l'ordine in cui la linea incontra i brani, che e' gia' la scaletta.
+    L'ordine e' quello che arriva e non si tocca: da una selezione sulla
+    mappa e' l'ordine in cui il grafico riporta i punti, che non e' una
+    scaletta e non deve fingere di esserlo — a metterli in fila e' magic sort.
     """
     return pd.DataFrame([{
         "#": position + 1,
@@ -700,97 +734,46 @@ def _selection_table(frame: pd.DataFrame, indices, key: str) -> None:
 
 
 def render_magic_playlist(frame: pd.DataFrame, cost: TransitionCost, pool,
-                          store: MapStore, seed, picked, lasso,
+                          store: MapStore, seed, selected: list[int],
                           playlist: list[int]) -> None:
-    """Dalla selezione sulla mappa a una playlist ordinata."""
+    """Dalla selezione sulla mappa a una playlist ordinata.
 
-    if lasso:
-        # Lo stesso gesto fa due domande diverse, e quale delle due si stia
-        # facendo lo dice la forma: un tratto che si richiude è un recinto
-        # ("prendi quello che c'è dentro"), uno aperto è un percorso
-        # ("prendi quello che tocco, nell'ordine in cui lo tocco"). Si
-        # indovina dalla forma e si lascia correggere: indovinare è comodo
-        # finché non sbaglia, e quando sbaglia deve bastare un clic.
-        stroke = _path_points(lasso[0])
-        guess = "everything inside" if closed_shape(stroke) else "the line itself"
-        # La forma decide da capo ogni volta che CAMBIA natura: disegnare un
-        # recinto dopo una linea torna a "quello che c'è dentro". Finché si
-        # continua a disegnare la stessa cosa, invece, una correzione a mano
-        # resta: l'ipotesi è comoda, ma l'ultima parola è di chi disegna.
-        if st.session_state.get(LASSO_KIND) != guess:
-            st.session_state[LASSO_KIND] = guess
-            st.session_state[LASSO_MODE] = guess
-        mode = st.radio(
-            "From the lasso, take", ["everything inside", "the line itself"],
-            key=LASSO_MODE, horizontal=True,
-            help="A stroke that comes back where it started is read as a "
-                 "fence and takes what it encloses; an open one is read as a "
-                 "path and takes what it passes near, in that order.")
-
-        if mode.startswith("everything"):
-            chosen = picked
-            st.markdown(f"**{len(chosen)} track(s)** inside the shape you "
-                        "drew — in no order of their own, which is what "
-                        "magic sort is for.")
-            _selection_table(frame, chosen, "inside")
-            c1, c2 = st.columns(2)
-            if c1.button("✨ Magic sort them into the playlist", type="primary",
-                         width="stretch", disabled=len(chosen) < 2):
-                with st.spinner(f"Sorting {len(chosen)} tracks…"):
-                    remember_playlist(frame, magic_sort(cost, chosen))
-                st.rerun()
-            if c2.button("➕ Append them, unsorted", width="stretch",
-                         disabled=not chosen):
-                remember_playlist(frame, playlist + [i for i in chosen
-                                                     if i not in playlist])
-                st.rerun()
-        else:
-            span = store.coords.max(axis=0) - store.coords.min(axis=0)
-            diagonal = float(np.hypot(*span)) or 1.0
-            radius_pct = st.slider(
-                "How far from the line a track can be", 0.5, 10.0, 2.0, 0.5,
-                format="%.1f%%",
-                help="As a share of the map's diagonal. Wider takes in more "
-                     "of the cluster the line crosses.")
-            ordered = along_path(store.coords, stroke,
-                                 radius=diagonal * radius_pct / 100, pool=pool)
-            st.markdown(f"**{len(ordered)} track(s)** under the line you "
-                        "drew, in the order the line meets them.")
-            _selection_table(frame, ordered, "line")
-            c1, c2 = st.columns(2)
-            if c1.button("➕ Use it as the playlist", type="primary",
-                         width="stretch", disabled=not ordered):
-                remember_playlist(frame, ordered)
-                st.rerun()
-            if c2.button("➕ Append it to the playlist", width="stretch",
-                         disabled=not ordered):
-                remember_playlist(frame, playlist + [i for i in ordered
-                                                     if i not in playlist])
-                st.rerun()
-
-    elif len(picked) > 1:
-        st.markdown(f"**{len(picked)} track(s)** selected.")
+    Un gesto, un significato: lazo e riquadro prendono quello che chiudono
+    dentro. C'era anche il modo "la linea stessa", che prendeva i brani vicini
+    al tratto nell'ordine in cui li toccava; costava un radio da leggere e uno
+    slider da tarare prima di ogni disegno, e la stessa scaletta la produce
+    magic sort su quello che si è recintato, senza chiedere niente.
+    """
+    if selected:
+        st.markdown(f"**{len(selected)} track(s)** selected.")
         st.caption(
             "Magic sort walks all of them once, in the order that keeps every "
             "transition cheap — the travelling-salesman path over the cost "
             "below. It is the answer to a folder of tracks in no order.")
-        _selection_table(frame, picked, "picked")
-        c1, c2 = st.columns(2)
-        if c1.button("✨ Magic sort them into the playlist",
-                     type="primary", width="stretch"):
-            with st.spinner(f"Sorting {len(picked)} tracks…"):
-                remember_playlist(frame, magic_sort(cost, picked))
+        _selection_table(frame, selected, "picked")
+        c1, c2, c3 = st.columns(3)
+        if c1.button("✨ Magic sort them into the playlist", type="primary",
+                     width="stretch", disabled=len(selected) < 2):
+            with st.spinner(f"Sorting {len(selected)} tracks…"):
+                remember_playlist(frame, magic_sort(cost, selected))
             st.rerun()
         if c2.button("➕ Append them, unsorted", width="stretch"):
-            remember_playlist(frame, playlist + [i for i in picked
+            remember_playlist(frame, playlist + [i for i in selected
                                                  if i not in playlist])
             st.rerun()
+        # Il grafico non può più dire "non ho più niente selezionato" — la
+        # selezione vive in sessione apposta per sopravvivergli — quindi
+        # lasciarla andare è un gesto che va offerto, o i cerchi restano
+        # addosso a un gruppo di cui non ci si occupa più.
+        if c3.button("✖ Clear the selection", width="stretch"):
+            st.session_state[SELECTION] = []
+            st.rerun()
 
-    if seed is not None and not lasso and len(picked) <= 1:
+    elif seed is not None:
         render_seed(frame, cost, pool, store, seed, playlist)
-    elif not lasso and not picked:
-        st.info("Nothing selected yet. Click a point on the map, or draw a "
-                "lasso through it.")
+    else:
+        st.info("Nothing selected yet. Click a point on the map to make it "
+                "the seed, or drag the lasso or the box around a group.")
 
 
 def render_playlist_section(store: MapStore) -> None:
@@ -825,8 +808,6 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
     st.markdown(f"**Seed — {row['name']}**  \n"
                 f"{row['bpm'] or '?'} BPM · {row['camelot'] or '?'}{groove} · "
                 f"{row['genres']}")
-    # anche quando e' uno solo: la riga si ascolta come le altre
-    _selection_table(frame, [seed], "seed")
 
     w1, w2, w3 = st.columns(3)
     cost.w_map = w1.slider("Weight — sound", 0.0, 2.0, 1.0, 0.1,
@@ -856,8 +837,14 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
     with mix_tab:
         st.caption("Ranked by the transition cost — sound, tempo and key "
                    "together, with the weights above. Only tracks that pass "
-                   "the filters are considered.")
-        suggestions = nearest(cost, seed, k=shown, pool=pool)
+                   "the filters are considered. **The first row is the seed "
+                   "itself**: where a set starts belongs in it like anything "
+                   "else, and from here it goes in with one tick.")
+        # In testa e a costo zero, che è la verità: da sé a sé non c'è
+        # transizione. Prima il seme non compariva in nessuna delle due liste
+        # e la playlist si popolava solo dei suoi simili — si partiva da un
+        # brano che poi nel set non c'era.
+        suggestions = [(seed, 0.0)] + nearest(cost, seed, k=shown, pool=pool)
         table = pd.DataFrame([{
             "Add": False,
             "cost": round(value, 3),
@@ -912,7 +899,8 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "Pure acoustic closeness, measured in the 1280 dimensions of the "
             "embedding — not on the flattened map, and with no regard for "
             "tempo or key. This is 'what else sounds like this', which is a "
-            "different question from 'what mixes out of this'.")
+            "different question from 'what mixes out of this'. The first row "
+            "is the seed itself, here too.")
         neighbours = pd.DataFrame([{
             "Add": False,
             "similarity": round(score, 3),
@@ -923,7 +911,8 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "folder": frame.at[i, "folder"],
             "_path": frame.at[i, "path"],
             "_row": i,
-        } for i, score in store.similar(seed, k=shown, limit=len(frame))])
+        } for i, score in [(seed, 1.0)]
+            + store.similar(seed, k=shown, limit=len(frame))])
         if not len(neighbours):
             st.info("Nothing to compare this one with yet.")
         else:
@@ -1147,12 +1136,16 @@ def graph_seeds(at_path: dict[str, int]) -> list[int]:
     qui sopra, sceglierne il primo brano vuol dire cercarlo per nome davanti a
     una figura che lo sta già mostrando.
 
-    Il seme viaggia come percorso e non come posizione — vale per lui la
-    stessa ragione del resto della sessione — quindi va ritradotto qui.
+    Il seme e il gruppo viaggiano come percorsi e non come posizioni — vale
+    per loro la stessa ragione del resto della sessione — quindi vanno
+    ritradotti qui. Si leggono dalla sessione e non dal grafico: interrogare
+    il grafico da quaggiù vorrebbe dire chiedergli una selezione che il
+    ridisegno gli ha già portato via (vedi `SELECTION`).
     """
-    picked, _ = read_selection()
-    if picked:
-        return picked
+    selected = [at_path[p] for p in st.session_state.get(SELECTION, [])
+                if p in at_path]
+    if selected:
+        return selected
     seed = at_path.get(st.session_state.get(SEED))
     return [] if seed is None else [seed]
 
