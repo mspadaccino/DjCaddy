@@ -3,8 +3,10 @@ from xml.etree import ElementTree as ET
 
 from analysis.dj_export import (
     _hex_to_rgb,
+    build_m3u8,
     build_rekordbox_xml,
     file_uri,
+    read_m3u8,
     section_cues,
 )
 from analysis.models import Section
@@ -85,3 +87,28 @@ def test_build_rekordbox_xml_empty_tracks():
     xml_str = build_rekordbox_xml([])
     root = ET.fromstring(xml_str)
     assert root.find("COLLECTION").get("Entries") == "0"
+
+
+def test_read_m3u8_keeps_the_order_and_drops_the_directives():
+    text = "#EXTM3U\n#EXTINF:213,A - One\n/Music/one.mp3\n" \
+           "#EXTINF:198,B - Two\n/Music/two.mp3\n"
+    assert read_m3u8(text) == ["/Music/one.mp3", "/Music/two.mp3"]
+
+
+def test_read_m3u8_reads_a_playlist_this_app_wrote():
+    written = build_m3u8([
+        {"path": Path("/Music/one.mp3"), "name": "One", "artist": "A",
+         "duration": 213.0},
+        {"path": Path("/Music/two.mp3"), "name": "Two", "artist": "",
+         "duration": None},
+    ])
+    assert read_m3u8(written) == ["/Music/one.mp3", "/Music/two.mp3"]
+
+
+def test_read_m3u8_turns_file_uris_back_into_paths():
+    text = "#EXTM3U\nfile://localhost/Music/My%20Track.mp3\n"
+    assert read_m3u8(text) == ["/Music/My Track.mp3"]
+
+
+def test_read_m3u8_ignores_blank_lines():
+    assert read_m3u8("\n#EXTM3U\n\n  /Music/one.mp3  \n\n") == ["/Music/one.mp3"]

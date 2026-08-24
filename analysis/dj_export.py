@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 
 from .models import SECTION_COLORS, Section
 
@@ -149,3 +149,28 @@ def build_m3u8(tracks: list[dict]) -> str:
         lines.append(f"#EXTINF:{duration:.0f},{title}")
         lines.append(str(path))
     return "\n".join(lines) + "\n"
+
+
+def read_m3u8(text: str) -> list[str]:
+    """I percorsi di una playlist M3U8, nell'ordine in cui stanno nel file.
+
+    L'inverso di `build_m3u8`, e non solo per le playlist che escono da qui:
+    l'M3U8 è il formato in cui ogni programma DJ sa salvare una scaletta,
+    quindi questo è il modo di riprendere in mano un lavoro cominciato
+    altrove.
+
+    Delle righe che cominciano per `#` non serve niente: `#EXTINF` porta un
+    titolo, ma il brano lo si ritrova per percorso, e il titolo scritto lì
+    dentro può essere vecchio quanto la playlist. Alcuni programmi scrivono i
+    percorsi come URI `file://`, con gli spazi percent-encoded: vanno riportati
+    a percorsi, o non somiglierebbero a niente di quello che sta su disco.
+    """
+    paths = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("file://"):
+            line = unquote(urlparse(line).path)
+        paths.append(line)
+    return paths
