@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from views.components import render_dock
+from views.components import claim_dock
 
 st.set_page_config(page_title="Wavecut", page_icon="🌊", layout="wide")
 
@@ -24,6 +24,8 @@ navigation = st.navigation([
 
 # Prima della pagina, non dopo: il lettore vive in `st.bottom`, che disegna
 # sempre in fondo allo schermo qualunque sia l'ordine, e cosi' resta al suo
-# posto anche nelle pagine che si interrompono a meta' con st.stop().
-render_dock()
+# posto anche nelle pagine che si interrompono a meta' con st.stop(). Qui si
+# PRENOTA il posto: chi sta dentro un frammento lo riempie di nuovo per conto
+# suo, perche' una sua ripartenza non rifa' questo giro.
+claim_dock()
 navigation.run()

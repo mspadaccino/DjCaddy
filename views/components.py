@@ -393,51 +393,77 @@ def _forget() -> None:
     st.session_state.pop(NOW_PLAYING, None)
 
 
-def render_dock() -> None:
-    """Il lettore del brano scelto, fisso in fondo alla pagina.
+DOCK_SLOT = "components::dock_slot"
 
-    Sta in `st.bottom` e non sotto la tabella da cui e' partito: di tabelle
-    ce ne sono tante e sparse, e il lettore spuntava ogni volta in un punto
-    diverso — quasi sempre fuori schermo, cosi' che per mettere in pausa
-    bisognava ritrovarlo. Qui il posto e' sempre lo stesso.
 
-    Si chiama una volta sola, da `app.py`, PRIMA della pagina: `st.bottom`
-    e' un contenitore a se', quindi l'ordine non cambia dove appare, e cosi'
-    il lettore c'e' anche nelle pagine che si fermano presto con st.stop().
+def claim_dock() -> None:
+    """Prenota il posto del lettore in fondo alla pagina, e lo riempie.
+
+    La chiama `app.py` una volta sola, PRIMA della pagina: `st.bottom` e' un
+    contenitore a se', quindi l'ordine non cambia dove appare, e cosi' il
+    lettore c'e' anche nelle pagine che si fermano presto con st.stop().
     """
+    st.session_state[DOCK_SLOT] = st.bottom.empty()
+    fill_dock()
+
+
+def fill_dock(owner: str = "app") -> None:
+    """Mette nel posto gia' prenotato il brano che si sta suonando.
+
+    La chiama anche chi vive dentro un frammento e ha tabelle con ▶ — la
+    lavagna. Un clic dentro un frammento fa ripartire SOLO il frammento:
+    `app.py` non viene rieseguito, e il lettore restava fermo sul brano di
+    prima. Era esattamente il guasto della lavagna.
+
+    Le regole sono di Streamlit, e sono state misurate una per una:
+
+    - il posto va prenotato nel giro intero con `st.bottom.empty()`, o il
+      frammento non ha dove scrivere e si ferma con un errore;
+    - anche il frammento deve scriverci DURANTE il giro intero, altrimenti
+      alla sua prima ripartenza da solo trova il posto non riservato;
+    - le due scritture vogliono chiavi diverse, perche' la stessa chiave due
+      volte nello stesso giro e' un errore. L'ultima vince, quindi sulla
+      pagina della mappa si vede il lettore del frammento;
+    - nel posto ci sta UN elemento solo: il secondo sostituisce il primo, e
+      un container annidato qui rompe l'albero degli elementi sul frontend.
+    """
+    slot = st.session_state.get(DOCK_SLOT)
+    if slot is None:
+        return
+
     current = st.session_state.get(NOW_PLAYING)
     if current is None:
+        slot.empty()             # chiuso col ✕: il posto torna a non esserci
         return
+
     track = Path(current)
-    with st.bottom:
-        if not track.exists():
-            st.warning(f"Not there any more: {track.name}")
-            return
-        mime = PLAYABLE.get(track.suffix.lower())
-        if mime is None:
-            st.info(f"The browser cannot play {track.suffix} files.")
-            return
+    if not track.exists():
+        slot.warning(f"Not there any more: {track.name}")
+        return
+    mime = PLAYABLE.get(track.suffix.lower())
+    if mime is None:
+        slot.info(f"The browser cannot play {track.suffix} files.")
+        return
 
-        try:
-            stat = track.stat()
-            wave = _envelope(str(track), stat.st_mtime, stat.st_size)
-        except OSError:
-            wave = None
-        url = _media_url(track, mime) if wave else None
+    try:
+        stat = track.stat()
+        wave = _envelope(str(track), stat.st_mtime, stat.st_size)
+    except OSError:
+        wave = None
+    url = _media_url(track, mime) if wave else None
 
-        if wave and url:
-            peaks, seconds = wave
-            # una chiave sola per tutta l'app: cambiando brano il componente
-            # non viene rimontato, riceve solo dati nuovi, e il lettore in
-            # fondo resta quello di prima invece di sparire e riapparire.
+    if wave and url:
+        peaks, seconds = wave
+        with slot:
             _wave_player(data={"url": url, "peaks": peaks, "duration": seconds,
                                "name": track.name},
-                         key="wave::dock", height=96,
+                         key=f"wave::dock::{owner}", height=96,
                          on_closed_change=_forget)
-            return
+        return
 
-        st.caption(f"▶ {track.name}")
-        try:
-            st.audio(str(track), format=mime, autoplay=True)
-        except Exception as e:
-            st.warning(f"Could not play it: {e}")
+    # Senza il nome del brano, che nel posto non ci sta: e' un elemento in
+    # piu' e caccerebbe il lettore. Succede solo senza ffmpeg.
+    try:
+        slot.audio(str(track), format=mime, autoplay=True)
+    except Exception as e:
+        slot.warning(f"Could not play it: {e}")

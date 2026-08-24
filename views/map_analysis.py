@@ -47,7 +47,7 @@ from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import (TransitionCost, along_path, closed_shape,
                              magic_sort, nearest)
-from views.components import pick_folder, play_table, tick_all
+from views.components import fill_dock, pick_folder, play_table, tick_all
 from views.graph_board import TICKED, render_graph_builder
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
@@ -1182,6 +1182,11 @@ def render_graph_section(store: MapStore) -> None:
     chosen = [i for i in graph_seeds(at_path) if i < placed]
     render_graph_builder(frame, cost, pool, at_path, chosen,
                          set_playlist=lambda idxs: remember_playlist(frame, idxs))
+    # Il lettore in fondo se lo ridisegna la lavagna, non app.py: un ▶ nelle
+    # sue tabelle fa ripartire solo questo frammento, e il dock disegnato
+    # fuori resterebbe sul brano di prima. Va chiamata anche nel giro intero,
+    # o Streamlit non riserva il posto per le ripartenze.
+    fill_dock("graph")
 
 
 @st.fragment(run_every=2)
