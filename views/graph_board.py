@@ -206,8 +206,12 @@ def _heights(frame: pd.DataFrame, at_path: dict[str, int],
             for path, value in values.items()}
 
 
-def _reordered(walk: list[str], moves: dict[int, float]) -> list[str]:
-    """L'ordine della catena dopo che una riga ha cambiato numero.
+def reordered(walk: list, moves: dict[int, float]) -> list:
+    """L'ordine di una fila dopo che una riga ha cambiato numero.
+
+    Pubblica perche' la usa anche la tabella della playlist, in
+    `views.map_analysis`: e' lo stesso gesto — si riscrive il numero di una
+    riga e la riga va li' — e due copie della stessa regola scivolerebbero.
 
     Si toglie il brano da dov'è e lo si rimette dove è stato chiesto, come
     una carta sfilata dal mazzo e reinfilata: gli altri scorrono e nessuno
@@ -534,7 +538,7 @@ def _ticks(axis: str, values: dict[str, float],
 
 @st.fragment
 def render_board(frame: pd.DataFrame, at_path: dict[str, int],
-                 playlist: list[int], drop) -> None:
+                 playlist: list[int], drop, move) -> None:
     """La playlist come lavagna: una scheda per brano, in fila come suonerà.
 
     Prima disegnava la sola catena del Chain Maker, ed era troppo poco: un
@@ -543,13 +547,14 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
     intero. Qui la lavagna guarda la playlist, quindi mostra tutto ciò che ci
     è finito dentro, da qualunque parte sia arrivato.
 
-    **Le schede non si spostano più a mano.** Si guadagna la cosa per cui una
-    lavagna esiste: se il posto di ogni scheda lo decide solo la regola —
-    ordine in orizzontale, misura in verticale — allora la figura si legge
-    come un grafico, con la sua scala scritta a lato, e due set si
-    confrontano. Con le schede spostabili quella lettura non si poteva
-    promettere: bastava un trascinamento perché l'altezza smettesse di voler
-    dire quello che diceva la didascalia.
+    **Un punto si trascina, ma solo lungo la fila.** La regola resta quella
+    per cui una lavagna esiste — ordine in orizzontale, misura in verticale —
+    e proprio per questo la x si può tirare: la x È l'ordine, quindi
+    trascinarla vuol dire riordinare, e `move` porta il nuovo ordine alla
+    playlist. La y no, e non per prudenza: la si sposterebbe senza aver
+    cambiato niente di ciò che misura, e la scala a sinistra direbbe il falso.
+    Era questo il guasto del trascinamento libero di prima, non il
+    trascinamento in sé.
 
     È un frammento perché un click su una scheda fa ripartire lo script, e
     ripartire per intero vuol dire ridisegnare la mappa da ottantamila punti.
@@ -575,6 +580,16 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
             # non ha più una copia sua da cui cancellarlo.
             drop(at_path[who])
             return
+        elif kind == "move" and who in paths:
+            # Stessa regola della colonna "#" nelle tabelle, e apposta la
+            # stessa funzione: il brano si sfila da dov'era e si reinfila
+            # dove è stato lasciato, gli altri scorrono.
+            where = event.get("to")
+            if isinstance(where, int) and 0 <= where < len(paths):
+                order = reordered(paths, {paths.index(who): where + 1})
+                if order != paths:
+                    move([at_path[p] for p in order if p in at_path])
+                    return
 
     axis = st.radio("Height means", list(HEIGHT_FIELDS), horizontal=True,
                     key="board_axis_pick",
@@ -618,6 +633,8 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
                "measure above, on the scale at the left. **Hover** a point "
                "for its numbers, **click** it to pick it — underneath, **▶** "
                "listens to it and the **bin** takes it out of the playlist. "
+               "**Drag** a point sideways to move it in the set: the others "
+               "slide and the wave re-forms as you cross a lane. "
                "**Scroll** zooms, dragging the background moves, and **⛶** "
                "goes full screen.")
 
@@ -673,7 +690,7 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
         moves = {int(row): values["#"]
                  for row, values in st.session_state.get(chain_key, {})
                  .get("edited_rows", {}).items() if "#" in values}
-        order = _reordered(walk, moves) if moves else walk
+        order = reordered(walk, moves) if moves else walk
         if order != walk:
             # Ricostruire invece di ricucire i collegamenti: una sequenza
             # scritta a mano È una fila, e un grafo ramificato non

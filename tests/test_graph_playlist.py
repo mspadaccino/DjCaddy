@@ -269,25 +269,25 @@ def test_two_edits_of_one_song_stay_two_voices_while_neither_is_taken():
 
 
 def test_a_row_moved_up_slides_the_others_down():
-    from views.graph_board import _reordered
+    from views.graph_board import reordered
     walk = ["a", "b", "c", "d"]
-    assert _reordered(walk, {3: 1}) == ["d", "a", "b", "c"]
+    assert reordered(walk, {3: 1}) == ["d", "a", "b", "c"]
 
 
 def test_a_row_moved_down_takes_its_place_between_the_others():
-    from views.graph_board import _reordered
+    from views.graph_board import reordered
     walk = ["a", "b", "c", "d"]
-    assert _reordered(walk, {0: 3}) == ["b", "c", "a", "d"]
+    assert reordered(walk, {0: 3}) == ["b", "c", "a", "d"]
 
 
 def test_a_position_outside_the_chain_lands_at_the_nearest_end():
-    from views.graph_board import _reordered
+    from views.graph_board import reordered
     walk = ["a", "b", "c"]
-    assert _reordered(walk, {1: 99}) == ["a", "c", "b"]
-    assert _reordered(walk, {1: 0}) == ["b", "a", "c"]
+    assert reordered(walk, {1: 99}) == ["a", "c", "b"]
+    assert reordered(walk, {1: 0}) == ["b", "a", "c"]
 
 
 def test_the_same_number_leaves_the_chain_alone():
-    from views.graph_board import _reordered
+    from views.graph_board import reordered
     walk = ["a", "b", "c"]
-    assert _reordered(walk, {1: 2}) == walk
+    assert reordered(walk, {1: 2}) == walk

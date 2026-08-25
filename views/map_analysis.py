@@ -49,7 +49,8 @@ from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
 from views.components import (NOW_PLAYING, fill_dock, pick_folder,
                               play_table, tick_all)
-from views.graph_board import TICKED, render_board, render_chain_maker
+from views.graph_board import (TICKED, render_board, render_chain_maker,
+                               reordered)
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
 # ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
@@ -1147,6 +1148,16 @@ def _drop_from_playlist(frame: pd.DataFrame, playlist: list[int],
     st.rerun()
 
 
+def _reorder_playlist(frame: pd.DataFrame, order: list[int]) -> None:
+    """Rimette la playlist nell'ordine deciso trascinando sulla lavagna.
+
+    Giro intero come per la rimozione, e per la stessa ragione: la tabella
+    qui sopra e la linea sulla mappa raccontano questa stessa fila.
+    """
+    remember_playlist(frame, order)
+    st.rerun()
+
+
 def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
                     playlist: list[int], at_path: dict[str, int]) -> None:
     """La playlist come sta, come portarsela via e come riprenderne una.
@@ -1174,6 +1185,7 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     costs = [None] + [cost.between(a, b) for a, b in zip(playlist, playlist[1:])]
     table = pd.DataFrame([{
         "#": position + 1,
+        "Drop": False,
         "file": frame.at[i, "name"],
         "BPM": frame.at[i, "bpm"],
         "key": frame.at[i, "camelot"],
@@ -1181,17 +1193,48 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
         "genres": frame.at[i, "genres"],
         "folder": frame.at[i, "folder"],
         "_path": frame.at[i, "path"],
+        "_row": i,
     } for position, (i, step) in enumerate(zip(playlist, costs))])
 
-    play_table("map_playlist", table,
-               ["#", "file", "BPM", "key", "from previous", "genres", "folder"],
-               {"file": st.column_config.TextColumn(disabled=True),
-                "folder": st.column_config.Column(disabled=True),
-                "from previous": st.column_config.NumberColumn(
-                    "from previous", disabled=True,
-                    help="The transition cost from the track above: 0 is "
-                         "seamless, 1 is as far as this library goes.")},
-               editable=False, editor_key="map_playlist_editor")
+    # La firma della playlist sta nella chiave, come per la catena: appena
+    # l'ordine cambia la tabella rinasce, e il numero appena riscritto non
+    # resta nello stato del widget a riapplicarsi a ogni giro.
+    editor_key = "map_playlist_editor::" + "|".join(table["_path"])
+    edited = play_table(
+        "map_playlist", table,
+        ["#", "Drop", "file", "BPM", "key", "from previous", "genres",
+         "folder"],
+        {"#": st.column_config.NumberColumn(
+            "#", min_value=1, max_value=len(playlist), step=1,
+            help="Write the position you want this track in: the row moves "
+                 "there and the others slide."),
+         "Drop": st.column_config.CheckboxColumn(
+             "Drop", help="Tick what you want out, then the button below."),
+         "from previous": st.column_config.NumberColumn(
+             "from previous", disabled=True,
+             help="The transition cost from the track above: 0 is "
+                  "seamless, 1 is as far as this library goes."),
+         **_read_only("file", "BPM", "key", "genres", "folder")},
+        editor_key=editor_key)
+
+    # Riscrivere un numero sposta la riga. Si legge dallo stato del widget e
+    # non dalla tabella restituita: quello che serve è QUALE riga è stata
+    # toccata, e il valore da solo non lo dice.
+    moves = {int(row): values["#"]
+             for row, values in st.session_state.get(editor_key, {})
+             .get("edited_rows", {}).items() if "#" in values}
+    order = reordered(playlist, moves) if moves else playlist
+    if order != playlist:
+        remember_playlist(frame, order)
+        st.rerun()
+
+    doomed = {int(i) for i in edited.loc[edited["Drop"], "_row"]}
+    if st.button(f"🗑 Remove the {len(doomed)} ticked track(s)"
+                 if doomed else "🗑 Remove the ticked tracks",
+                 width="stretch", disabled=not doomed,
+                 key="map::playlist_drop"):
+        remember_playlist(frame, [i for i in playlist if i not in doomed])
+        st.rerun()
 
     worst = max((c for c in costs if c is not None), default=0)
     st.caption(f"Roughest transition: **{worst:.3f}**. Magic sort is what "
@@ -1201,7 +1244,8 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     # arrivati: è qui che si vede la forma del set, e non nella sezione che
     # ne scrive un pezzo.
     render_board(frame, at_path, playlist,
-                 drop=lambda i: _drop_from_playlist(frame, playlist, i))
+                 drop=lambda i: _drop_from_playlist(frame, playlist, i),
+                 move=lambda order: _reorder_playlist(frame, order))
 
     p1, p2, p3, p4 = st.columns(4)
     if p1.button("✨ Magic sort", width="stretch", disabled=len(playlist) < 3):

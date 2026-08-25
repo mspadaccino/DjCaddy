@@ -8,7 +8,10 @@
           "Segoe UI", sans-serif; }
   svg { display: block; width: 100%; touch-action: none; user-select: none; }
   #wrap.panning svg { cursor: grabbing; }
-  .node { cursor: pointer; }
+  #wrap.dragging svg { cursor: grabbing; }
+  /* Il punto si afferra: e' la mano che dice che si puo' spostare, prima
+     che qualcuno provi a spostarlo. */
+  .node { cursor: grab; }
   .board-text { pointer-events: none; }
   .trash { cursor: pointer; }
 
@@ -98,6 +101,7 @@
   var view = { z: 1, tx: 0, ty: 0 };
   var pan = null;      // trascinamento dello sfondo
   var roaming = false; // trascinamento dentro la mappina
+  var drag = null;     // un punto preso e portato lungo la fila
   var pending = null;  // un render arrivato a gesto in corso
   var fittedFor = null;
   var scene = null, minimap = null, skin = null;
@@ -141,6 +145,27 @@
   }
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  // Il punto dell'evento nelle coordinate della SCENA, cioe' al netto dello
+  // zoom e dello spostamento: e' li' che vivono le corsie.
+  function sceneAt(evt) {
+    var p = svgPoint(evt);
+    return { x: (p.x - view.tx) / view.z, y: (p.y - view.ty) / view.z };
+  }
+
+  // In quale corsia cade una x. E' l'inversa di `spot`, e non e' un dettaglio
+  // che sia esattamente l'inversa: il punto va dove lo si vede andare.
+  function slotAt(x) {
+    return clamp(Math.round((x - GUTTER) / LANE - 0.5),
+                 0, state.nodes.length - 1);
+  }
+
+  function indexOf(id) {
+    for (var i = 0; i < state.nodes.length; i++) {
+      if (state.nodes[i].id === id) return i;
+    }
+    return -1;
+  }
 
   function el(tag, attrs) {
     var e = document.createElementNS("http://www.w3.org/2000/svg", tag);
@@ -198,6 +223,17 @@
            ", " + p2.x + " " + p2.y;
     }
     return d;
+  }
+
+  // Il punto in mano segue il dito lungo la fila, e SOLO lungo la fila: la
+  // sua altezza resta quella che gli da' la misura. E' la ragione per cui
+  // questo trascinamento e' lecito dove quello libero non lo era — la x e'
+  // gia' l'ordine, quindi tirarla e' cambiare l'ordine; la y direbbe una
+  // misura che nessuno ha cambiato.
+  function applyDrag() {
+    if (!drag || !drag.group) return;
+    drag.group.setAttribute(
+      "transform", "translate(" + drag.x + "," + spot(drag.index).y + ")");
   }
 
   function applyView() {
@@ -278,6 +314,7 @@
   }
 
   function showTip(i, group) {
+    if (drag) return;   // col punto in mano il cartellino e' solo un ostacolo
     var n = state.nodes[i];
     var shift = n.shift || {};
     var cells = "";
@@ -365,9 +402,20 @@
 
     g.addEventListener("pointerenter", function () { showTip(i, g); });
     g.addEventListener("pointerleave", hideTip);
+    // Premere prende il punto e basta. Cosa voleva dire il gesto si sa al
+    // rilascio: fermo era un click, spostato era un cambio d'ordine. Deciderlo
+    // qui vorrebbe dire mandare un click a ogni trascinamento.
     g.addEventListener("pointerdown", function (evt) {
       evt.stopPropagation();
-      sendValue({ type: "click", id: n.id });
+      hideTip();
+      var at = indexOf(n.id);
+      if (at < 0) return;
+      drag = { id: n.id, index: at, from: at, x: spot(at).x,
+               grab: sceneAt(evt).x - spot(at).x,
+               clientX: evt.clientX, moved: false, group: null };
+      svg.setPointerCapture(evt.pointerId);
+      wrap.classList.add("dragging");
+      render();   // il punto preso passa sopra ai vicini che sfiora
     });
     return g;
   }
@@ -482,15 +530,22 @@
                                      "stroke-linejoin": "round" }));
     }
 
-    // Il selezionato per ultimo, così sta sopra ai vicini che sfiora.
-    var chosen = -1;
+    // Il selezionato per ultimo, così sta sopra ai vicini che sfiora; e il
+    // punto in mano dopo di lui, perché è quello che si sta guardando.
+    var chosen = indexOf(state.selected);
+    var held = drag ? drag.index : -1;
     state.nodes.forEach(function (n, i) {
-      if (n.id === state.selected) { chosen = i; return; }
+      if (i === chosen || i === held) return;
       scene.appendChild(drawNode(i, false));
     });
-    if (chosen >= 0) scene.appendChild(drawNode(chosen, true));
+    if (chosen >= 0 && chosen !== held) scene.appendChild(drawNode(chosen, true));
+    if (held >= 0) {
+      drag.group = drawNode(held, held === chosen);
+      scene.appendChild(drag.group);
+    }
 
     svg.appendChild(scene);
+    applyDrag();
 
     // Fuori dalla scena: la mappina non si sposta né si ingrandisce con
     // quello che racconta.
@@ -538,6 +593,25 @@
   });
 
   svg.addEventListener("pointermove", function (evt) {
+    if (drag) {
+      // Fermo entro qualche pixel DELLO SCHERMO, non della scena: a lavagna
+      // rimpicciolita dallo zoom la stessa distanza in unità di scena sarebbe
+      // meno di un pixel, e ogni click diventerebbe uno spostamento.
+      if (Math.abs(evt.clientX - drag.clientX) > 4) drag.moved = true;
+      drag.x = sceneAt(evt).x - drag.grab;
+      var want = slotAt(drag.x);
+      if (want !== drag.index) {
+        // La fila si riordina sotto il dito e i numeri seguono: quello che si
+        // vede mentre si sposta è già la scaletta che si otterrà.
+        state.nodes.splice(want, 0, state.nodes.splice(drag.index, 1)[0]);
+        state.nodes.forEach(function (n, i) { n.n = i + 1; });
+        drag.index = want;
+        render();          // ridisegna solo quando si cambia corsia
+      } else {
+        applyDrag();       // dentro la corsia basta spostare il punto
+      }
+      return;
+    }
     if (roaming) { roamTo(evt); return; }
     if (pan) {
       view.tx = pan.tx + (evt.clientX - pan.x);
@@ -555,8 +629,29 @@
     if (pending) { accept(pending); pending = null; }
   }
 
-  svg.addEventListener("pointerup", endPan);
-  svg.addEventListener("pointercancel", endPan);
+  // Il rilascio dice cosa voleva dire il gesto. Fermo era un click sul brano;
+  // spostato in un'altra corsia è un ordine nuovo, e lo si manda a Python —
+  // che rifà la playlist e ridisegna. Spostato e rimesso dov'era non è
+  // successo niente, e non si disturba nessuno.
+  function endDrag() {
+    if (!drag) return;
+    var was = drag, moved = drag.moved && drag.index !== drag.from;
+    drag = null;
+    wrap.classList.remove("dragging");
+    render();
+    if (!was.moved) sendValue({ type: "click", id: was.id });
+    else if (moved) sendValue({ type: "move", id: was.id, to: was.index });
+    else if (pending) { accept(pending); pending = null; }
+  }
+
+  svg.addEventListener("pointerup", function (evt) {
+    if (drag) { endDrag(); return; }
+    endPan(evt);
+  });
+  svg.addEventListener("pointercancel", function (evt) {
+    if (drag) { endDrag(); return; }
+    endPan(evt);
+  });
 
   function zoomAt(factor, cx, cy) {
     var next = clamp(view.z * factor, MIN_Z, MAX_Z);
@@ -607,7 +702,7 @@
     // Col dito ancora giù non si ricostruisce niente: Streamlit rimanda le
     // sue proprietà a ogni giro di pagina, e un giro qualsiasi può capitare
     // a metà di uno spostamento della vista.
-    if (pan || roaming) { pending = data; return; }
+    if (pan || roaming || drag) { pending = data; return; }
     accept(data);
   });
 
