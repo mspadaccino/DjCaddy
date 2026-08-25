@@ -179,3 +179,24 @@ def test_a_group_sorted_onto_nothing_picks_its_own_start():
     order = sorted_after(cost, [], [2, 0, 1])
     assert sorted(order) == [0, 1, 2]
     assert all(abs(b - a) == 1 for a, b in zip(order, order[1:]))
+
+
+def test_an_accent_written_the_other_way_is_the_same_track():
+    """macOS scrive "Hervé" decomposto, rekordbox lo ricompone: stessa
+    parola, due stringhe, e il brano spariva dalla playlist."""
+    import unicodedata
+    decomposto = unicodedata.normalize("NFD", "/DJSet/80s/Hervé.mp3")
+    composto = unicodedata.normalize("NFC", "/DJSet/80s/Hervé.mp3")
+    assert decomposto != composto
+    found, missing = playlist_positions([composto], {decomposto: 7})
+    assert found == [7]
+    assert missing == []
+
+
+def test_the_accent_is_matched_by_name_too_when_the_library_has_moved():
+    import unicodedata
+    decomposto = unicodedata.normalize("NFD", "/DJSet/80s/Hervé.mp3")
+    composto = unicodedata.normalize("NFC", "/Volumes/OldDrive/80s/Hervé.mp3")
+    found, missing = playlist_positions([composto], {decomposto: 7})
+    assert found == [7]
+    assert missing == []

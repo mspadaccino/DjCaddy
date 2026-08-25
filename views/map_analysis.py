@@ -27,6 +27,7 @@ import os
 import subprocess
 import sys
 import time
+import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -1064,6 +1065,11 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                 st.rerun()
 
 
+def _composed(text: str) -> str:
+    """Il testo con gli accenti in un carattere solo (NFC), per confrontarlo."""
+    return unicodedata.normalize("NFC", text)
+
+
 def playlist_positions(paths, at_path: dict[str, int]) -> tuple[list[int], list[str]]:
     """Da una playlist letta da file alle posizioni sulla mappa.
 
@@ -1079,17 +1085,31 @@ def playlist_positions(paths, at_path: dict[str, int]) -> tuple[list[int], list[
     Chi non si trova torna indietro per nome: sono i brani che sulla mappa non
     ci sono ancora, e la playlist non può indicarli perché una posizione che
     non esiste non è un brano.
+
+    **Gli accenti si confrontano composti.** macOS scrive i nomi dei file
+    decomposti — "Hervé" è "Herve" più il segno di accento, due caratteri —
+    mentre chi riscrive la playlist di solito li ricompone: rekordbox lo fa.
+    Sono la stessa parola sullo schermo e due stringhe diverse per il
+    programma, quindi il percorso non combaciava e nemmeno il ripiego sul
+    nome. Non è un caso di confine: 4.067 brani su 87.010 di questa libreria
+    (il 4,7%) hanno un nome decomposto, e bastava un artista accentato perché
+    una scaletta tornata da rekordbox arrivasse monca — con l'aggravante che
+    il messaggio mandava ad aggiungere alla mappa una cartella che c'era già
+    tutta. Si confronta allora una forma sola, e la mappa continua a
+    conservare il percorso VERO, che è quello che poi riapre il file.
     """
+    by_path: dict[str, int] = {}
     by_name: dict[str, int] = {}
     for path, i in at_path.items():
-        by_name.setdefault(os.path.basename(path), i)
+        by_path.setdefault(_composed(path), i)
+        by_name.setdefault(_composed(os.path.basename(path)), i)
 
     found: list[int] = []
     missing: list[str] = []
     for path in paths:
-        i = at_path.get(os.path.abspath(path))
+        i = by_path.get(_composed(os.path.abspath(path)))
         if i is None:
-            i = by_name.get(os.path.basename(path))
+            i = by_name.get(_composed(os.path.basename(path)))
         if i is None:
             missing.append(path)
         elif i not in found:
