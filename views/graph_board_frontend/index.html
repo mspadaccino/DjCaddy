@@ -297,7 +297,7 @@
       var s = spot(i);
       minimap.appendChild(el("circle", {
         cx: MAP_X + (s.x / bw) * MAP_W, cy: MAP_Y + (s.y / H) * MAP_H,
-        r: n.id === state.selected ? 2.6 : 1.8, fill: n.color,
+        r: n.id === state.selected ? 2.6 : 1.8, fill: warm(n.height),
         "fill-opacity": n.id === state.selected ? 1 : 0.75 }));
     });
   }
@@ -386,20 +386,23 @@
                       transform: "translate(" + s.x + "," + s.y + ")" });
     var r = sel ? R_SEL : R;
 
-    // Un alone del colore del brano sotto il punto: da lontano è quello che
-    // fa vedere dove il set cambia colore, cioè dove cambia musica.
-    g.appendChild(el("circle", { r: r + 7, fill: n.color, "fill-opacity": 0.16 }));
+    // Un alone del colore del GENERE sotto il punto: da lontano è quello che
+    // fa vedere dove il set cambia colore, cioè dove cambia musica. Il punto
+    // sopra è invece caldo come l'onda, quindi l'alone è rimasto solo a
+    // dirlo e vuole un filo di opacità in più.
+    var glow = warm(n.height);
+    g.appendChild(el("circle", { r: r + 7, fill: n.color, "fill-opacity": 0.22 }));
     if (sel) {
       g.appendChild(el("circle", { r: r + 4, fill: "none", stroke: skin.ink,
                                    "stroke-opacity": 0.6, "stroke-width": 1.4 }));
     }
-    g.appendChild(el("circle", { r: r, fill: n.color, stroke: skin.paper,
+    g.appendChild(el("circle", { r: r, fill: glow, stroke: skin.paper,
                                  "stroke-width": 2, filter: "url(#resting)" }));
     // Il numero d'ordine dentro il punto: davanti a una fila la prima
     // domanda è "questo quando suona".
     g.appendChild(text(n.n, { x: 0, y: sel ? 4.5 : 3.5, "text-anchor": "middle",
                               "font-size": sel ? 12 : 10, "font-weight": 700,
-                              fill: readable(n.color) }));
+                              fill: readable(glow) }));
 
     if (sel) {
       // Il titolo del solo selezionato, sotto il punto: uno per volta si
@@ -462,7 +465,9 @@
           card: "#1b1f27", chip: "rgba(238,241,246,0.09)",
           faint: "rgba(238,241,246,0.14)", danger: "#e0503b",
           shadow: "#000000", shade: "rgba(0,0,0,0.55)", rest: 0.45,
-          swell: 0.20,
+          // L'onda calda vuole più corpo dell'ombra grigia che c'era prima:
+          // l'arancio a bassa opacità sul nero sparisce, dove il bianco no.
+          swell: 0.34,
           // Caldo sale, freddo scende. Non verde e rosso: salire non è
           // giusto e scendere non è un errore — un set fa entrambe le cose.
           rise: "#e0a260", fall: "#7fb4e0" }
@@ -470,8 +475,26 @@
           card: "#ffffff", chip: "rgba(27,31,39,0.06)",
           faint: "rgba(27,31,39,0.12)", danger: "#c0392b",
           shadow: "#1b1f27", shade: "rgba(27,31,39,0.18)", rest: 0.2,
-          swell: 0.13,
+          swell: 0.28,
           rise: "#a8600f", fall: "#25689e" };
+  }
+
+  // La sfumatura calda dell'onda: arancio bruciato in basso, giallo in cima.
+  // Dice la stessa cosa dell'altezza — che è la misura scelta — ma la dice a
+  // colpo d'occhio e senza passare dalla scala a sinistra; e da lontano fa
+  // dell'onda una cosa sola, invece di una fila di pallini di dodici colori.
+  //
+  // Il genere non se ne va: resta l'alone sotto al punto, che è sempre stato
+  // il segnale da lontano di "qui cambia musica", e sta scritto per esteso
+  // sulla scheda che compare passandoci sopra.
+  var WARM_LOW = [214, 106, 44], WARM_HIGH = [246, 210, 110];
+
+  function warm(height) {
+    var h = clamp(height == null ? 0.5 : height, 0, 1);
+    var c = WARM_LOW.map(function (v, i) {
+      return Math.round(v + (WARM_HIGH[i] - v) * h);
+    });
+    return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
   }
 
   function wayInk(way) {
@@ -519,10 +542,15 @@
                                        "flood-color": skin.shadow,
                                        "flood-opacity": skin.rest }));
     defs.appendChild(f);
+    // Tre fermate e non due: il giallo sta dove passa la cresta, l'arancio
+    // sotto, e il fondo si spegne. Con due sole il colore in mezzo sarebbe
+    // una media dei due e la sfumatura non si vedrebbe.
     var swell = el("linearGradient", { id: "swell", x1: 0, y1: 0, x2: 0, y2: 1 });
-    swell.appendChild(el("stop", { offset: "0%", "stop-color": skin.ink,
+    swell.appendChild(el("stop", { offset: "0%", "stop-color": warm(1),
                                    "stop-opacity": skin.swell }));
-    swell.appendChild(el("stop", { offset: "100%", "stop-color": skin.ink,
+    swell.appendChild(el("stop", { offset: "55%", "stop-color": warm(0),
+                                   "stop-opacity": skin.swell * 0.55 }));
+    swell.appendChild(el("stop", { offset: "100%", "stop-color": warm(0),
                                    "stop-opacity": 0 }));
     defs.appendChild(swell);
     svg.appendChild(defs);
