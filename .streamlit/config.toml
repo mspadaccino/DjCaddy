@@ -1,0 +1,40 @@
+# I due aspetti dell'app: il chiaro com'è sempre stato, lo scuro per la notte.
+#
+# L'interruttore è quello di Streamlit — menu ⋮ ▸ Settings ▸ Appearance —
+# e non ce n'è un altro: il tema è una cosa del frontend, e da Python non si
+# può cambiare a pagina aperta. Non serve comunque, perché l'app lo segue già
+# da sé: la mappa, la lavagna della playlist, la ruota Camelot e il lettore in
+# fondo alla pagina leggono `st.context.theme` e hanno ognuno la propria pelle
+# scura.
+#
+# Il chiaro non si tocca: senza una sezione [theme.light] resta quello di
+# Streamlit, cioè esattamente com'è adesso.
+
+[theme.dark]
+# Il fondo È quello che i componenti disegnano già dentro di sé — la lavagna
+# lo chiama `paper`, la mappa `SKIN["dark"]["paper"]` — e sono tutti #0e1117.
+# Scegliere qui un nero diverso vorrebbe dire una cucitura visibile attorno a
+# ogni grafico, che di notte si nota molto più che di giorno.
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#171C26"
+textColor = "#EEF1F6"
+borderColor = "#262D3A"
+dataframeHeaderBackgroundColor = "#171C26"
+codeBackgroundColor = "#12161F"
+
+# L'accento caldo al posto del rosso. Non è un gusto: il rosso saturo su
+# fondo nero vibra sui bordi, e questa famiglia di arancio l'app già la parla
+# — è il colore con cui la lavagna segna quello che SALE (`rise`, #e0a260).
+primaryColor = "#E8833A"
+linkColor = "#E8A45E"
+
+# L'angolo tondo delle schede scure: la stessa forma che hanno il cartellino
+# della lavagna e le tessere del lettore.
+baseRadius = "0.6rem"
+buttonRadius = "0.6rem"
+
+[theme.dark.sidebar]
+# La colonna delle sezioni un gradino più scura della pagina: di notte è ciò
+# che la stacca, dove di giorno bastava il grigio chiaro.
+backgroundColor = "#0A0D12"
+borderColor = "#1E2430"

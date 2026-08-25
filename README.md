@@ -90,6 +90,14 @@ were already processed: use `--no-cache` to force re-analysis.
 poetry run streamlit run app.py
 ```
 
+**Night mode.** The ⋮ menu at the top right switches between *System*, *Light*
+and *Dark*. The dark side is the app's own, defined in `.streamlit/config.toml`:
+near-black page, warm amber accent, and the same `#0e1117` the map, the playlist
+board and the Camelot wheel already paint themselves with — so the charts have
+no seam around them. They follow the switch at the first rerun after it, since
+the theme is a frontend choice and Python learns about it only when the script
+runs again.
+
 Pick a **single track** (path field or “Browse…”, the files are already on
 disk), run the analysis. Each analysis saves a **sidecar** `<name>_analysis.json`
 next to the track: on a later reload, if that file exists and *Force analysis if
