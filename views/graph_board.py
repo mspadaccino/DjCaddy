@@ -67,6 +67,13 @@ GRAPH_KEYS_EVENT = "map::graph_keys_event"
 # lavagna si rieseguirebbe all'infinito.
 BOARD_EVENT = "map::board_event"
 BOARD_PICKED = "map::board_picked"
+# La misura scelta per l'altezza, tenuta in una chiave NORMALE e non solo in
+# quella del radio. Un gesto sulla lavagna — riordinare, togliere un brano —
+# esce da `render_board` prima che il radio esista, e Streamlit butta via lo
+# stato di un widget che quel giro non ha disegnato: alla ripartenza si
+# tornava a guardare la prima misura della lista. Riordinare un set non deve
+# cambiare cosa si sta guardando del set.
+BOARD_AXIS = "map::board_axis"
 
 # Sopra questa quantità di brani il menu per nome non si apre più in fretta:
 # si cerca prima, si sceglie dopo.
@@ -146,6 +153,12 @@ def _some(row, column: str):
 # dall'ordine della scaletta, che non è negoziabile; l'altezza invece è libera
 # e può portare la misura che in quel momento racconta il set.
 HEIGHT_FIELDS = {"BPM": "bpm", "key": "camelot", "groove": "danceability"}
+# Quella che si apre da sé è il groove, non il BPM: un set si costruisce fra
+# brani di tempo vicino — è il senso del costo di transizione — quindi la
+# linea dei BPM nasce quasi piatta e non ha molto da dire, mentre la
+# regolarità del ritmo sale e scende per tutta la serata. L'ordine delle voci
+# resta quello: si cambia cosa si guarda per primo, non dove si clicca.
+DEFAULT_HEIGHT = "groove"
 
 
 def _measured(frame: pd.DataFrame, at_path: dict[str, int],
@@ -592,9 +605,13 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
                     return
 
     axis = st.radio("Height means", list(HEIGHT_FIELDS), horizontal=True,
+                    index=list(HEIGHT_FIELDS).index(
+                        st.session_state.get(BOARD_AXIS, DEFAULT_HEIGHT)),
                     key="board_axis_pick",
                     help="Left to right is always the playlist order. This "
                          "picks what the vertical axis says.")
+    # Ricordata fuori dal widget: vedi BOARD_AXIS.
+    st.session_state[BOARD_AXIS] = axis
 
     values = _measured(frame, at_path, paths, axis)
     heights = _heights(frame, at_path, paths, axis)
