@@ -47,7 +47,8 @@ from analysis.map_projection import available as umap_available
 from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
-from views.components import fill_dock, pick_folder, play_table, tick_all
+from views.components import (NOW_PLAYING, fill_dock, pick_folder,
+                              play_table, tick_all)
 from views.graph_board import TICKED, render_board, render_chain_maker
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
@@ -237,6 +238,17 @@ def sorted_after(cost: TransitionCost, playlist: list[int],
     tail = playlist[-1]
     return magic_sort(cost, group,
                       start=min(group, key=lambda i: cost.between(tail, i)))
+
+
+def _play(path: str | None) -> None:
+    """Manda un brano al lettore in fondo alla pagina.
+
+    Serve dove il ▶ non sta dentro una tabella e quindi non ce l'ha già
+    `play_table`: il canale è lo stesso, una riga in sessione che il dock
+    legge quando si disegna.
+    """
+    if path is not None:
+        st.session_state[NOW_PLAYING] = path
 
 
 def remember_seed(frame: pd.DataFrame, index: int) -> None:
@@ -512,8 +524,15 @@ def render_infos(store: MapStore) -> None:
         st.rerun()
 
 
-def render_map(store: MapStore) -> None:
-    """La mappa, la selezione e la playlist: il cuore della pagina."""
+def render_map(store: MapStore) -> tuple | None:
+    """La mappa e la scelta: il cuore della pagina.
+
+    Torna quello che serve a Magic Playlist per lavorare sulla scelta appena
+    fatta — `(frame, cost, pool, store, seed, selected, playlist)`, gli
+    argomenti di `render_magic_playlist` — o `None` se non c'e' mappa da
+    guardare. La sezione che li usa si disegna fuori di qui, accanto al Chain
+    Maker: sono due tab della stessa cosa, e devono uscire dallo stesso posto.
+    """
     if not len(store):
         st.info("The map is empty. Open **Map settings** above and point "
                 "*Add tracks to the map* at a folder.")
@@ -711,26 +730,26 @@ def render_map(store: MapStore) -> None:
     if st.session_state.get("map::seedpick") not in set(options):
         st.session_state.pop("map::seedpick", None)
     if options:
-        st.selectbox("Seed track", options=options, index=None,
-                     format_func=lambda i: f"{frame.at[i, 'name']}  ·  "
-                                           f"{Path(frame.at[i, 'folder']).name}",
-                     key="map::seedpick", placeholder="…pick one")
+        # Il ▶ accanto al menu, non sotto: si sceglie un brano per nome senza
+        # averlo mai sentito, e la prova sta nell'ascoltarlo. È lo stesso ▶
+        # delle tabelle — il brano finisce nel lettore in fondo alla pagina —
+        # e per la stessa ragione passa da un `on_click`: il lettore si
+        # disegna prima di questa riga, e un valore scritto adesso lo
+        # troverebbe già disegnato sul brano di prima.
+        picking, listening = st.columns([6, 1], vertical_alignment="bottom")
+        picking.selectbox("Seed track", options=options, index=None,
+                          format_func=lambda i: f"{frame.at[i, 'name']}  ·  "
+                                                f"{Path(frame.at[i, 'folder']).name}",
+                          key="map::seedpick", placeholder="…pick one")
+        chosen = st.session_state.get("map::seedpick")
+        listening.button(
+            "▶", key="map::seedplay", width="stretch",
+            disabled=chosen is None, on_click=_play,
+            args=(frame.at[chosen, "path"] if chosen is not None else None,),
+            help="Hear the track picked here, in the player at the bottom "
+                 "of the page.")
 
-
-    st.divider()
-
-    # La sezione sta in un blocco a scomparsa suo, separata dal Chain Maker:
-    # sono due modi diversi di costruire un set e mescolarli in una colonna
-    # sola voleva dire non vedere mai per intero ne' l'uno ne' l'altro. Si
-    # apre da se' quando c'e' qualcosa da farci — una selezione o una
-    # playlist gia' iniziata — perche' chiusa e vuota non direbbe nulla.
-    _has_choice = bool(selected or seed is not None)
-    with st.expander(
-            "✨ Magic Playlist — turn a selection into an ordered set"
-            + (f" · {len(playlist)} track(s) so far" if playlist else ""),
-            expanded=_has_choice or bool(playlist)):
-        render_magic_playlist(frame, cost, pool, store, seed, selected,
-                              playlist)
+    return frame, cost, pool, store, seed, selected, playlist
 
 
 def selection_rows(frame: pd.DataFrame, indices) -> pd.DataFrame:
@@ -822,14 +841,60 @@ def render_magic_playlist(frame: pd.DataFrame, cost: TransitionCost, pool,
                 "the seed, or drag the lasso or the box around a group.")
 
 
+def render_set_builder(store: MapStore, context: tuple | None) -> None:
+    """I due modi di costruire un set, in due tab della stessa sezione.
+
+    Erano due blocchi a scomparsa, uno sotto l'altro: aperti tutti e due
+    facevano una colonna in cui né l'uno né l'altro si vedeva per intero,
+    chiusi tutti e due non dicevano che erano la stessa domanda — come si
+    passa dalla mappa a una scaletta — con due risposte. In due tab se ne
+    vede uno alla volta e per intero, e restano affiancati.
+
+    Il Chain Maker c'è comunque, anche quando `context` è `None`: lavora sui
+    brani piazzati e sui filtri suoi, e non ha motivo di sparire perché i
+    filtri della mappa qui sopra non hanno lasciato passare niente.
+    """
+    if not len(store) or not store.placed:
+        return
+    if context is None:
+        seed, selected, playlist = None, [], []
+    else:
+        *_, seed, selected, playlist = context
+
+    # Quale dei due si apre per primo: la scelta appena fatta sulla mappa
+    # comanda, perché è il gesto più recente; se non ce n'è nessuna e una
+    # catena è già in piedi, si apre quella. È la stessa regola con cui i due
+    # blocchi si aprivano da sé, detta una volta sola.
+    chain_tab = "🔗 Chain Maker"
+    magic_tab = "✨ Magic Playlist"
+    running_chain = bool(st.session_state.get("map::graph"))
+    first = chain_tab if running_chain and not (selected or seed is not None) \
+        else magic_tab
+
+    with st.expander(
+            "🎛️ Build a set — from the map to an ordered playlist"
+            + (f" · {len(playlist)} track(s) so far" if playlist else ""),
+            expanded=bool(selected or seed is not None or playlist
+                          or running_chain)):
+        magic, chain = st.tabs([magic_tab, chain_tab], default=first)
+        with magic:
+            if context is None:
+                st.info("No track matches the map filters above — widen them "
+                        "to pick a seed or a group to sort.")
+            else:
+                render_magic_playlist(*context)
+        with chain:
+            render_chain_section(store)
+
+
 def render_playlist_section(store: MapStore) -> None:
-    """La playlist, sotto le due sezioni che la riempiono.
+    """La playlist, sotto la sezione che la riempie.
 
     Stava in fondo a Magic Playlist, ed era il posto sbagliato: anche il
-    Chain Maker ci scrive, e sta più giù. Chi mandava una catena da
-    laggiù non vedeva succedere niente — il risultato compariva sopra, in
-    un'altra sezione, che poteva benissimo essere chiusa. Una cosa scritta da
-    due posti si mostra dopo entrambi.
+    Chain Maker ci scrive, e i due sono tab diversi. Chi mandava una catena
+    non vedeva succedere niente — il risultato compariva in un tab che in
+    quel momento non era quello aperto. Una cosa scritta da due posti si
+    mostra dopo entrambi, e fuori da tutti e due.
     """
     if not len(store) or not store.placed:
         return
@@ -1058,7 +1123,7 @@ def render_playlist_loader(frame: pd.DataFrame, at_path: dict[str, int],
                          hide_index=True)
 
     c1, c2 = st.columns(2)
-    if c1.button("➕ Use it as the playlist", type="primary", width="stretch",
+    if c1.button("➕ Send to playlist", type="primary", width="stretch",
                  disabled=not found, key="map::playlist_load"):
         remember_playlist(frame, found)
         st.rerun()
@@ -1100,9 +1165,9 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
                  else "Playlist")
 
     if not playlist:
-        st.caption("Nothing in it yet: pick tracks in the two sections above, "
-                   "or open a playlist you already have and keep adding to it "
-                   "from there.")
+        st.caption("Nothing in it yet: pick tracks in either tab of "
+                   "**Build a set** above, or load an existing playlist and "
+                   "keep adding to it from there.")
         render_playlist_loader(frame, at_path, playlist)
         return
 
@@ -1189,7 +1254,7 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     # playlist che si ricarica qui è, il più delle volte, l'M3U8 uscito dal
     # pulsante qui sopra. Chiuso, perché con una playlist in piedi caricarne
     # un'altra è l'eccezione.
-    with st.expander("📂 Open a playlist you already have"):
+    with st.expander("📂 Load existing playlist"):
         render_playlist_loader(frame, at_path, playlist)
 
 
@@ -1445,27 +1510,19 @@ with st.expander("⚙️ Map settings" + (" — ▶ job running" if running else
 # variabilità stia DENTRO un blocco solo, e la pagina, vista da fuori, abbia
 # sempre la stessa forma.
 with st.container():
-    render_map(store)
+    map_context = render_map(store)
 
 st.divider()
 
-# Il Chain Maker sta chiuso e in fondo: se c'è una selezione sulla mappa e
-# nessuna catena ancora, si apre da sé e lo dice nel titolo. Altrimenti
-# selezionare un punto qui sopra non produce niente di visibile là sotto, e il
-# collegamento fra le due sezioni resta un segreto.
-_running_chain = bool(st.session_state.get("map::graph"))
-_waiting = [] if _running_chain else graph_seeds(
-    {row["path"]: i for i, row in enumerate(store.rows[:store.placed])})
-with st.expander(
-        "🔗 Chain Maker — grow a set one track at a time"
-        + (f" · start from the {len(_waiting)} track(s) selected above"
-           if _waiting else ""),
-        expanded=_running_chain or bool(_waiting)):
-    render_chain_section(store)
+# Magic Playlist e Chain Maker: due modi di arrivare a una scaletta, due tab
+# di una sezione sola. La scelta fatta sulla mappa qui sopra arriva al primo
+# dei due attraverso `map_context`, che è quello che la mappa ha appena
+# calcolato — filtri compresi.
+render_set_builder(store, map_context)
 
-# Dopo entrambe le sezioni che la riempiono, e fuori da tutte e due: la
-# playlist è il risultato, e il risultato non sta dentro uno dei due modi di
-# ottenerlo. Si disegna da sé solo quando c'è qualcosa dentro.
+# Dopo la sezione che la riempie, e fuori da entrambi i tab: la playlist è il
+# risultato, e il risultato non sta dentro uno dei due modi di ottenerlo. Si
+# disegna da sé solo quando c'è qualcosa dentro.
 render_playlist_section(store)
 
 
