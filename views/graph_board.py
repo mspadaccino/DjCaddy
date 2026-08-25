@@ -162,6 +162,25 @@ HEIGHT_FIELDS = {"BPM": "bpm", "key": "camelot", "groove": "danceability",
 # resta quello: si cambia cosa si guarda per primo, non dove si clicca.
 DEFAULT_HEIGHT = "groove"
 
+# Cosa dice ognuna, in una riga sotto la manopola. Il nome sulla voce dice
+# QUALE misura, non cosa significhi alta o bassa — e senza quello la curva è
+# una forma senza senso: chi guarda "key" non ha modo di sapere che
+# l'altezza è il numero della ruota e non quanto stona.
+HEIGHT_MEANING = {
+    "BPM": "How fast the track runs. The scale spans ±6% around the middle "
+           "of the set — as far as the pitch fader stretches before the "
+           "transition costs too much anyway.",
+    "key": "Where the track sits on the Camelot wheel, 1 to 12. Major or "
+           "minor is not in the height — it is in the colour of the key on "
+           "the card.",
+    "groove": "How regular the beat is: at the top a straight kick, towards "
+              "the bottom a syncopated rhythm — breakbeat, funk, anything "
+              "not linear. Read on the deciles of your library.",
+    "mood": "How dark or bright the track reads. At the bottom Dark, Deep, "
+            "Heavy and Sad; at the top Happy, Party, Summer and Love. From "
+            "the mood tags, on the deciles of your library.",
+}
+
 
 def _measured(frame: pd.DataFrame, at_path: dict[str, int],
               tracks: list[str], axis: str) -> dict[str, float]:
@@ -684,6 +703,9 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
     # Ricordata fuori dal widget: vedi BOARD_AXIS.
     st.session_state[BOARD_AXIS] = axis
 
+    st.caption(HEIGHT_MEANING[axis])
+
+    common = mood_popularity(frame)
     values = _measured(frame, at_path, paths, axis)
     heights = _heights(frame, at_path, paths, axis)
     color_of = _color_map(frame)
@@ -709,7 +731,12 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
             "keyColor": _camelot_color(camelot),
             "dance": f"{dance:.2f}" if dance is not None else "",
             "drive": _drive(dance, span),
-            "genre": _label(genre) if genre else "",
+            # I tag per intero, non il solo genere principale: il colore del
+            # punto quello lo dice già, e un brano di club è ibrido — sapere
+            # che è house E acid house è metà del motivo per cui lo si guarda.
+            "genres": row["genres"] if row is not None else "",
+            "mood": mood_scale.summary(row["moods"], common)
+            if row is not None else "",
             "shift": _card_shifts(came_from, row) if row is not None else {},
         })
 
