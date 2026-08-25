@@ -64,6 +64,76 @@ def pick_folder(state_key: str, label: str = "Folder",
     return folder
 
 
+# Più file in una volta: i percorsi tornano uno per riga, perché una lista
+# AppleScript letta da Python sarebbe da spacchettare a mano e un a capo in
+# un nome di file non esiste.
+FILES_PANEL = """on run argv
+    set picks to (choose file with prompt (item 1 of argv) ¬
+        with multiple selections allowed)
+    set out to {}
+    repeat with one in picks
+        set end of out to POSIX path of one
+    end repeat
+    set AppleScript's text item delimiters to linefeed
+    return out as text
+end run"""
+
+
+def pick_files(prompt: str = "Choose tracks") -> list[Path]:
+    """Il selettore di file del Mac, con più brani in una volta sola.
+
+    Non è un widget come i due qui accanto: si chiama quando serve — da un
+    pulsante — e torna quello che è stato scelto, o una lista vuota se il
+    pannello è stato annullato, che in AppleScript è un errore e non una
+    risposta vuota.
+    """
+    try:
+        out = subprocess.run(["osascript", "-e", FILES_PANEL, prompt],
+                             capture_output=True, text=True, check=True)
+    except Exception:
+        return []
+    return [Path(line) for line in out.stdout.splitlines() if line.strip()]
+
+
+# Il prompt arriva come ARGOMENTO e non incollato dentro allo script, per
+# la stessa ragione spiegata sotto al pannello di salvataggio.
+FILE_PANEL = """on run argv
+    return POSIX path of (choose file with prompt (item 1 of argv))
+end run"""
+
+
+def pick_file(state_key: str, label: str = "Track", placeholder: str = "",
+              prompt: str = "Choose a track") -> Path | None:
+    """Campo di testo più il selettore di file nativo del Mac.
+
+    Gemello di `pick_folder`: stessa forma e stessa ragione — l'app gira in
+    locale, quindi il Finder si può chiedere — e cambia solo cosa si sceglie.
+    """
+    def _browse() -> None:
+        try:
+            out = subprocess.run(["osascript", "-e", FILE_PANEL, prompt],
+                                 capture_output=True, text=True, check=True)
+            chosen = out.stdout.strip()
+            if chosen:
+                st.session_state[state_key] = chosen
+        except Exception:
+            pass   # dialogo annullato o non disponibile: nessuna modifica
+
+    col_path, col_browse = st.columns([5, 1])
+    typed = col_path.text_input(label, key=state_key, placeholder=placeholder)
+    col_browse.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
+    col_browse.button("🎵 Browse…", on_click=_browse, width="stretch",
+                      key=f"browsefile::{state_key}")
+
+    if not typed.strip():
+        return None
+    track = Path(typed).expanduser()
+    if not track.is_file():
+        st.error(f"Not a file: {track}")
+        return None
+    return track
+
+
 # Il pannello di salvataggio si chiede in AppleScript, e prompt e nome
 # arrivano come ARGOMENTI invece che incollati dentro allo script: un nome
 # con una virgoletta dentro romperebbe il testo dello script, e i nomi dei

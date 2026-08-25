@@ -49,8 +49,8 @@ from analysis.map_projection import available as umap_available
 from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
-from views.components import (NOW_PLAYING, fill_dock, pick_folder,
-                              play_table, save_as, tick_all)
+from views.components import (NOW_PLAYING, fill_dock, pick_file, pick_files,
+                              pick_folder, play_table, save_as, tick_all)
 from views.graph_board import (TICKED, mood_column, mood_popularity,
                                render_board, render_chain_maker, reordered)
 
@@ -132,6 +132,14 @@ SKIN = {
 # sbagliate, che è peggio di un errore. Il percorso invece è il brano.
 SEED = "map::seed"
 PICKED = "map::seedpick_applied"
+# L'ultimo file passato dal Finder su cui si è già agito. Senza, il campo
+# resterebbe a comandare: cliccato un punto sulla mappa, al giro dopo quel
+# percorso rimetterebbe il seme dov'era e il clic non varrebbe niente.
+PICKED_FILE = "map::seedfile_applied"
+# I brani scelti dal Finder che sulla mappa non c'erano. Passano di qui
+# perché l'avviso va scritto DOPO la ripartenza che aggiunge gli altri:
+# scritto prima, sparirebbe insieme alla pagina che lo mostra.
+FINDER_MISSING = "map::finder_missing"
 PLAYLIST = "map::playlist"
 
 # La selezione fatta col lazo o col riquadro si tiene qui, e non la si chiede
@@ -752,6 +760,33 @@ def render_map(store: MapStore) -> tuple | None:
             help="Hear the track picked here, in the player at the bottom "
                  "of the page.")
 
+    # …oppure si dà il file. Il nome che uno ricorda non è quasi mai il nome
+    # del file — "Blue Monday" contro "04. Blue Monday - New Order (12''
+    # mix).mp3" — mentre dentro la cartella quel brano lo si riconosce a
+    # colpo d'occhio, ed è lì che si va a finire quando la serata parte da un
+    # pezzo deciso prima.
+    chosen_file = pick_file(
+        "map::seedfile", "…or the seed's file, straight from the Finder",
+        placeholder="a track already on the map",
+        prompt="Choose the seed track")
+    if chosen_file is not None and str(chosen_file) != st.session_state.get(PICKED_FILE):
+        st.session_state[PICKED_FILE] = str(chosen_file)
+        # Stesse regole con cui si ritrova una playlist caricata da file:
+        # il percorso, e se non basta il nome — un brano scelto dal disco
+        # sbagliato è lo stesso brano.
+        on_map, _ = playlist_positions([str(chosen_file)], at_path)
+        if not on_map:
+            st.warning(f"`{chosen_file.name}` is not on the map: add its "
+                       "folder under **Map settings** at the top, or pick "
+                       "another file.")
+        else:
+            remember_seed(frame, on_map[0])
+            st.session_state[SELECTION] = []
+            # Il seme di questo giro è già stato deciso più in su: senza
+            # ripartire, il cerchio resterebbe sul brano di prima fino al
+            # gesto successivo.
+            st.rerun()
+
     return frame, cost, pool, store, seed, selected, playlist
 
 
@@ -1070,6 +1105,41 @@ def _composed(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
+def add_from_finder(frame: pd.DataFrame, at_path: dict[str, int],
+                    key: str) -> None:
+    """Mettere in scaletta dei brani presi dal disco, anche più d'uno.
+
+    La mappa e la catena rispondono a "cosa ci sta bene dietro"; questo
+    risponde a "questi li suono e basta" — i pezzi decisi prima della
+    serata, che esistono nella testa del DJ prima che in qualunque grafico.
+    Senza, andavano cercati uno per uno per nome, che è la stessa cosa fatta
+    dieci volte.
+
+    Solo brani già sulla mappa: la playlist ne porta le posizioni, e un file
+    che non è stato analizzato non ne ha una. Chi resta fuori viene detto —
+    con il nome, non con il percorso intero, perché la domanda è "quale" e
+    non "dove".
+    """
+    missing = st.session_state.pop(FINDER_MISSING, [])
+    if missing:
+        st.warning("Not on the map, so not in the playlist: "
+                   + ", ".join(f"`{name}`" for name in missing)
+                   + ". Add their folder under **Map settings** at the top.")
+    if not st.button("🎵 Add tracks from the Finder", width="stretch", key=key,
+                     help="Pick one file or several — ⌘-click or shift-click "
+                          "in the panel. They go in after what the playlist "
+                          "already holds, in the order the panel returns."):
+        return
+    chosen = pick_files("Choose tracks for the playlist")
+    if not chosen:
+        return          # pannello annullato: non è successo niente
+    found, absent = playlist_positions([str(p) for p in chosen], at_path)
+    st.session_state[FINDER_MISSING] = [Path(p).name for p in absent]
+    if found:
+        append_playlist(frame, found)
+    st.rerun()
+
+
 def playlist_positions(paths, at_path: dict[str, int]) -> tuple[list[int], list[str]]:
     """Da una playlist letta da file alle posizioni sulla mappa.
 
@@ -1208,8 +1278,9 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
 
     if not playlist:
         st.caption("Nothing in it yet: pick tracks in either tab of "
-                   "**Build a set** above, or load an existing playlist and "
-                   "keep adding to it from there.")
+                   "**Build a set** above, take them from the Finder, or "
+                   "load an existing playlist and keep adding to it.")
+        add_from_finder(frame, at_path, "map::playlist_finder_empty")
         render_playlist_loader(frame, at_path, playlist)
         return
 
@@ -1231,8 +1302,14 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
 
     # La firma della playlist sta nella chiave, come per la catena: appena
     # l'ordine cambia la tabella rinasce, e il numero appena riscritto non
-    # resta nello stato del widget a riapplicarsi a ogni giro.
-    editor_key = "map_playlist_editor::" + "|".join(table["_path"])
+    # resta nello stato del widget a riapplicarsi a ogni giro. `tick_all` ci
+    # aggiunge il suo contatore, che è l'unico modo di svuotare davvero le
+    # spunte, e porta i due pulsanti sopra la tabella: sfoltire una scaletta
+    # lunga vuol dire quasi sempre spuntare tutto e ridare la spunta ai
+    # pochi che restano.
+    drop_all, editor_key = tick_all(
+        "map_playlist_editor::" + "|".join(table["_path"]), default=False)
+    table["Drop"] = drop_all
     edited = play_table(
         "map_playlist", table,
         ["#", "Drop", "file", "BPM", "key", "from previous", "mood",
@@ -1263,10 +1340,15 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
         st.rerun()
 
     doomed = {int(i) for i in edited.loc[edited["Drop"], "_row"]}
-    if st.button(f"🗑 Remove the {len(doomed)} ticked track(s)"
-                 if doomed else "🗑 Remove the ticked tracks",
-                 width="stretch", disabled=not doomed,
-                 key="map::playlist_drop"):
+    # I due modi di correggere una scaletta a mano, uno di fianco all'altro:
+    # quello che manca si prende dal disco, quello che avanza si spunta.
+    adding, dropping = st.columns(2)
+    with adding:
+        add_from_finder(frame, at_path, "map::playlist_finder")
+    if dropping.button(f"🗑 Remove the {len(doomed)} ticked track(s)"
+                       if doomed else "🗑 Remove the ticked tracks",
+                       width="stretch", disabled=not doomed,
+                       key="map::playlist_drop"):
         remember_playlist(frame, [i for i in playlist if i not in doomed])
         st.rerun()
 
