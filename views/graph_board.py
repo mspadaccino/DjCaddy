@@ -32,6 +32,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
+from analysis import mood_scale
 from analysis.duplicates import normalized_name, song_key
 from analysis.graph_playlist import GraphPlaylist, suggestions
 from analysis.mixing import (BPM_TOLERANCE, TransitionCost, bpm_shift,
@@ -152,7 +153,8 @@ def _some(row, column: str):
 # Cosa può dire l'ALTEZZA di una scheda sulla lavagna. L'asse x è già preso
 # dall'ordine della scaletta, che non è negoziabile; l'altezza invece è libera
 # e può portare la misura che in quel momento racconta il set.
-HEIGHT_FIELDS = {"BPM": "bpm", "key": "camelot", "groove": "danceability"}
+HEIGHT_FIELDS = {"BPM": "bpm", "key": "camelot", "groove": "danceability",
+                 "mood": "moods"}
 # Quella che si apre da sé è il groove, non il BPM: un set si costruisce fra
 # brani di tempo vicino — è il senso del costo di transizione — quindi la
 # linea dei BPM nasce quasi piatta e non ha molto da dire, mentre la
@@ -171,7 +173,13 @@ def _measured(frame: pd.DataFrame, at_path: dict[str, int],
                       column)
         if value is None:
             continue
-        if column == "camelot":
+        if column == "moods":
+            # Delle parole non si sa quanto sono alte: glielo dice
+            # `mood_scale`, da −1 (buio) a +1 (chiaro).
+            colour = mood_scale.valence(value)
+            if colour is not None:
+                out[path] = colour
+        elif column == "camelot":
             # Il numero della ruota, non la lettera: è quello che dice di
             # quanto ci si sposta armonicamente.
             code = str(value).strip().upper()[:-1]
@@ -200,6 +208,8 @@ def _span_of(axis: str, values: dict[str, float],
         return (1.0, 12.0)                      # la ruota, tutta
     if axis == "groove":
         return _drive_span(frame)               # i decili della libreria
+    if axis == "mood":
+        return _mood_span(frame)                # i decili anche qui
     # Il tempo attorno a dove sta la catena, largo quanto il pitch fader:
     # oltre il ±6% la transizione costa comunque troppo per capitare.
     middle = sorted(values.values())[len(values) // 2] if values else 120.0
@@ -241,6 +251,19 @@ def reordered(walk: list, moves: dict[int, float]) -> list:
         order.remove(track)
         order.insert(target, track)
     return order
+
+
+def mood_column():
+    """La colonna del mood, con la sua spiegazione. Pubblica e una sola
+    perché le tabelle che la portano sono sei, in due moduli: scritta a mano
+    ogni volta, la spiegazione avrebbe sei versioni e cinque da aggiornare."""
+    return st.column_config.Column(
+        "mood", disabled=True,
+        help="Before the dot, the rarest of this track's moods across your "
+             "library — the one that tells it apart. Energetic sits on 89% "
+             "of the library and Happy on 57%, so the strongest mood is "
+             "almost the same for everyone. After the dot, the others, "
+             "strongest first.")
 
 
 def _read_only(*columns: str) -> dict:
@@ -377,6 +400,48 @@ def _drive(value, span: tuple[float, float]) -> float | None:
     return min(1.0, max(0.0, (value - low) / (high - low)))
 
 
+def _mood_stamp(frame: pd.DataFrame) -> tuple:
+    """Un'impronta della libreria che costa niente da calcolare.
+
+    La mappa si APPENDE — righe nuove in coda, mai in mezzo — quindi quante
+    sono e qual è l'ultima bastano a dire che è la stessa libreria di prima.
+    """
+    return (len(frame), frame.at[len(frame) - 1, "path"]) if len(frame) else (0, "")
+
+
+@st.cache_data(show_spinner=False)
+def _mood_facts(_frame: pd.DataFrame, stamp: tuple) -> tuple[dict, float, float]:
+    """Quanto è comune ogni mood, e fra quali valori tendere la sua scala.
+
+    Le due cose insieme perché costano la stessa scorsa — quarantatré
+    millisecondi su ottantasettemila righe — e perché scadono insieme:
+    cambiano quando la mappa cresce, non quando si clicca una scheda. Senza
+    tenerle da parte si rifarebbero cinque volte per giro di pagina, una per
+    ogni tabella che porta la colonna del mood.
+
+    La scala non si tende fra −1 e +1: il 90% della libreria sta fra −0,12 e
+    +0,60, e sulla scala piena la curva sarebbe una riga piatta poco sopra il
+    mezzo. I decili di QUESTA libreria, come per il groove.
+    """
+    moods = list(_frame["moods"]) if "moods" in _frame else []
+    values = pd.Series([mood_scale.valence(m) for m in moods]).dropna()
+    low, high = (float(values.quantile(0.1)), float(values.quantile(0.9))) \
+        if len(values) >= 20 else (-1.0, 1.0)
+    if high <= low:
+        low, high = -1.0, 1.0
+    return mood_scale.popularity(moods), low, high
+
+
+def mood_popularity(frame: pd.DataFrame) -> dict[str, int]:
+    """Quante volte ogni mood compare nella libreria. Pubblica perché la
+    stessa colonna la scrivono anche le tabelle di `views.map_analysis`."""
+    return _mood_facts(frame, _mood_stamp(frame))[0]
+
+
+def _mood_span(frame: pd.DataFrame) -> tuple[float, float]:
+    return _mood_facts(frame, _mood_stamp(frame))[1:]
+
+
 def _way(value) -> int:
     """Il verso di uno scarto: +1 sale, -1 scende, 0 sta fermo.
 
@@ -504,7 +569,7 @@ def render_chain_maker(frame: pd.DataFrame, cost: TransitionCost, pool,
     _render_by_hand(frame, pool, at_path, graph)
 
 
-def _spelled(row, source) -> dict:
+def _spelled(row, source, common: dict[str, int]) -> dict:
     """Le colonne comuni alle due tabelle: quelle che stanno sulle schede.
 
     Le stesse voci e con gli stessi nomi da una parte e dall'altra, perché il
@@ -523,6 +588,7 @@ def _spelled(row, source) -> dict:
         "Δkey": (steps[0] if steps[0] else ("rel" if steps[1] else "="))
         if steps is not None else None,
         "Δgroove": gaps.get("dance"),
+        "mood": mood_scale.summary(row["moods"], common),
         "genres": row["genres"],
         # Da dove viene il file. Due brani con lo stesso nome esistono, e
         # senza la cartella non c'è modo di dire quale dei due si sta
@@ -541,6 +607,11 @@ def _ticks(axis: str, values: dict[str, float],
     """
     if not values:
         return []
+    if axis == "mood":
+        # Qui la tacca dice una parola: "+0.28" non vuol dire niente a
+        # nessuno, e la scala è una lettura del mood, non la sua misura.
+        return [{"at": at, "label": name}
+                for at, name in zip((0.0, 0.5, 1.0), ("dark", "mid", "bright"))]
     low, high = _span_of(axis, values, frame)
     if high <= low:
         return []
@@ -675,6 +746,7 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
     con tutto quello che comporta un gesto che deve sopravvivere a un giro di
     pagina.
     """
+    common = mood_popularity(frame)
     chain, roster = st.columns(2)
 
     with chain:
@@ -683,7 +755,8 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
             {"#": n + 1,
              **_spelled(frame.iloc[at_path[path]],
                         frame.iloc[at_path[before[path]]]
-                        if path in before and before[path] in at_path else None),
+                        if path in before and before[path] in at_path else None,
+                        common),
              "_path": path}
             for n, path in enumerate(walk) if path in at_path])
         # La firma della catena: chi porta questa nella propria chiave
@@ -694,11 +767,13 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
         chain_key = f"graph_chain_editor::{signature}"
         play_table("graph_chain", table,
                    ["#", "BPM", "key", "groove",
-                    "Δbpm", "Δkey", "Δgroove", "file", "genres", "folder"],
+                    "Δbpm", "Δkey", "Δgroove", "file", "mood", "genres",
+                    "folder"],
                    {"#": st.column_config.NumberColumn(
                        "#", min_value=1, max_value=max(len(walk), 1), step=1,
                        help="Write the position you want this track in: the "
                             "row moves there and the others slide."),
+                    "mood": mood_column(),
                     **_read_only("file", "BPM", "key", "groove",
                                  "Δbpm", "Δkey", "Δgroove", "genres",
                                  "folder")},
@@ -752,6 +827,7 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
     if source_idx is None:
         return
     source = frame.iloc[source_idx]
+    common = mood_popularity(frame)
     st.markdown(f"**Mixes out of — {_label(source['name'])}**")
 
     taken = {at_path[p] for p in graph.tracks if p in at_path}
@@ -765,7 +841,7 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
 
     table = pd.DataFrame([
         {"Add": False, "cost": round(value, 3),
-         **_spelled(frame.iloc[i], source),
+         **_spelled(frame.iloc[i], source, common),
          # Le copie dello stesso pezzo restano una voce sola. Il numero dice
          # quante ce ne sono: si aggiunge la più economica, e se ne serve
          # un'altra precisa c'è "Add a track by name" qui sotto.
@@ -776,9 +852,11 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
     edited = play_table(
         "graph_roster", table,
         ["Add", "cost", "BPM", "key", "groove",
-         "Δbpm", "Δkey", "Δgroove", "file", "copies", "genres", "folder"],
+         "Δbpm", "Δkey", "Δgroove", "file", "copies", "mood", "genres",
+         "folder"],
         {"Add": st.column_config.CheckboxColumn(
             "Add", help="Tick what you want next, then the button below."),
+         "mood": mood_column(),
          **_read_only("cost", "file", "BPM", "key", "groove",
                       "Δbpm", "Δkey", "Δgroove", "copies", "genres",
                       "folder")},

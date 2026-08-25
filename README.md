@@ -35,6 +35,7 @@ the batch CLI and the Streamlit app — no duplicated logic.
 | `analysis/map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
 | `analysis/map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
 | `analysis/mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
+| `analysis/mood_scale.py` | the mood labels read as one scale, dark to bright: the height a playlist takes on the board, and which of a track's moods tells it apart |
 | `analysis/graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, and the roster of what comes next |
 | `analysis/map_job.py` | the map build as a long, resumable background job |
 | `cli.py` | entry point 1 — batch CLI |

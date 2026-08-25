@@ -35,6 +35,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from analysis import mood_scale
 from analysis.dj_export import (build_m3u8, build_rekordbox_xml, read_m3u8,
                                 read_title_artist)
 from analysis.essentia_tags import MODEL_DIR, available, find_taggable, missing_models
@@ -49,8 +50,8 @@ from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
 from views.components import (NOW_PLAYING, fill_dock, pick_folder,
                               play_table, save_as, tick_all)
-from views.graph_board import (TICKED, render_board, render_chain_maker,
-                               reordered)
+from views.graph_board import (TICKED, mood_column, mood_popularity,
+                               render_board, render_chain_maker, reordered)
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
 # ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
@@ -760,12 +761,14 @@ def selection_rows(frame: pd.DataFrame, indices) -> pd.DataFrame:
     mappa e' l'ordine in cui il grafico riporta i punti, che non e' una
     scaletta e non deve fingere di esserlo — a metterli in fila e' magic sort.
     """
+    common = mood_popularity(frame)
     return pd.DataFrame([{
         "#": position + 1,
         "file": frame.at[i, "name"],
         "BPM": frame.at[i, "bpm"],
         "key": frame.at[i, "camelot"],
         "groove": frame.at[i, "danceability"],
+        "mood": mood_scale.summary(frame.at[i, "moods"], common),
         "genres": frame.at[i, "genres"],
         "folder": frame.at[i, "folder"],
         "_path": frame.at[i, "path"],
@@ -783,8 +786,9 @@ def _selection_table(frame: pd.DataFrame, indices, key: str) -> None:
     table = selection_rows(frame, indices)
     play_table(
         f"map_selection::{key}", table,
-        ["#", "file", "BPM", "key", "groove", "genres", "folder"],
-        _read_only("#", "file", "BPM", "key", "groove", "genres", "folder"),
+        ["#", "file", "BPM", "key", "groove", "mood", "genres", "folder"],
+        {**_read_only("#", "file", "BPM", "key", "groove", "genres",
+                      "folder"), "mood": mood_column()},
         editable=False, editor_key=f"map_selection_editor::{key}")
 
 
@@ -917,9 +921,11 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
     # verso lo 0 il ritmo è sincopato (breakbeat, funk, roba non lineare).
     groove = f" · groove {row['danceability']:.2f}" \
         if row["danceability"] is not None and not pd.isna(row["danceability"]) else ""
+    common = mood_popularity(frame)
     st.markdown(f"**Seed — {row['name']}**  \n"
                 f"{row['bpm'] or '?'} BPM · {row['camelot'] or '?'}{groove} · "
-                f"{row['genres']}")
+                f"{row['genres']}  \n"
+                f"{mood_scale.summary(row['moods'], common)}")
 
     w1, w2, w3 = st.columns(3)
     cost.w_map = w1.slider("Weight — sound", 0.0, 2.0, 1.0, 0.1,
@@ -971,6 +977,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "sound": round(cost.parts(seed, i)["map"], 3),
             "bpm cost": round(cost.parts(seed, i)["bpm"], 2),
             "key cost": round(cost.parts(seed, i)["key"], 2),
+            "mood": mood_scale.summary(frame.at[i, "moods"], common),
             "genres": frame.at[i, "genres"],
             "folder": frame.at[i, "folder"],
             "_path": frame.at[i, "path"],
@@ -991,10 +998,11 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             edited = play_table(
                 "map_suggestions", table,
                 ["Add", "cost", "file", "BPM", "key", "groove", "sound",
-                 "bpm cost", "key cost", "genres", "folder"],
+                 "bpm cost", "key cost", "mood", "genres", "folder"],
                 {"Add": st.column_config.CheckboxColumn(
                     "Add", help="Tick what you want in the playlist, then "
                                 "the button below."),
+                 "mood": mood_column(),
                  **_read_only("cost", "file", "BPM", "key", "groove", "sound",
                               "bpm cost", "key cost", "genres", "folder")},
                 editor_key=mix_key)
@@ -1019,6 +1027,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "file": frame.at[i, "name"],
             "BPM": frame.at[i, "bpm"],
             "key": frame.at[i, "camelot"],
+            "mood": mood_scale.summary(frame.at[i, "moods"], common),
             "genres": frame.at[i, "genres"],
             "folder": frame.at[i, "folder"],
             "_path": frame.at[i, "path"],
@@ -1036,10 +1045,12 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             neighbours["Add"] = near_all
             picked_near = play_table(
                 "map_neighbours", neighbours,
-                ["Add", "similarity", "file", "BPM", "key", "genres", "folder"],
+                ["Add", "similarity", "file", "BPM", "key", "mood", "genres",
+                 "folder"],
                 {"Add": st.column_config.CheckboxColumn(
                     "Add", help="Tick what you want in the playlist, then "
                                 "the button below."),
+                 "mood": mood_column(),
                  **_read_only("similarity", "file", "BPM", "key", "genres",
                               "folder")},
                 editor_key=near_key)
@@ -1183,6 +1194,7 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
         return
 
     costs = [None] + [cost.between(a, b) for a, b in zip(playlist, playlist[1:])]
+    common = mood_popularity(frame)
     table = pd.DataFrame([{
         "#": position + 1,
         "Drop": False,
@@ -1190,6 +1202,7 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
         "BPM": frame.at[i, "bpm"],
         "key": frame.at[i, "camelot"],
         "from previous": round(step, 3) if step is not None else None,
+        "mood": mood_scale.summary(frame.at[i, "moods"], common),
         "genres": frame.at[i, "genres"],
         "folder": frame.at[i, "folder"],
         "_path": frame.at[i, "path"],
@@ -1202,8 +1215,8 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     editor_key = "map_playlist_editor::" + "|".join(table["_path"])
     edited = play_table(
         "map_playlist", table,
-        ["#", "Drop", "file", "BPM", "key", "from previous", "genres",
-         "folder"],
+        ["#", "Drop", "file", "BPM", "key", "from previous", "mood",
+         "genres", "folder"],
         {"#": st.column_config.NumberColumn(
             "#", min_value=1, max_value=len(playlist), step=1,
             help="Write the position you want this track in: the row moves "
@@ -1214,6 +1227,7 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
              "from previous", disabled=True,
              help="The transition cost from the track above: 0 is "
                   "seamless, 1 is as far as this library goes."),
+         "mood": mood_column(),
          **_read_only("file", "BPM", "key", "genres", "folder")},
         editor_key=editor_key)
 
