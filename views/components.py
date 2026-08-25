@@ -64,6 +64,46 @@ def pick_folder(state_key: str, label: str = "Folder",
     return folder
 
 
+# Il pannello di salvataggio si chiede in AppleScript, e prompt e nome
+# arrivano come ARGOMENTI invece che incollati dentro allo script: un nome
+# con una virgoletta dentro romperebbe il testo dello script, e i nomi dei
+# file non li scegliamo noi.
+SAVE_PANEL = """on run argv
+    set target to (choose file name with prompt (item 1 of argv) ¬
+        default name (item 2 of argv))
+    return POSIX path of target
+end run"""
+
+
+def save_as(data: str | bytes, default_name: str,
+            prompt: str = "Save as") -> Path | None:
+    """Il pannello «Salva col nome» del Finder, e il file scritto dove dice.
+
+    Il pulsante di download del browser scrive dove il browser ha deciso —
+    tipicamente i Download — e per un file che deve finire in una cartella
+    precisa vuol dire salvare e poi andarlo a spostare. Qui si sceglie nome e
+    destinazione una volta sola. Come per il selettore di cartelle qui sopra,
+    ci si può permettere di chiamare il Finder perché l'app gira in locale:
+    il pannello si apre sulla macchina che esegue Python, che è la stessa
+    davanti a cui si sta.
+
+    Torna il percorso scritto, o `None` se il pannello è stato annullato —
+    che in AppleScript è un errore, non una risposta vuota.
+    """
+    try:
+        out = subprocess.run(["osascript", "-e", SAVE_PANEL,
+                              prompt, default_name],
+                             capture_output=True, text=True, check=True)
+    except Exception:
+        return None    # annullato, o niente Finder a cui chiedere
+    chosen = out.stdout.strip()
+    if not chosen:
+        return None
+    path = Path(chosen)
+    path.write_bytes(data.encode("utf-8") if isinstance(data, str) else data)
+    return path
+
+
 def reveal_in_finder(path: Path) -> str | None:
     """Mostra il file nel Finder, già selezionato. None se è andata bene.
 

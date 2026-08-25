@@ -48,7 +48,7 @@ from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
 from views.components import (NOW_PLAYING, fill_dock, pick_folder,
-                              play_table, tick_all)
+                              play_table, save_as, tick_all)
 from views.graph_board import (TICKED, render_board, render_chain_maker,
                                reordered)
 
@@ -1269,17 +1269,30 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     # I due pulsanti dicono COSA sono, non solo in che formato: è la
     # distinzione su cui rekordbox si impunta, e leggerla sul pulsante evita
     # di scoprirla dal selettore dei file che rifiuta l'estensione.
-    p3.download_button("⬇ Export as playlist (M3U8)", build_m3u8(tracks),
-                       "wavecut_playlist.m3u8", "audio/x-mpegurl",
-                       width="stretch",
-                       help="What rekordbox's Import Playlist accepts. "
-                            "Order and files only — no BPM, no cues.")
-    p4.download_button("⬇ Export as library (rekordbox XML)",
-                       build_rekordbox_xml(tracks), "wavecut_library.xml",
-                       "application/xml", width="stretch",
-                       help="A library, not a playlist file: load it under "
-                            "Preferences ▸ Advanced ▸ Database ▸ rekordbox "
-                            "xml. Carries the BPM and the cues.")
+    #
+    # Salvare e non scaricare: il download del browser mette il file nei
+    # Download, e una playlist che deve finire sulla chiavetta o nella
+    # cartella che rekordbox guarda andava poi spostata a mano. Il pannello
+    # del Finder chiede nome e destinazione una volta sola. Il file si
+    # costruisce solo a pulsante premuto, che è anche il momento in cui
+    # serve.
+    if p3.button("⬇ Save as playlist (M3U8)", width="stretch",
+                 key="map::save_m3u8",
+                 help="What rekordbox's Import Playlist accepts. "
+                      "Order and files only — no BPM, no cues."):
+        written = save_as(build_m3u8(tracks), "wavecut_playlist.m3u8",
+                          "Save the playlist")
+        if written:
+            st.success(f"Saved: `{written}`")
+    if p4.button("⬇ Save as library (rekordbox XML)", width="stretch",
+                 key="map::save_xml",
+                 help="A library, not a playlist file: load it under "
+                      "Preferences ▸ Advanced ▸ Database ▸ rekordbox "
+                      "xml. Carries the BPM and the cues."):
+        written = save_as(build_rekordbox_xml(tracks), "wavecut_library.xml",
+                          "Save the rekordbox library")
+        if written:
+            st.success(f"Saved: `{written}`")
     # Il punto pratico, non la differenza di formato: rekordbox importa le
     # playlist da M3U8 e la libreria da XML, e il suo "Import Playlist" non
     # apre proprio i file .xml — nel selettore risultano non selezionabili,
