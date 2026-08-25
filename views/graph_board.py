@@ -24,7 +24,6 @@ dentro nasce lì.
 from __future__ import annotations
 
 import colorsys
-from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -59,8 +58,6 @@ TICKED = "map::ticked"
 
 GRAPH_STATE = "map::graph"
 GRAPH_SOURCE = "map::graph_source"
-GRAPH_KEYS = "map::graph_keys"
-GRAPH_KEYS_EVENT = "map::graph_keys_event"
 
 # --- la lavagna, che ora disegna la playlist e non più la sola catena ------
 # L'ultimo gesto già eseguito. Vedi `sendValue` nel frontend: il componente
@@ -295,99 +292,29 @@ def _read_only(*columns: str) -> dict:
     return {name: st.column_config.Column(disabled=True) for name in columns}
 
 
-def _render_filters(frame: pd.DataFrame, pool) -> "np.ndarray | list":
-    """I filtri della lavagna, e i brani che li passano.
+def camelot_picker(selected: list[str], widget_key: str,
+                   event_key: str) -> list[str] | None:
+    """La ruota Camelot come filtro. Torna la scelta nuova, o None se nessuno
+    l'ha toccata in questo giro.
 
-    Sono suoi e non quelli della mappa qui sopra: la lavagna è un secondo
-    modo di scegliere, non un'estensione del primo. Restringono la rosa e i
-    due brani di partenza — cioè tutto quello che la lavagna propone — ma
-    non toccano i brani che ci sono già finiti sopra: filtrare via un nodo
-    già posato spezzerebbe una scaletta che qualcuno ha costruito.
+    Sta in questo modulo e non fra i filtri che la usano perché qui c'è la
+    cartella del suo frontend e qui c'è il colore delle tonalità: la stessa
+    ragione per cui `start_board` sta qui e non nella mappa. Lo STATO invece
+    è di chi chiama — la ruota non sa di che filtro fa parte, e chi la usa
+    decide dove scriverne il risultato e con che portata ripartire.
+
+    Il valore di un componente torna identico a ogni rerun, quindi il click
+    si riconosce dal suo istante: senza, una tonalità scelta si aggiungerebbe
+    e toglierebbe all'infinito.
     """
-    keys = st.session_state.get(GRAPH_KEYS) or []
-    kept = frame.loc[list(pool)] if len(pool) != len(frame) else frame
-
-    # Scegliere una tonalità sulla ruota rilancia la pagina, e un pannello
-    # che torna al suo stato di riposo si richiuderebbe sotto le dita al
-    # primo click. Resta aperto finché la ruota è stata toccata almeno una
-    # volta, anche dopo aver tolto l'ultima tonalità — chi sta filtrando non
-    # ha finito solo perché ha svuotato la scelta.
-    touched = GRAPH_KEYS_EVENT in st.session_state
-    with st.expander(f"Filters — they narrow the roster"
-                     f"{f' · {len(keys)} key(s)' if keys else ''}",
-                     expanded=bool(keys or touched)):
-        wheel, rest = st.columns([2, 3])
-
-        with wheel:
-            st.caption("Pick the keys you want to land on. Nothing picked "
-                       "means every key is welcome.")
-            event = _camelot_wheel(
-                selected=keys, colors=_CAMELOT_COLORS, dark=_dark(),
-                key="graph_wheel", default=None)
-            if event and event.get("at") != st.session_state.get(GRAPH_KEYS_EVENT):
-                st.session_state[GRAPH_KEYS_EVENT] = event.get("at")
-                code = event.get("code")
-                st.session_state[GRAPH_KEYS] = (
-                    [k for k in keys if k != code] if code in keys
-                    else keys + [code])
-                st.rerun(scope="fragment")
-
-        with rest:
-            genres = Counter(g for tags in
-                             frame["genres"].fillna("").str.split("; ")
-                             for g in tags if g)
-            chosen = st.multiselect(
-                "Genres", [g for g, _ in genres.most_common()],
-                key="graph_genres",
-                help="A track carrying any of the chosen genres stays.")
-            tempo = _range_of(frame, "bpm", 60.0, 200.0)
-            bpm = st.slider("BPM", tempo[0], tempo[1], tempo, key="graph_bpm")
-            swing = _range_of(frame, "danceability", 0.0, 1.0)
-            dance = st.slider("Danceability", swing[0], swing[1], swing,
-                              step=0.01, key="graph_dance",
-                              help="Regularity of the onsets: low is loose, "
-                                   "high is a straight kick.")
-            if st.button("↺ Reset the filters", width="stretch"):
-                _reset_filters()
-                st.rerun(scope="fragment")
-
-        if chosen:
-            wanted = set(chosen)
-            kept = kept[kept["genres"].fillna("").str.split("; ").map(
-                lambda tags: bool(wanted & set(tags)))]
-        if keys:
-            kept = kept[kept["camelot"].isin(keys)]
-        # Un brano senza BPM o senza danceability non viene escluso da un
-        # intervallo su quel valore: non sappiamo dove cade, e farlo sparire
-        # sarebbe rispondere "no" a una domanda che non è stata posta.
-        kept = kept[kept["bpm"].isna() | kept["bpm"].between(*bpm)]
-        kept = kept[kept["danceability"].isna()
-                    | kept["danceability"].between(*dance)]
-        st.caption(f"**{len(kept):,}** of {len(frame):,} tracks pass — "
-                   "the roster and the two starting tracks come from these.")
-
-    return kept.index.to_numpy()
-
-
-def _range_of(frame: pd.DataFrame, column: str,
-              fallback_low: float, fallback_high: float) -> tuple[float, float]:
-    """Gli estremi veri di una colonna, per non offrire una corsa vuota.
-
-    Uno slider 0..200 su una libreria che sta fra 110 e 130 è quasi tutto
-    corsa morta. I due estremi devono comunque restare diversi fra loro,
-    anche quando la colonna è vuota o porta un valore solo: uno slider che
-    parte e finisce nello stesso punto non si disegna.
-    """
-    values = pd.to_numeric(frame[column], errors="coerce").dropna()
-    if not len(values):
-        return (fallback_low, fallback_high)
-    low, high = float(values.min()), float(values.max())
-    return (low, high) if high > low else (low, low + 1.0)
-
-
-def _reset_filters() -> None:
-    for key in (GRAPH_KEYS, "graph_genres", "graph_bpm", "graph_dance"):
-        st.session_state.pop(key, None)
+    event = _camelot_wheel(selected=selected, colors=_CAMELOT_COLORS,
+                           dark=_dark(), key=widget_key, default=None)
+    if not event or event.get("at") == st.session_state.get(event_key):
+        return None
+    st.session_state[event_key] = event.get("at")
+    code = event.get("code")
+    return ([k for k in selected if k != code] if code in selected
+            else selected + [code])
 
 
 _CAMELOT_COLORS = {f"{n}{mode}": _camelot_color(f"{n}{mode}")
@@ -546,16 +473,22 @@ def render_chain_maker(frame: pd.DataFrame, cost: TransitionCost, pool,
     Guardare la forma di ciò che si sta costruendo ha senso su TUTTO il set —
     quello caricato da un file, quello ordinato dal magic sort, e la catena
     che ci si appende — non sul solo pezzo che si sta scrivendo adesso.
+
+    E nemmeno i filtri stanno più qui: `pool` arriva già ristretto da quelli
+    della mappa. Ne aveva di suoi, con la stessa ruota e le stesse manopole,
+    e voleva dire due pannelli da tenere d'accordo per una domanda sola —
+    quali brani sto guardando. Restringono la rosa e i brani di partenza, non
+    la catena già costruita: togliere un nodo posato spezzerebbe una scaletta
+    che qualcuno ha messo insieme.
     """
     st.caption(
         "Grow a set one track at a time: on the left the chain as it stands, "
         "on the right what mixes out of the track you are standing on. Tick, "
         "add, repeat — and send it to the playlist, where the board shows the "
-        "shape the whole set is taking.")
+        "shape the whole set is taking. The roster comes from whatever passes "
+        "the filters at the top of the page.")
 
     graph = _graph()
-    pool = _render_filters(frame, pool)
-
     if not len(graph):
         _render_start(frame, pool, chosen)
         return

@@ -51,8 +51,9 @@ from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
 from views.components import (NOW_PLAYING, fill_dock, pick_file, pick_files,
                               pick_folder, play_table, save_as, tick_all)
-from views.graph_board import (TICKED, mood_column, mood_popularity,
-                               render_board, render_chain_maker, reordered)
+from views.graph_board import (TICKED, camelot_picker, mood_column,
+                               mood_popularity, render_board,
+                               render_chain_maker, reordered)
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
 # ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
@@ -535,6 +536,127 @@ def render_infos(store: MapStore) -> None:
         st.rerun()
 
 
+# I filtri sono UNO SOLO per tutta la pagina, e le loro chiavi stanno qui.
+# Ne esisteva un secondo dentro al Chain Maker, con la stessa ruota e le
+# stesse manopole: due pannelli da tenere d'accordo per una domanda sola —
+# quali brani sto guardando — e chi ne restringeva uno si stupiva che l'altro
+# proponesse ancora tutto.
+FILTER_KEYS = "map::flt_keys"
+FILTER_KEYS_EVENT = "map::flt_keys_at"
+FILTER_WIDGETS = ("map::flt_genres", "map::flt_moods", "map::flt_bpm",
+                  "map::flt_groove")
+
+
+def _span(frame: pd.DataFrame, column: str,
+          floor: float, ceiling: float) -> tuple[float, float]:
+    """Gli estremi veri di una colonna, per non offrire una corsa vuota.
+
+    Uno slider 0..200 su una libreria che sta fra 110 e 130 è quasi tutto
+    corsa morta. I due estremi devono comunque restare diversi fra loro,
+    anche quando la colonna è vuota o porta un valore solo: uno slider che
+    parte e finisce nello stesso punto non si disegna.
+    """
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    if not len(values):
+        return (floor, ceiling)
+    low, high = float(values.min()), float(values.max())
+    return (low, high) if high > low else (low, low + 1.0)
+
+
+def render_filters(frame: pd.DataFrame) -> pd.DataFrame:
+    """Il pannello dei filtri della pagina, e i brani che li passano.
+
+    Restringono TUTTO quello che la pagina propone: i punti sulla mappa, i
+    candidati di Magic Playlist e la rosa del Chain Maker. Erano due pannelli
+    e adesso è uno, perché la domanda era già una.
+
+    La ruota Camelot al posto dell'elenco a tendina delle tonalità: due
+    tonalità che si mixano stanno vicine sulla ruota, e su una ruota la cosa
+    si vede — in un elenco alfabetico 8A e 9A sono due righe qualunque. Era
+    già così nel Chain Maker; qui arriva insieme al resto.
+
+    Il campo "Name contains" non c'è più: cercare un brano per nome è una
+    cosa diversa dal restringere la libreria — si vuole QUEL brano, non i
+    brani che gli somigliano — e "Find a track", sotto la mappa, lo fa già e
+    lo fa meglio, perché il nome trovato diventa il seme.
+    """
+    keys = st.session_state.get(FILTER_KEYS) or []
+    genre_counts = Counter(g for tags in frame["genre_list"] for g in tags if g)
+    mood_counts = Counter(m for tags in frame["mood_list"] for m in tags if m)
+
+    # Scegliere una tonalità sulla ruota rilancia la pagina, e un pannello
+    # che torna al suo stato di riposo si richiuderebbe sotto le dita al
+    # primo click. Resta aperto finché la ruota è stata toccata almeno una
+    # volta, anche dopo aver tolto l'ultima tonalità — chi sta filtrando non
+    # ha finito solo perché ha svuotato la scelta.
+    touched = FILTER_KEYS_EVENT in st.session_state
+    narrowed = any(st.session_state.get(k) for k in FILTER_WIDGETS[:2])
+    with st.expander(
+            "🔎 Filters — they narrow the map, the suggestions and the roster"
+            + (f" · {len(keys)} key(s)" if keys else ""),
+            expanded=bool(keys or touched or narrowed)):
+        wheel, rest = st.columns([2, 3])
+
+        with wheel:
+            st.caption("Pick the keys you want to land on. Nothing picked "
+                       "means every key is welcome.")
+            picked = camelot_picker(keys, "map::flt_wheel", FILTER_KEYS_EVENT)
+            if picked is not None:
+                st.session_state[FILTER_KEYS] = picked
+                st.rerun()
+
+        with rest:
+            chosen_genres = st.multiselect(
+                "Genres", [g for g, _ in genre_counts.most_common()],
+                key="map::flt_genres",
+                help="A track carrying any of the chosen genres stays. Tracks "
+                     "are multi-label on purpose: 'Minimal' and 'Deep House' "
+                     "can both be true of the same track.")
+            chosen_moods = st.multiselect(
+                "Moods", [m for m, _ in mood_counts.most_common()],
+                key="map::flt_moods",
+                help="Same rule as the genres: a track carrying any of the "
+                     "chosen moods stays. Up to four are recorded per track, "
+                     "strongest first.")
+            tempo = _span(frame, "bpm", 60.0, 200.0)
+            bpm = st.slider("BPM", tempo[0], tempo[1], tempo,
+                            key="map::flt_bpm")
+            swing = _span(frame, "danceability", 0.0, 1.0)
+            groove = st.slider("Groove", swing[0], swing[1], swing, step=0.01,
+                               key="map::flt_groove",
+                               help="The danceability: regularity of the "
+                                    "onsets, low is loose and high is a "
+                                    "straight kick. It is the same number "
+                                    "the tables and the board call groove.")
+            if st.button("↺ Reset the filters", width="stretch",
+                         key="map::flt_reset"):
+                st.session_state.pop(FILTER_KEYS, None)
+                for widget in FILTER_WIDGETS:
+                    st.session_state.pop(widget, None)
+                st.rerun()
+
+        kept = frame
+        if chosen_genres:
+            wanted = set(chosen_genres)
+            kept = kept[kept["genre_list"].map(
+                lambda tags: bool(wanted & set(tags)))]
+        if chosen_moods:
+            wanted = set(chosen_moods)
+            kept = kept[kept["mood_list"].map(
+                lambda tags: bool(wanted & set(tags)))]
+        if keys:
+            kept = kept[kept["camelot"].isin(keys)]
+        # Un brano senza BPM o senza groove non viene escluso da un intervallo
+        # su quel valore: non sappiamo dove cade, e farlo sparire sarebbe
+        # rispondere "no" a una domanda che non è stata posta.
+        kept = kept[kept["bpm"].isna() | kept["bpm"].between(*bpm)]
+        kept = kept[kept["danceability"].isna()
+                    | kept["danceability"].between(*groove)]
+        st.caption(f"**{len(kept):,}** of {len(frame):,} tracks pass — the "
+                   "map, the suggestions and the roster all come from these.")
+    return kept
+
+
 def render_map(store: MapStore) -> tuple | None:
     """La mappa e la scelta: il cuore della pagina.
 
@@ -564,40 +686,13 @@ def render_map(store: MapStore) -> tuple | None:
     frame["x"], frame["y"] = store.coords[:, 0], store.coords[:, 1]
     frame["index"] = np.arange(len(frame))
     frame["genre_list"] = frame["genres"].fillna("").str.split("; ")
+    # Una mappa fatta prima che il mood si registrasse non ha la colonna:
+    # meglio un filtro che non propone niente di un errore a metà pagina.
+    moods = frame["moods"] if "moods" in frame \
+        else pd.Series("", index=frame.index)
+    frame["mood_list"] = moods.fillna("").str.split("; ")
 
-    genre_counts = Counter(g for tags in frame["genre_list"] for g in tags if g)
-    key_counts = Counter(k for k in frame["camelot"] if k)
-
-    with st.expander("Filters — they narrow the map *and* the suggestions"):
-        f1, f2 = st.columns([3, 2])
-        chosen_genres = f1.multiselect(
-            "Genres", [g for g, _ in genre_counts.most_common()],
-            help="A track carrying any of the chosen genres stays. Tracks are "
-                 "multi-label on purpose: 'Minimal' and 'Deep House' can both "
-                 "be true of the same track.")
-        chosen_keys = f2.multiselect("Camelot keys", sorted(key_counts))
-
-        bpm_values = frame["bpm"].dropna()
-        low, high = (float(bpm_values.min()), float(bpm_values.max())) \
-            if len(bpm_values) else (60.0, 200.0)
-        b1, b2 = st.columns([3, 2])
-        bpm_range = b1.slider("BPM", low, max(high, low + 1),
-                              (low, max(high, low + 1)))
-        search = b2.text_input("Name contains",
-                               placeholder="part of a file name")
-
-    visible = frame
-    if chosen_genres:
-        wanted = set(chosen_genres)
-        visible = visible[visible["genre_list"].map(
-            lambda tags: bool(wanted & set(tags)))]
-    if chosen_keys:
-        visible = visible[visible["camelot"].isin(chosen_keys)]
-    visible = visible[visible["bpm"].isna() |
-                      visible["bpm"].between(bpm_range[0], bpm_range[1])]
-    if search.strip():
-        visible = visible[visible["name"].str.contains(search.strip(),
-                                                       case=False, regex=False)]
+    visible = render_filters(frame)
     if not len(visible):
         st.info("No track matches these filters.")
         return
@@ -891,16 +986,17 @@ def render_set_builder(store: MapStore, context: tuple | None) -> None:
     passa dalla mappa a una scaletta — con due risposte. In due tab se ne
     vede uno alla volta e per intero, e restano affiancati.
 
-    Il Chain Maker c'è comunque, anche quando `context` è `None`: lavora sui
-    brani piazzati e sui filtri suoi, e non ha motivo di sparire perché i
-    filtri della mappa qui sopra non hanno lasciato passare niente.
+    Il Chain Maker c'è comunque, anche quando `context` è `None` — cioè
+    quando i filtri non lasciano passare niente — ma con la rosa vuota: una
+    catena già in piedi resta da guardare e da mandare alla playlist, e i
+    filtri non hanno mai toccato i brani che ci sono già sopra.
     """
     if not len(store) or not store.placed:
         return
     if context is None:
-        seed, selected, playlist = None, [], []
+        pool, seed, selected, playlist = [], None, [], []
     else:
-        *_, seed, selected, playlist = context
+        _, _, pool, _, seed, selected, playlist = context
 
     # Quale dei due si apre per primo: la scelta appena fatta sulla mappa
     # comanda, perché è il gesto più recente; se non ce n'è nessuna e una
@@ -925,7 +1021,7 @@ def render_set_builder(store: MapStore, context: tuple | None) -> None:
             else:
                 render_magic_playlist(*context)
         with chain:
-            render_chain_section(store)
+            render_chain_section(store, pool)
 
 
 def render_playlist_section(store: MapStore) -> None:
@@ -1453,7 +1549,7 @@ def graph_seeds(at_path: dict[str, int]) -> list[int]:
 
 
 @st.fragment
-def render_chain_section(store: MapStore) -> None:
+def render_chain_section(store: MapStore, pool) -> None:
     """Il Chain Maker: costruire un percorso un brano alla volta.
 
     È un frammento perché ogni gesto — spuntare un candidato, riordinare una
@@ -1462,9 +1558,9 @@ def render_chain_section(store: MapStore) -> None:
     Da frammento si ridisegna solo questa sezione, e il gesto smette di
     aspettare la mappa.
 
-    Lavora sui brani piazzati per intero, non su quelli filtrati dalla
-    sezione sopra: è un secondo modo di scegliere, non un'estensione del
-    primo, e i suoi filtri sono suoi.
+    `pool` arriva dai filtri della pagina: è un altro modo di scegliere fra
+    gli stessi brani, non un'altra libreria. Ne aveva di suoi, e voleva dire
+    restringere due volte la stessa cosa in due posti diversi.
     """
     if not len(store) or not store.placed:
         return
@@ -1474,7 +1570,6 @@ def render_chain_section(store: MapStore) -> None:
     cost = TransitionCost(store.coords[:placed], frame["bpm"].tolist(),
                           frame["camelot"].tolist())
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
-    pool = frame["index"].to_numpy()
     chosen = [i for i in graph_seeds(at_path) if i < placed]
     render_chain_maker(
         frame, cost, pool, at_path, chosen,

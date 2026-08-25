@@ -110,6 +110,16 @@
     svg.appendChild(caption);
   }
 
+  // L'altezza da chiedere è quella che la ruota occupa DAVVERO, non i 260
+  // del viewBox: l'SVG è largo quanto la colonna e tiene la sua proporzione,
+  // quindi in una colonna più larga di così è anche più alto — e chiedendone
+  // 268 fissi il riquadro le tagliava via il fondo. Si misura dopo che il
+  // browser ha impaginato.
+  function setHeight() {
+    var drawn = Math.round(svg.getBoundingClientRect().height);
+    toParent({ type: "streamlit:setFrameHeight", height: (drawn || SIZE) + 8 });
+  }
+
   window.addEventListener("message", function (event) {
     var data = event.data || {};
     if (data.type !== "streamlit:render") return;
@@ -118,11 +128,18 @@
     state.colors = args.colors || {};
     state.dark = !!args.dark;
     render();
-    toParent({ type: "streamlit:setFrameHeight", height: SIZE + 8 });
+    setHeight();
   });
 
+  // Restringendo la finestra cambia la larghezza della colonna, quindi anche
+  // l'altezza della ruota: senza riascoltarla il riquadro resterebbe alto
+  // quanto era al primo giro.
+  if (window.ResizeObserver) {
+    new ResizeObserver(setHeight).observe(svg);
+  }
+
   toParent({ type: "streamlit:componentReady", apiVersion: 1 });
-  toParent({ type: "streamlit:setFrameHeight", height: SIZE + 8 });
+  setHeight();
   render();
 })();
 </script>
