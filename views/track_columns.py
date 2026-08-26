@@ -144,11 +144,69 @@ EMOTION_COLORS = ["#e0a260", "#6f8fd6"]
 EMOTION_DEADZONE = 0.10
 
 
+# Cosa dice ogni colonna, per il punto interrogativo sull'intestazione.
+#
+# Qui e non accanto a ogni tabella: le tabelle sono sei in due moduli e
+# mostrano le stesse colonne, quindi una spiegazione scritta a mano ogni
+# volta avrebbe sei versioni e cinque da aggiornare — lo stesso motivo per
+# cui le colonne stanno in questo modulo.
+#
+# Le colonne colorate portano la loro spiegazione dentro la funzione che le
+# costruisce, perche' li' la spiegazione parla anche del colore.
+COLUMN_HELP = {
+    "#": "Where the track sits in the running order. Type a different "
+         "number and the track moves there while the others slide: nothing "
+         "is swapped, so writing 1 on the last row opens the set with it.",
+    "file": "The file name. Two tracks can carry the same one, which is why "
+            "the folder is in the last column.",
+    "BPM": "Tempo in beats per minute. Read from the file's tags when it "
+           "has them — a DJ library usually does — and measured only when "
+           "it does not, so it matches what the decks show.",
+    "folder": "Where the file comes from. In a DJ library the folder often "
+              "says what the name does not: the compilation, the era, the "
+              "set it was ripped for.",
+    "cost": "How expensive the mix from the seed track into this one is: "
+            "tempo, key and acoustic distance rolled into one number. Lower "
+            "is easier. The columns after it break it into its parts.",
+    "sound": "How far the two tracks sit on the map you are looking at. It "
+             "is the part of the cost that tempo and key cannot explain — "
+             "two tracks can share both and still sound nothing alike.",
+    "bpm cost": "The tempo part of the transition cost. Zero means the two "
+                "tempos already match and the pitch fader stays home.",
+    "key cost": "The harmonic part of the transition cost. Neighbours on "
+                "the Camelot wheel cost nothing; the opposite side costs "
+                "the most.",
+    "similarity": "How alike the two tracks sound, 0 to 1, measured on the "
+                  "full 1280-number fingerprint. This is the real nearness: "
+                  "the map on screen is its flattened shadow.",
+    "copies": "How many copies of this track the library holds. Empty means "
+              "one, which is the normal case.",
+    "Δbpm": "How much the tempo changes from the previous track, sign "
+            "included: it says which way the set is moving, not just how "
+            "far.",
+    "Δkey": "How many steps around the Camelot wheel from the previous "
+            "track.",
+    "Δgroove": "How much the onset uniformity changes from the previous "
+               "track. See the groove column for what that measures.",
+    "from previous": "The transition cost from the track above. It is the "
+                     "same number the Chain Maker uses to propose what "
+                     "comes next.",
+}
+
+
 def read_only(*columns: str) -> dict:
-    """Colonne che si guardano e basta. In una tabella con una casella da
-    spuntare tutto il resto va bloccato a mano, o si finisce a correggere i
-    BPM di un brano credendo di sceglierlo."""
-    return {name: st.column_config.Column(disabled=True) for name in columns}
+    """Colonne che si guardano e basta, con la loro spiegazione.
+
+    In una tabella con una casella da spuntare tutto il resto va bloccato a
+    mano, o si finisce a correggere i BPM di un brano credendo di
+    sceglierlo. E gia' che si passa di qui si attacca il punto interrogativo
+    con quello che la colonna misura: una colonna che si chiama "sound" o
+    "Δkey" non si spiega da sola, e chi la legge non ha nessun posto dove
+    andare a chiedere.
+    """
+    return {name: st.column_config.Column(disabled=True,
+                                          help=COLUMN_HELP.get(name))
+            for name in columns}
 
 
 def key_column(label: str = "key"):
@@ -167,10 +225,13 @@ def groove_column(label: str = "groove"):
     return st.column_config.MultiselectColumn(
         label, disabled=True, width="small",
         options=GROOVE_OPTIONS, color=GROOVE_COLORS,
-        help="The danceability from 0.00 to 1.00: regularity of the onsets, "
-             "low is loose and high is a straight kick. The same number the "
-             "track card, the board and the filters all call groove, written "
-             "the same way everywhere so there is nothing to convert.")
+        help="How UNIFORM the spacing between attacks is, 0.00 to 1.00 — "
+             "not groove in the musical sense. A metronome reads 1.00, and "
+             "so does an unbroken run of sixteenths: what lowers it is a "
+             "rhythmic figure, some hits close and some far apart. So a "
+             "track with a real groove tends to read LOW. Measured on one "
+             "30-second window at the middle of the track. Same number as "
+             "on the card and the board.")
 
 
 def emotion_column(label: str = "emotion"):

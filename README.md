@@ -162,9 +162,11 @@ own** at the centre of the track — the embedding windows are too short for a
 tempo detector to find bars in — since both are properties of the whole track
 and measuring them twelve times does not improve them. The key is converted to its **Camelot** code. Groove is not a
 model output either: it is `1 − (spread of the gaps between onsets)`, a
-hand-computed statistic. It measures **rhythmic regularity** — a straight kick
-scores high, a syncopated breakbeat low — which correlates with danceability
-without being it.
+hand-computed statistic — the danceability coefficient of the spec. Read
+[What each number means](#what-each-number-means) before trusting its name:
+it measures how *uniform* the spacing of attacks is, which is not the same
+thing as groove, and on produced music it behaves in ways its label does not
+suggest.
 
 **Where it is kept.** Three files in one folder, and the split follows how
 they are written: `tracks.jsonl` (one JSON line per track, **appended**),
@@ -317,6 +319,134 @@ interruptible), plus the X/Y of the projection.
 > top genre reaches 0.404 — at 0.40 almost the whole library would come back
 > with a single label. The defaults are 0.15 for genres and 0.05 for moods
 > (the same values the tagging already uses); both are settings.
+
+## What each number means
+
+Every measure a track carries, what it is computed from, and what it does
+**not** say. The app shows the same explanations on the `?` of each column.
+
+### From the tags, or from the signal when the tags are silent
+
+| | range | where from |
+|---|---|---|
+| **BPM** | 40–220 | the file's own tag when it has one, `RhythmExtractor2013` otherwise |
+| **key / Camelot** | 1A–12B | the file's own tag, `KeyExtractor` otherwise |
+
+Both are properties of the whole track, so they are measured once on a
+dedicated **30-second window at the centre**, not on the twelve embedding
+windows. A DJ library usually carries both already, and recomputing them
+would show two different numbers for the same thing.
+
+### Groove — read this one carefully
+
+`1 − (standard deviation ÷ mean of the gaps between onsets)`, clamped to
+0–1, on the same central 30-second window.
+
+It measures **how uniform the spacing between attacks is**. That is not what
+its name suggests, and the difference is not academic:
+
+| pattern | groove |
+|---|---|
+| a bare straight kick | **1.00** |
+| an unbroken run of sixteenths (240 attacks) | **1.00** |
+| the same kick with 60 attacks on the sixteenth grid | 0.46 |
+| the same kick with a vocal line over it | 0.30 |
+
+Density does not lower it — a full grid still reads 1.00. What lowers it is a
+**rhythmic figure**: some hits close together, some far apart. Which means a
+track with a real groove tends to score **low**, and the most metronomic
+material scores highest.
+
+Two more things worth knowing. **`0.00` is a floor, not a measurement**: it
+is what comes out whenever the spread of the gaps reaches their mean, so a
+merely irregular track and a wildly irregular one both read 0.00. And an
+**empty cell is different** — it means fewer than 8 onsets were found and the
+statistic was refused rather than invented.
+
+### Energy — four measures and one scale
+
+How much the track pushes. Perceived energy has no single correlate in the
+signal, so it is built from four, all on the same central 30-second window:
+
+| ingredient | what it asks |
+|---|---|
+| `energy_density` | how many attacks per beat — how thick the rhythmic weave is |
+| `energy_bass` | what share of the power sits below 200 Hz |
+| `energy_bright` | where the spectral centroid sits — closed and dark, or open with hats on top |
+| `energy_pulse` | how deeply the low end pulses **at the beat** — a straight kick against a syncopated 808 |
+
+The four have incompatible units, so each is converted to its **percentile
+rank across your library** before they are averaged, and the average is
+ranked once more so the ten levels are evenly populated by construction. The
+result is an integer **1–10**, read as deciles: a 10 is "the top tenth of
+*what you own*", not an absolute level.
+
+The raw four are what is stored; the 1–10 is derived at read time, so the
+scale re-tunes itself as the library grows and the weights can change without
+re-analysing anything.
+
+**Loudness is deliberately not one of them.** LUFS measures how hard the
+master was pushed, not how hard the track pushes — and the pipeline already
+normalises it away at −14 LUFS before inference precisely because it is a
+nuisance variable. Two of the four ingredients are scale-invariant by
+construction: the same track at −26 dB gives identical values to the sixth
+decimal. `lufs` is kept as the control instead: if energy correlated with it,
+the measure would have rebuilt loudness by accident.
+
+Validated on 27 tracks judged by ear across the whole range: mean error 0.33
+levels, 25 of 27 within one level, r = +0.96. Removing `energy_pulse` triples
+the error.
+
+### Mood, and the emotion arrow
+
+**`moods`** are words, not a number: up to four labels from the MTG-Jamendo
+model's fixed vocabulary of 56, ordered by confidence, kept when they pass
+0.05. The vocabulary mixes feelings (`Dark`, `Happy`) with themes (`Film`,
+`Christmas`, `Retro`) — the thematic half cannot be projected onto any axis,
+which is why the words are kept alongside the numbers rather than replaced by
+them. In tables the **rarest** of a track's moods is printed first, because
+the strongest one is usually the one nearly everybody shares.
+
+**Valence** — the `emotion` arrow, and the height of the board's mood axis —
+is a projection of those words onto one dark→bright axis, −1 to +1. Two
+things about it are hand-made and should be known:
+
+- the sign of each word comes from **two lists written by hand**: 8 words
+  pull dark, 13 pull bright, the other 35 are neutral. Reclassifying a single
+  word can move a track across the axis — the same track reads −0.27 with
+  `Deep` counted dark and +0.27 with it counted neutral;
+- the weight of each word is its **position** (1, ½, ⅓), because the row
+  keeps only the label names. The model's real confidences exist at analysis
+  time and are discarded on write.
+
+Neutral words count in the denominator and not in the numerator, on purpose:
+a track that is `Dark` *and also* energetic and melodic is less dark than one
+that is only `Dark`.
+
+### Distances, in the tables
+
+| | what it measures |
+|---|---|
+| `similarity` | cosine between the two **1280-dimension** fingerprints — the real nearness |
+| `sound` | distance on the **2-D projection**, which is that nearness flattened for drawing |
+| `cost` | the transition cost: `sound`, `bpm cost` and `key cost` in one number |
+
+`similarity` and `sound` answer the same question at two resolutions, and
+they can disagree: the map is a shadow, and shadows lose a dimension.
+
+### Vibe, sections, loudness
+
+**Vibe** (`Warm-Up-Low`, `Peak-Time-High`, …) is a name, not a measure:
+tempo bucket + RMS energy split at the 33rd and 66th percentiles of the
+library. It predates the Energy above and is coarser.
+
+**Sections** (`Intro`, `Build-up`, `Drop`, `Breakdown`, `Outro`) are a
+heuristic on the energy arc and the presence of bass, with thresholds
+relative to the track itself — not machine learning, and meant to be checked
+by ear in the app.
+
+**`lufs`** is the integrated loudness of the analysed windows *before*
+normalisation. It describes the master, not the music.
 
 ## Exporting cues to other DJ software
 
