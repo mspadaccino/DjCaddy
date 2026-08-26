@@ -23,7 +23,6 @@ dentro nasce lì.
 
 from __future__ import annotations
 
-import colorsys
 from pathlib import Path
 
 import numpy as np
@@ -37,19 +36,15 @@ from analysis.graph_playlist import GraphPlaylist, suggestions
 from analysis.mixing import (BPM_TOLERANCE, TransitionCost, bpm_shift,
                              camelot_shift)
 from views.components import NOW_PLAYING, fill_dock, play_table
+from views.track_columns import (KEY_COLORS, OTHER_COLOR, PALETTE,
+                                 camelot_color, dark, read_only, reading,
+                                 reading_config)
 
 _FRONTEND_DIR = Path(__file__).parent / "graph_board_frontend"
 _graph_board = components.declare_component("graph_board", path=str(_FRONTEND_DIR))
 
 _WHEEL_DIR = Path(__file__).parent / "camelot_wheel_frontend"
 _camelot_wheel = components.declare_component("camelot_wheel", path=str(_WHEEL_DIR))
-
-# Tavolozza duplicata da `views.map_analysis` apposta: importarla da lì
-# creerebbe un giro (quel modulo importa questa sezione), e sono dodici
-# colori — il doppione costa meno del giro.
-PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
-           "#4dd0c4", "#c9b037", "#6f8fd6", "#d66f6f", "#7fbf3f", "#bf7fd6"]
-OTHER_COLOR = {"light": "#9aa4b0", "dark": "#6b7684"}
 
 # I brani spuntati in questo momento, in una tabella qualunque della pagina.
 # La mappa li cerchia di giallo. Sta qui e non in `views.map_analysis` perché
@@ -80,32 +75,6 @@ START_PICKER_MAX = 2000
 # Quanti candidati proporre a ogni passo. Nove bastano a una scelta vera e
 # stanno in una tabella senza doverla scorrere.
 FRONTIER_SIZE = 9
-
-
-def _camelot_color(camelot: str | None) -> str:
-    """Il colore della ruota Camelot per una tonalità.
-
-    È la stessa codifica dei lettori per DJ (e di djoid): il numero dà la
-    tinta, la lettera dice se maggiore o minore. Serve perché due tonalità
-    che si mixano stanno vicine sulla ruota, e vicine sulla ruota vuol dire
-    tinte vicine — la compatibilità si vede senza leggere la sigla.
-    """
-    text = (camelot or "").strip().upper()
-    if len(text) < 2 or not text[:-1].isdigit():
-        return "#c7ccd4"
-    number = int(text[:-1])
-    if not 1 <= number <= 12:
-        return "#c7ccd4"
-    major = text[-1] == "B"
-    hue = ((190 - 30 * number) % 360) / 360
-    r, g, b = colorsys.hls_to_rgb(hue, 0.72 if major else 0.62,
-                                  0.65 if major else 0.55)
-    return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
-
-
-def _dark() -> bool:
-    theme = getattr(getattr(st, "context", None), "theme", None)
-    return getattr(theme, "type", None) == "dark"
 
 
 def start_board(*tracks: str) -> None:
@@ -269,29 +238,6 @@ def reordered(walk: list, moves: dict[int, float]) -> list:
     return order
 
 
-def mood_column():
-    """La colonna del mood, con la sua spiegazione. Pubblica e una sola
-    perché le tabelle che la portano sono sei, in due moduli: scritta a mano
-    ogni volta, la spiegazione avrebbe sei versioni e cinque da aggiornare."""
-    return st.column_config.Column(
-        "mood", disabled=True,
-        help="Before the dot, the rarest of this track's moods across your "
-             "library — the one that tells it apart. Energetic sits on 89% "
-             "of the library and Happy on 57%, so the strongest mood is "
-             "almost the same for everyone. After the dot, the others, "
-             "strongest first.")
-
-
-def _read_only(*columns: str) -> dict:
-    """Colonne che si guardano e basta.
-
-    Gemella di quella in `views.map_analysis`, e duplicata per la stessa
-    ragione della tavolozza: quel modulo importa questo, e importarlo di
-    rimando chiuderebbe il giro. È una riga.
-    """
-    return {name: st.column_config.Column(disabled=True) for name in columns}
-
-
 def camelot_picker(selected: list[str], widget_key: str,
                    event_key: str) -> list[str] | None:
     """La ruota Camelot come filtro. Torna la scelta nuova, o None se nessuno
@@ -307,18 +253,14 @@ def camelot_picker(selected: list[str], widget_key: str,
     si riconosce dal suo istante: senza, una tonalità scelta si aggiungerebbe
     e toglierebbe all'infinito.
     """
-    event = _camelot_wheel(selected=selected, colors=_CAMELOT_COLORS,
-                           dark=_dark(), key=widget_key, default=None)
+    event = _camelot_wheel(selected=selected, colors=KEY_COLORS,
+                           dark=dark(), key=widget_key, default=None)
     if not event or event.get("at") == st.session_state.get(event_key):
         return None
     st.session_state[event_key] = event.get("at")
     code = event.get("code")
     return ([k for k in selected if k != code] if code in selected
             else selected + [code])
-
-
-_CAMELOT_COLORS = {f"{n}{mode}": _camelot_color(f"{n}{mode}")
-                   for n in range(1, 13) for mode in "AB"}
 
 
 def _drive_span(frame: pd.DataFrame) -> tuple[float, float]:
@@ -522,30 +464,21 @@ def render_chain_maker(frame: pd.DataFrame, cost: TransitionCost, pool,
 
 
 def _spelled(row, source, common: dict[str, int]) -> dict:
-    """Le colonne comuni alle due tabelle: quelle che stanno sulle schede.
+    """Il brano come lo scrivono le due tabelle: la lettura comune a tutta la
+    pagina (`views.track_columns.reading`) più gli scarti dalla sorgente.
 
-    Le stesse voci e con gli stessi nomi da una parte e dall'altra, perché il
-    brano che si guarda a destra è quello che comparirà a sinistra, e
-    cambiargli le colonne nel passaggio costringerebbe a ritrovarlo.
+    Gli scarti sono ciò che queste due tabelle hanno in più delle altre:
+    dicono di quanto ci si sposta rispetto al brano da cui si esce, che è la
+    domanda del Chain Maker e di nessun altro posto.
     """
-    bpm, dance = _some(row, "bpm"), _some(row, "danceability")
     gaps = _gaps(source, row)
     steps = gaps.get("key")
     return {
-        "file": row["name"],
-        "BPM": round(bpm) if bpm is not None else None,
-        "key": _some(row, "camelot") or "",
-        "groove": round(dance, 2) if dance is not None else None,
+        **reading(row, common),
         "Δbpm": gaps.get("bpm"),
         "Δkey": (steps[0] if steps[0] else ("rel" if steps[1] else "="))
         if steps is not None else None,
         "Δgroove": gaps.get("dance"),
-        "mood": mood_scale.summary(row["moods"], common),
-        "genres": row["genres"],
-        # Da dove viene il file. Due brani con lo stesso nome esistono, e
-        # senza la cartella non c'è modo di dire quale dei due si sta
-        # guardando.
-        "folder": row["folder"],
     }
 
 
@@ -642,7 +575,7 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
     values = _measured(frame, at_path, paths, axis)
     heights = _heights(frame, at_path, paths, axis)
     color_of = _color_map(frame)
-    other = OTHER_COLOR["dark" if _dark() else "light"]
+    other = OTHER_COLOR["dark" if dark() else "light"]
     span = _drive_span(frame)
     before = {path: paths[n - 1] for n, path in enumerate(paths) if n}
 
@@ -661,7 +594,7 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
             "color": color_of.get(genre, other),
             "bpm": f"{bpm:.0f}" if bpm is not None else "",
             "camelot": camelot or "",
-            "keyColor": _camelot_color(camelot),
+            "keyColor": camelot_color(camelot),
             "dance": f"{dance:.2f}" if dance is not None else "",
             "drive": _drive(dance, span),
             # I tag per intero, non il solo genere principale: il colore del
@@ -675,7 +608,7 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
 
     _graph_board(nodes=nodes, ticks=_ticks(axis, values, frame),
                  selected=st.session_state.get(BOARD_PICKED),
-                 dark=_dark(), key="playlist_board_widget", default=None)
+                 dark=dark(), key="playlist_board_widget", default=None)
 
     st.caption("Left to right the set plays; how high a track sits is the "
                "measure above, on the scale at the left. **Hover** a point "
@@ -726,17 +659,15 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
         signature = "|".join(walk)
         chain_key = f"graph_chain_editor::{signature}"
         play_table("graph_chain", table,
-                   ["#", "BPM", "key", "groove",
+                   ["#", "BPM", "key", "groove", "emotion",
                     "Δbpm", "Δkey", "Δgroove", "file", "mood", "genres",
                     "folder"],
                    {"#": st.column_config.NumberColumn(
                        "#", min_value=1, max_value=max(len(walk), 1), step=1,
                        help="Write the position you want this track in: the "
                             "row moves there and the others slide."),
-                    "mood": mood_column(),
-                    **_read_only("file", "BPM", "key", "groove",
-                                 "Δbpm", "Δkey", "Δgroove", "genres",
-                                 "folder")},
+                    **reading_config(frame, table),
+                    **read_only("Δbpm", "Δkey", "Δgroove")},
                    editor_key=chain_key)
 
         moves = {int(row): values["#"]
@@ -811,15 +742,13 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
 
     edited = play_table(
         "graph_roster", table,
-        ["Add", "cost", "BPM", "key", "groove",
+        ["Add", "cost", "BPM", "key", "groove", "emotion",
          "Δbpm", "Δkey", "Δgroove", "file", "copies", "mood", "genres",
          "folder"],
         {"Add": st.column_config.CheckboxColumn(
             "Add", help="Tick what you want next, then the button below."),
-         "mood": mood_column(),
-         **_read_only("cost", "file", "BPM", "key", "groove",
-                      "Δbpm", "Δkey", "Δgroove", "copies", "genres",
-                      "folder")},
+         **reading_config(frame, table),
+         **read_only("cost", "Δbpm", "Δkey", "Δgroove", "copies")},
         # Come per il menu: cambiata la sorgente o cresciuta la catena, le
         # righe sotto sono altre e le spunte di prima indicherebbero brani
         # che nessuno ha scelto.

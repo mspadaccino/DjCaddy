@@ -51,9 +51,10 @@ from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
 from views.components import (NOW_PLAYING, fill_dock, pick_file, pick_files,
                               pick_folder, play_table, save_as, tick_all)
-from views.graph_board import (TICKED, camelot_picker, mood_column,
-                               mood_popularity, render_board,
-                               render_chain_maker, reordered)
+from views.graph_board import (TICKED, camelot_picker, mood_popularity,
+                               render_board, render_chain_maker, reordered)
+from views.track_columns import (PALETTE, READING_ORDER, read_only, reading,
+                                 reading_config)
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
 # ma il browser: WebGL regge il milione di punti in teoria, e nella pratica
@@ -104,14 +105,6 @@ SIZE_FIELDS = {
 }
 FLAT_SIZE = 7.0
 MIN_SIZE, MAX_SIZE = 4.0, 15.0
-
-PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
-           "#4dd0c4", "#c9b037", "#6f8fd6", "#d66f6f", "#7fbf3f", "#bf7fd6",
-           # Sei in più: con le etichette foglia dodici colori lasciavano un
-           # terzo della libreria in grigio. Le tinte continuano a girare
-           # attorno alla ruota invece di scurirsi, o due gruppi vicini
-           # diventerebbero indistinguibili su punti da sette pixel.
-           "#3fb0bf", "#d68f3f", "#8fd63f", "#d63f8f", "#5f6fd6", "#bf5f3f"]
 
 # Due fondi e due inchiostri, uno per tema. Il fondo della mappa è staccato
 # di poco da quello della pagina: quel poco basta a dire dove finisce il
@@ -204,13 +197,6 @@ def _stamp(directory: Path) -> tuple:
         except OSError:
             out.append(None)
     return tuple(out)
-
-
-def _read_only(*columns: str) -> dict:
-    """Colonne che si guardano e basta. In una tabella con una casella da
-    spuntare tutto il resto va bloccato a mano, o si finisce a correggere i
-    BPM di un brano credendo di sceglierlo."""
-    return {name: st.column_config.Column(disabled=True) for name in columns}
 
 
 def remember_playlist(frame: pd.DataFrame, indices) -> None:
@@ -895,13 +881,7 @@ def selection_rows(frame: pd.DataFrame, indices) -> pd.DataFrame:
     common = mood_popularity(frame)
     return pd.DataFrame([{
         "#": position + 1,
-        "file": frame.at[i, "name"],
-        "BPM": frame.at[i, "bpm"],
-        "key": frame.at[i, "camelot"],
-        "groove": frame.at[i, "danceability"],
-        "mood": mood_scale.summary(frame.at[i, "moods"], common),
-        "genres": frame.at[i, "genres"],
-        "folder": frame.at[i, "folder"],
+        **reading(frame.loc[i], common),
         "_path": frame.at[i, "path"],
     } for position, i in enumerate(indices)])
 
@@ -916,10 +896,8 @@ def _selection_table(frame: pd.DataFrame, indices, key: str) -> None:
         return
     table = selection_rows(frame, indices)
     play_table(
-        f"map_selection::{key}", table,
-        ["#", "file", "BPM", "key", "groove", "mood", "genres", "folder"],
-        {**_read_only("#", "file", "BPM", "key", "groove", "genres",
-                      "folder"), "mood": mood_column()},
+        f"map_selection::{key}", table, ["#", *READING_ORDER],
+        {**read_only("#"), **reading_config(frame, table)},
         editable=False, editor_key=f"map_selection_editor::{key}")
 
 
@@ -1098,10 +1076,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
         table = pd.DataFrame([{
             "Add": False,
             "cost": round(value, 3),
-            "file": frame.at[i, "name"],
-            "BPM": frame.at[i, "bpm"],
-            "key": frame.at[i, "camelot"],
-            "groove": frame.at[i, "danceability"],
+            **reading(frame.loc[i], common),
             # Le tre parti del costo, non tre scarti: dicono QUANTO due brani
             # sono lontani su ciascun asse, da 0 a 1, non da che parte. Il
             # nome "Δ" prometteva un segno che qui non c'è — e da quando la
@@ -1109,9 +1084,6 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "sound": round(cost.parts(seed, i)["map"], 3),
             "bpm cost": round(cost.parts(seed, i)["bpm"], 2),
             "key cost": round(cost.parts(seed, i)["key"], 2),
-            "mood": mood_scale.summary(frame.at[i, "moods"], common),
-            "genres": frame.at[i, "genres"],
-            "folder": frame.at[i, "folder"],
             "_path": frame.at[i, "path"],
             "_row": i,
         } for i, value in suggestions])
@@ -1129,14 +1101,13 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             # mentre l'orecchio stava sull'altra.
             edited = play_table(
                 "map_suggestions", table,
-                ["Add", "cost", "file", "BPM", "key", "groove", "sound",
-                 "bpm cost", "key cost", "mood", "genres", "folder"],
+                ["Add", "cost", "file", "BPM", "key", "groove", "emotion",
+                 "sound", "bpm cost", "key cost", "mood", "genres", "folder"],
                 {"Add": st.column_config.CheckboxColumn(
                     "Add", help="Tick what you want in the playlist, then "
                                 "the button below."),
-                 "mood": mood_column(),
-                 **_read_only("cost", "file", "BPM", "key", "groove", "sound",
-                              "bpm cost", "key cost", "genres", "folder")},
+                 **reading_config(frame, table),
+                 **read_only("cost", "sound", "bpm cost", "key cost")},
                 editor_key=mix_key)
             wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
             st.session_state[TICKED] = wanted
@@ -1156,12 +1127,7 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
         neighbours = pd.DataFrame([{
             "Add": False,
             "similarity": round(score, 3),
-            "file": frame.at[i, "name"],
-            "BPM": frame.at[i, "bpm"],
-            "key": frame.at[i, "camelot"],
-            "mood": mood_scale.summary(frame.at[i, "moods"], common),
-            "genres": frame.at[i, "genres"],
-            "folder": frame.at[i, "folder"],
+            **reading(frame.loc[i], common),
             "_path": frame.at[i, "path"],
             "_row": i,
         } for i, score in [(seed, 1.0)]
@@ -1177,14 +1143,12 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             neighbours["Add"] = near_all
             picked_near = play_table(
                 "map_neighbours", neighbours,
-                ["Add", "similarity", "file", "BPM", "key", "mood", "genres",
-                 "folder"],
+                ["Add", "similarity", *READING_ORDER],
                 {"Add": st.column_config.CheckboxColumn(
                     "Add", help="Tick what you want in the playlist, then "
                                 "the button below."),
-                 "mood": mood_column(),
-                 **_read_only("similarity", "file", "BPM", "key", "genres",
-                              "folder")},
+                 **reading_config(frame, neighbours),
+                 **read_only("similarity")},
                 editor_key=near_key)
             near_wanted = [int(i) for i in
                            picked_near.loc[picked_near["Add"], "_row"]]
@@ -1385,13 +1349,8 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     table = pd.DataFrame([{
         "#": position + 1,
         "Drop": False,
-        "file": frame.at[i, "name"],
-        "BPM": frame.at[i, "bpm"],
-        "key": frame.at[i, "camelot"],
+        **reading(frame.loc[i], common),
         "from previous": round(step, 3) if step is not None else None,
-        "mood": mood_scale.summary(frame.at[i, "moods"], common),
-        "genres": frame.at[i, "genres"],
-        "folder": frame.at[i, "folder"],
         "_path": frame.at[i, "path"],
         "_row": i,
     } for position, (i, step) in enumerate(zip(playlist, costs))])
@@ -1408,8 +1367,8 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     table["Drop"] = drop_all
     edited = play_table(
         "map_playlist", table,
-        ["#", "Drop", "file", "BPM", "key", "from previous", "mood",
-         "genres", "folder"],
+        ["#", "Drop", "file", "BPM", "key", "groove", "emotion",
+         "from previous", "mood", "genres", "folder"],
         {"#": st.column_config.NumberColumn(
             "#", min_value=1, max_value=len(playlist), step=1,
             help="Write the position you want this track in: the row moves "
@@ -1420,8 +1379,7 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
              "from previous", disabled=True,
              help="The transition cost from the track above: 0 is "
                   "seamless, 1 is as far as this library goes."),
-         "mood": mood_column(),
-         **_read_only("file", "BPM", "key", "genres", "folder")},
+         **reading_config(frame, table)},
         editor_key=editor_key)
 
     # Riscrivere un numero sposta la riga. Si legge dallo stato del widget e

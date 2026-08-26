@@ -818,7 +818,9 @@ def test_selection_rows_keep_the_order_they_are_given():
     assert list(got["file"]) == ["C.mp3", "A.mp3"]
     assert list(got["#"]) == [1, 2]
     assert list(got["_path"]) == ["/x/C.mp3", "/x/A.mp3"]
-    assert list(got["key"]) == ["8B", "8A"]
+    # la tonalita' e' una pastiglia, cioe' una lista di una voce sola: e' il
+    # tipo con cui Streamlit disegna un'etichetta colorata
+    assert list(got["key"]) == [["8B"], ["8A"]]
     # il mood distintivo davanti: Energetic sta su tutti e non separa niente
     assert list(got["mood"]) == ["Summer · Energetic", "Dark · Energetic"]
     # un brano solo e' un caso come gli altri, non un caso a parte
