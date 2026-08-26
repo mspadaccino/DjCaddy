@@ -32,7 +32,8 @@ from pathlib import Path
 import numpy as np
 
 from analysis import energy, mood_scale
-from analysis.map_profile import ProfileSettings, gain_for_target, rhythm_offset
+from analysis.map_profile import (ProfileSettings, default_workers,
+                                  gain_for_target, rhythm_offset)
 from analysis.map_store import MapStore, default_store_dir
 
 ANALYSIS_RATE = 44100
@@ -175,6 +176,76 @@ def probe(row: dict, settings: ProfileSettings) -> dict:
 
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# Il backfill: i quattro campi sulle righe che non ce l'hanno
+# --------------------------------------------------------------------------
+
+_SETTINGS: ProfileSettings | None = None
+
+
+def _worker_start(settings: ProfileSettings) -> None:
+    global _SETTINGS
+    _SETTINGS = settings
+
+
+def _worker(row: dict) -> tuple:
+    try:
+        return row["path"], probe(row, _SETTINGS), None
+    except Exception as exc:                      # un brano rotto non ferma il job
+        return row["path"], None, f"{type(exc).__name__}: {exc}"[:90]
+
+
+def missing(rows: list[dict]) -> list[dict]:
+    """Le righe che i quattro campi non ce l'hanno ancora.
+
+    Si guarda se la CHIAVE c'è, non se il valore è pieno: una finestra muta
+    dà quattro `None` legittimi, e cercarli per valore rimetterebbe quel brano
+    in coda a ogni giro per sempre.
+    """
+    return [r for r in rows if not all(n in r for n in energy.INGREDIENTS)]
+
+
+def backfill(store: MapStore, settings: ProfileSettings, workers: int,
+             flush_every: int = 500, on_progress=None) -> tuple[int, list]:
+    """Misura e scrive i quattro campi, riscrivendo `tracks.jsonl` per intero.
+
+    Si riscrive invece di appendere perché qui non si aggiungono BRANI, si
+    aggiunge un CAMPO a righe che ci sono già: l'ordine non cambia, quindi
+    embedding e coordinate restano allineati e intatti — niente mezzo giga di
+    vettori duplicati e niente proiezione da rifare. Vedi `MapStore.rewrite`.
+
+    Si salva ogni `flush_every` brani: due ore di lavoro non devono dipendere
+    dal fatto che nessuno chiuda il coperchio del portatile.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    todo = missing(store.rows)
+    if not todo:
+        return 0, []
+    at_path = {r["path"]: r for r in store.rows}
+    done, failed = 0, []
+
+    def keep(path: str, values: dict | None) -> None:
+        row = at_path[path]
+        for name in energy.INGREDIENTS:
+            value = (values or {}).get(name)
+            row[name] = round(value, 4) if value is not None else None
+
+    with ProcessPoolExecutor(max_workers=workers, initializer=_worker_start,
+                             initargs=(settings,)) as pool:
+        for path, values, error in pool.map(_worker, todo, chunksize=8):
+            keep(path, values)
+            if error:
+                failed.append((Path(path).name, error))
+            done += 1
+            if done % flush_every == 0:
+                store.rewrite()
+            if on_progress:
+                on_progress(done, len(todo), path)
+    store.rewrite()
+    return done, failed
+
+
 def _table(rows: list[dict], measures: list[dict]) -> list[dict]:
     columns = {name: [m.get(name) if m.get(name) is not None else np.nan
                       for m in measures] for name in energy.INGREDIENTS}
@@ -283,11 +354,48 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("energy_sample.csv"))
     parser.add_argument("--from-csv", type=Path,
                         help="Rilegge una prova gia' fatta invece di misurare")
+    parser.add_argument("--backfill", action="store_true",
+                        help="Misura e scrive i quattro campi su TUTTA la mappa")
+    parser.add_argument("--workers", type=int, default=default_workers())
     parser.add_argument("--dry-run", action="store_true",
                         help="Mostra il campione senza aprire l'audio")
     args = parser.parse_args()
 
     settings = ProfileSettings()
+    if args.backfill:
+        store = MapStore.load(args.store)
+        if not len(store):
+            parser.error(f"Nessuna mappa in {args.store}.")
+        todo = missing(store.rows)
+        print(f"Mappa: {len(store):,} brani · da misurare {len(todo):,} "
+              f"· parallelismo {args.workers}")
+        if not todo:
+            print("  Tutti i brani hanno gia' i quattro campi.")
+            return
+        print("  Nessun modello, nessun embedding: solo trenta secondi di "
+              "audio a brano.\n  Si puo' fermare — quello che e' scritto "
+              "resta e la volta dopo riparte da li'.\n", flush=True)
+
+        t0 = time.time()
+
+        def report(done, total, path):
+            each = (time.time() - t0) / done
+            left = _human(each * (total - done))
+            sys.stdout.write(f"\r  {done:,}/{total:,} · {each:.2f}s a brano "
+                             f"· ~{left} alla fine · {Path(path).name[:34]:34s}")
+            sys.stdout.flush()
+
+        done, failed = backfill(store, settings, args.workers,
+                                on_progress=report)
+        print(f"\n\nScritti {done:,} brani in {_human(time.time() - t0)}.")
+        if failed:
+            print(f"  falliti {len(failed)} (restano senza energia):")
+            for name, why in failed[:5]:
+                print(f"    {name[:50]:50s} {why}")
+        print("\n  Embedding e coordinate non sono stati toccati: "
+              "niente da riproiettare.")
+        return
+
     if args.from_csv:
         table = _from_csv(args.from_csv)
         _print_table(table)

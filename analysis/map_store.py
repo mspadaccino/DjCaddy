@@ -237,6 +237,47 @@ class MapStore:
         self.write_meta()
         return len(good)
 
+    def rewrite(self) -> int:
+        """Riscrive `tracks.jsonl` dalle righe in memoria. Ritorna quante.
+
+        L'append esiste perché a novantamila brani gli embedding sono mezzo
+        giga e risalvarli ogni cinquanta brani vorrebbe dire passare la notte
+        a riscrivere lo stesso mezzo giga. Ma quello vale per gli EMBEDDING:
+        il file dei soli metadati sta in qualche decina di megabyte e
+        riscriverlo per intero costa un secondo.
+
+        Serve quando si aggiunge un CAMPO a righe che esistono già —
+        l'energia, per dire. Appendere le righe rifatte funzionerebbe (in
+        `load` vince l'ultima), ma pretenderebbe di riscrivere anche un
+        embedding identico a quello che c'è, mezzo giga per niente, e
+        soprattutto azzererebbe le coordinate costringendo a rifare tutta la
+        proiezione.
+
+        Qui invece l'ORDINE delle righe non cambia, e siccome è l'ordine
+        l'unica cosa che tiene allineati i tre file, embedding e coordinate
+        restano validi e intatti.
+
+        Su file temporaneo e poi `replace`, che è atomico: o resta il file di
+        prima o c'è quello nuovo, mai uno a metà nemmeno staccando la corrente
+        a metà scrittura.
+        """
+        # Una riga in piu' o in meno degli embedding non e' un caso da
+        # gestire, e' uno sbaglio di chi chiama: `load` terrebbe la parte su
+        # cui i due file vanno d'accordo e il resto della mappa sparirebbe in
+        # silenzio. Meglio fermarsi rumorosamente.
+        if len(self.embeddings) and len(self.rows) != len(self.embeddings):
+            raise ValueError(
+                f"{len(self.rows)} righe contro {len(self.embeddings)} "
+                "embedding: riscrivere le une senza gli altri disallineerebbe "
+                "la mappa")
+        self.directory.mkdir(parents=True, exist_ok=True)
+        temporary = self.rows_file.with_suffix(".jsonl.tmp")
+        with temporary.open("w", encoding="utf-8") as fh:
+            for row in self.rows:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        os.replace(temporary, self.rows_file)
+        return len(self.rows)
+
     def remove(self, paths) -> int:
         """Toglie dei brani dalla mappa. Ritorna quanti ne ha tolti.
 

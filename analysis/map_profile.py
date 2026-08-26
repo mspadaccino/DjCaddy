@@ -52,6 +52,8 @@ from .essentia_tags import (
     format_mood_tag,
     missing_models,
 )
+from .energy import INGREDIENTS as ENERGY_FIELDS
+from .energy import measure as measure_energy
 from .mixing import to_camelot
 
 # Il modello vuole 16 kHz, ma il file si legge a 44100: a 16 kHz il tempo e
@@ -116,6 +118,10 @@ class TrackProfile:
     key: str | None = None
     lufs: float | None = None            # loudness integrata PRIMA della normalizzazione
     danceability: float | None = None    # 0..1, regolarità degli onset
+    # I tre grezzi dell'energia più la densità: si salvano crudi e non come
+    # voto, perché il voto è un rango sulla libreria intera e cambierebbe a
+    # ogni brano aggiunto. Vedi `analysis.energy`.
+    energy: dict = field(default_factory=dict)
     genres: list[tuple[str, float]] = field(default_factory=list)
     moods: list[tuple[str, float]] = field(default_factory=list)
     embedding: np.ndarray | None = None
@@ -139,6 +145,9 @@ class TrackProfile:
             "lufs": round(self.lufs, 1) if self.lufs is not None else None,
             "danceability": round(self.danceability, 3)
             if self.danceability is not None else None,
+            **{name: round(self.energy[name], 4)
+               if self.energy.get(name) is not None else None
+               for name in ENERGY_FIELDS},
             "genres": "; ".join(g for g, _ in self.genres),
             "top_genre": self.top_genre,
             "moods": "; ".join(m for m, _ in self.moods),
@@ -384,8 +393,13 @@ class ProfileAnalyzer:
             profile.key = f"{note} {scale}"
         profile.camelot = to_camelot(profile.key)
 
-        onsets = OnsetRate()(middle)[0]
+        # `OnsetRate` restituisce gli attacchi E il loro numero al secondo:
+        # il primo dice quanto il ritmo è regolare, il secondo quanto è fitto.
+        # Per un po' il secondo è stato buttato via e l'energia lo rimisurava.
+        onsets, rate = OnsetRate()(middle)
         profile.danceability = onset_regularity(onsets)
+        profile.energy = measure_energy(middle, ANALYSIS_RATE,
+                                        float(rate), profile.bpm)
 
         # Ramo embedding + ramo classificazione: un'inferenza sola, letta in
         # due punti. Le finestre si incollano PRIMA di entrare nel modello,

@@ -332,3 +332,57 @@ def test_relocating_stops_at_the_folder_boundary(tmp_path):
     kept = [r["path"] for r in MapStore.load(tmp_path / "map").rows]
     assert str(tmp_path / "elsewhere" / "a.mp3") in kept
     assert str(tmp_path / "disk backup" / "b.mp3") in kept
+
+
+def test_rewriting_the_rows_keeps_their_order_and_the_vectors(tmp_path):
+    """Aggiungere un campo non deve scomporre la fila: e' l'ordine l'unica
+    cosa che tiene allineati metadati, embedding e coordinate."""
+    import numpy as np
+
+    from analysis.map_store import MapStore
+
+    store = MapStore.load(tmp_path)
+    store.rows = [{"path": f"/lib/{i}.flac", "bpm": 120 + i} for i in range(5)]
+    store.embeddings = np.zeros((5, 1280), dtype=np.float32)
+    store.embeddings_file.write_bytes(store.embeddings.tobytes())
+    for i, row in enumerate(store.rows):
+        row["energy_pulse"] = i / 10
+    assert store.rewrite() == 5
+
+    again = MapStore.load(tmp_path)
+    assert [r["path"] for r in again.rows] == [r["path"] for r in store.rows]
+    assert [r["energy_pulse"] for r in again.rows] == [0.0, 0.1, 0.2, 0.3, 0.4]
+
+
+def test_a_rewrite_that_dies_halfway_leaves_the_old_file_alone(tmp_path):
+    import numpy as np
+
+    from analysis.map_store import MapStore
+
+    store = MapStore.load(tmp_path)
+    store.rows = [{"path": "/lib/a.flac"}]
+    store.embeddings_file.write_bytes(
+        np.zeros((1, 1280), dtype=np.float32).tobytes())
+    store.rewrite()
+    store.rows = [{"path": "/lib/a.flac"}, {"path": object()}]   # non serializzabile
+    store.embeddings = np.zeros((2, 1280), dtype=np.float32)
+    try:
+        store.rewrite()
+    except TypeError:
+        pass
+    assert [r["path"] for r in MapStore.load(tmp_path).rows] == ["/lib/a.flac"]
+
+
+def test_rewriting_fewer_rows_than_vectors_is_refused(tmp_path):
+    """Il silenzio sarebbe peggio: `load` terrebbe solo il prefisso comune e
+    meta' mappa sparirebbe senza dire niente."""
+    import numpy as np
+    import pytest
+
+    from analysis.map_store import MapStore
+
+    store = MapStore.load(tmp_path)
+    store.rows = [{"path": "/lib/a.flac"}]
+    store.embeddings = np.zeros((2, 1280), dtype=np.float32)
+    with pytest.raises(ValueError):
+        store.rewrite()

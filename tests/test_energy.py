@@ -258,3 +258,20 @@ def test_measure_now_reads_four_things():
     out = energy.measure(_kicks(np.arange(16)), 44100, onset_rate=2.0, bpm=120.0)
     assert set(out) == set(energy.INGREDIENTS)
     assert out["energy_pulse"] > 0.5
+
+
+# --- il backfill -----------------------------------------------------------
+
+def test_only_the_rows_without_the_fields_are_measured_again():
+    import energy_cli
+    old = {"path": "/a.flac"}
+    new = {"path": "/b.flac", **dict.fromkeys(energy.INGREDIENTS)}
+    assert energy_cli.missing([old, new]) == [old]
+
+
+def test_a_window_that_could_not_be_measured_is_not_queued_forever():
+    # Quattro None sono una risposta legittima — la finestra era muta — e
+    # cercare le righe da fare per VALORE la rimetterebbe in coda per sempre.
+    import energy_cli
+    silent = {"path": "/c.flac", **dict.fromkeys(energy.INGREDIENTS)}
+    assert energy_cli.missing([silent]) == []
