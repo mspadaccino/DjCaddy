@@ -239,6 +239,17 @@ def backfill(store: MapStore, settings: ProfileSettings, workers: int,
 
     Si salva ogni `flush_every` brani: due ore di lavoro non devono dipendere
     dal fatto che nessuno chiuda il coperchio del portatile.
+
+    **Quanti worker.** Il default e' meta' dei core, ma qui non e' la CPU a
+    decidere: si legge trenta secondi di audio a brano da ottantasettemila
+    file sparsi, e se la libreria sta su un disco esterno il collo di
+    bottiglia e' il volume. Misurato su una libreria vera, con cinque worker
+    ogni brano costava 3,3 secondi di CPU contro gli 0,56 della stessa
+    funzione girata da sola: cinque lettori concorrenti fanno saltare la
+    coda del disco invece di leggere. Due e' risultato il numero migliore —
+    mentre uno aspetta il disco l'altro calcola, e dal terzo in poi si
+    perde piu' di quanto si guadagni. Con la libreria su disco interno il
+    discorso cambia e conviene alzarlo.
     """
     from concurrent.futures import ProcessPoolExecutor
 
@@ -379,7 +390,9 @@ def main() -> None:
                         help="Rilegge una prova gia' fatta invece di misurare")
     parser.add_argument("--backfill", action="store_true",
                         help="Misura e scrive i quattro campi su TUTTA la mappa")
-    parser.add_argument("--workers", type=int, default=default_workers())
+    parser.add_argument("--workers", type=int, default=default_workers(),
+                        help="Con la libreria su un disco esterno il numero "
+                             "buono e' BASSO: misurato, 2 batte sia 5 che 1")
     parser.add_argument("--dry-run", action="store_true",
                         help="Mostra il campione senza aprire l'audio")
     args = parser.parse_args()
