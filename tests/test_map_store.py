@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -386,3 +387,44 @@ def test_rewriting_fewer_rows_than_vectors_is_refused(tmp_path):
     store.embeddings = np.zeros((2, 1280), dtype=np.float32)
     with pytest.raises(ValueError):
         store.rewrite()
+
+
+def test_a_rewrite_after_a_duplicate_was_absorbed_realigns_the_vectors(tmp_path):
+    """Il caso che non si vede in memoria e che rovinerebbe la mappa per sempre.
+
+    `load` assorbe i duplicati e compatta righe E vettori, quindi in memoria
+    tornano pari; sul disco pero' gli embedding sono ancora quelli lunghi.
+    Riscrivendo le sole righe, il caricamento dopo prenderebbe i PRIMI vettori
+    invece di quelli scelti, e da li' in poi ogni brano avrebbe il vettore del
+    vicino — senza un errore.
+    """
+    import numpy as np
+
+    from analysis.map_store import EMBEDDING_DIM, MapStore
+
+    store = MapStore.load(tmp_path)
+    # b compare due volte: vale l'ultima, e la fila si accorcia NEL MEZZO.
+    paths = ["/lib/a.flac", "/lib/b.flac", "/lib/b.flac", "/lib/c.flac"]
+    store.rows_file.write_text(
+        "".join(json.dumps({"path": p, "n": i}) + "\n"
+                for i, p in enumerate(paths)), encoding="utf-8")
+    vectors = np.zeros((4, EMBEDDING_DIM), dtype=np.float32)
+    for i in range(4):
+        vectors[i, 0] = i                      # ogni vettore si riconosce
+    store.embeddings_file.write_bytes(vectors.tobytes())
+
+    loaded = MapStore.load(tmp_path)
+    assert [r["path"] for r in loaded.rows] == ["/lib/a.flac", "/lib/b.flac",
+                                                "/lib/c.flac"]
+    assert list(loaded.embeddings[:, 0]) == [0.0, 2.0, 3.0]
+
+    for row in loaded.rows:                    # il backfill aggiunge un campo
+        row["energy_pulse"] = 0.5
+    loaded.rewrite()
+
+    again = MapStore.load(tmp_path)
+    assert [r["path"] for r in again.rows] == ["/lib/a.flac", "/lib/b.flac",
+                                               "/lib/c.flac"]
+    # Senza riscrivere anche i vettori qui uscirebbe [0, 1, 2]: /lib/b.flac si
+    # ritroverebbe il vettore della sua copia scartata e /lib/c.flac quello di b.
+    assert list(again.embeddings[:, 0]) == [0.0, 2.0, 3.0]

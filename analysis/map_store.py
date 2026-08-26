@@ -261,16 +261,35 @@ class MapStore:
         prima o c'è quello nuovo, mai uno a metà nemmeno staccando la corrente
         a metà scrittura.
         """
-        # Una riga in piu' o in meno degli embedding non e' un caso da
-        # gestire, e' uno sbaglio di chi chiama: `load` terrebbe la parte su
-        # cui i due file vanno d'accordo e il resto della mappa sparirebbe in
-        # silenzio. Meglio fermarsi rumorosamente.
+        # Una riga in piu' o in meno degli embedding IN MEMORIA non e' un
+        # caso da gestire, e' uno sbaglio di chi chiama. Meglio fermarsi
+        # rumorosamente che lasciare che `load` tenga il prefisso comune e il
+        # resto della mappa sparisca in silenzio.
         if len(self.embeddings) and len(self.rows) != len(self.embeddings):
             raise ValueError(
                 f"{len(self.rows)} righe contro {len(self.embeddings)} "
                 "embedding: riscrivere le une senza gli altri disallineerebbe "
                 "la mappa")
         self.directory.mkdir(parents=True, exist_ok=True)
+
+        # E poi c'e' il caso che in memoria non si vede. `load` ASSORBE i
+        # duplicati — lo stesso percorso appeso due volte, che capita quando
+        # un file cambia dopo essere finito sulla mappa — e compatta righe e
+        # vettori insieme. In memoria tornano pari, ma sul disco gli embedding
+        # sono ancora quelli lunghi: riscrivere le sole righe li lascerebbe di
+        # due lunghezze diverse, e al caricamento dopo il taglio a
+        # `min(righe, vettori)` prenderebbe i PRIMI vettori invece di quelli
+        # scelti. Da li' in poi ogni brano avrebbe il vettore del vicino, per
+        # sempre e senza un errore. Se e' successo si riscrivono anche quelli:
+        # mezzo giga una volta sola, non ogni cinquanta brani.
+        blocks = (self.embeddings_file.stat().st_size
+                  // (EMBEDDING_DIM * 4)) if self.embeddings_file.exists() else 0
+        if blocks != len(self.rows):
+            vectors = self.embeddings_file.with_suffix(".f32.tmp")
+            vectors.write_bytes(
+                np.asarray(self.embeddings, dtype=np.float32).tobytes())
+            os.replace(vectors, self.embeddings_file)
+
         temporary = self.rows_file.with_suffix(".jsonl.tmp")
         with temporary.open("w", encoding="utf-8") as fh:
             for row in self.rows:

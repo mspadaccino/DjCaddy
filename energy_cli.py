@@ -43,6 +43,29 @@ ANALYSIS_RATE = 44100
 _GOLDEN = 0.6180339887498949
 
 
+def _human(seconds: float) -> str:
+    if seconds < 90:
+        return f"{seconds:.0f}s"
+    if seconds < 5400:
+        return f"{seconds / 60:.0f} min"
+    return f"{seconds / 3600:.1f} h"
+
+
+def progress_line(done: int, total: int, path, started: float) -> str:
+    """La riga di avanzamento del backfill.
+
+    Funzione a se' e non una chiusura dentro `main` perche' e' l'unico pezzo
+    del backfill che gira solo dopo il primo brano misurato: dentro `main`
+    non la vedeva nessun test, ed e' bastato un nome non definito per far
+    morire il job dopo la prima misura, con la mappa gia' aperta e niente
+    scritto.
+    """
+    each = (time.time() - started) / max(1, done)
+    return (f"  {done:,}/{total:,} · {each:.2f}s a brano · "
+            f"~{_human(each * (total - done))} alla fine · "
+            f"{Path(path).name[:34]:34s}")
+
+
 # --------------------------------------------------------------------------
 # Il campione
 # --------------------------------------------------------------------------
@@ -379,10 +402,7 @@ def main() -> None:
         t0 = time.time()
 
         def report(done, total, path):
-            each = (time.time() - t0) / done
-            left = _human(each * (total - done))
-            sys.stdout.write(f"\r  {done:,}/{total:,} · {each:.2f}s a brano "
-                             f"· ~{left} alla fine · {Path(path).name[:34]:34s}")
+            sys.stdout.write("\r" + progress_line(done, total, path, t0))
             sys.stdout.flush()
 
         done, failed = backfill(store, settings, args.workers,
