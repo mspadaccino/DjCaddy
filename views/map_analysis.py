@@ -260,7 +260,31 @@ def _play(path: str | None) -> None:
 
 
 def remember_seed(frame: pd.DataFrame, index: int) -> None:
+    """Il seme, e il campo che lo mostra: i due insieme, sempre.
+
+    Il campo non è solo il posto da cui si sceglie un brano per nome: è anche
+    quello dove si LEGGE il seme, comunque sia arrivato. Scriverne uno senza
+    l'altro lascia il campo sulla scelta di prima, con il brano nuovo che
+    compare solo dentro l'elenco a discesa — che è esattamente cosa
+    succedeva a chi cliccava un punto dopo aver scelto per nome.
+
+    La chiave di un widget si può scrivere solo PRIMA che il widget esista.
+    Tutte le strade che chiamano questa funzione stanno più in alto del
+    campo, e devono restarci.
+    """
     st.session_state[SEED] = frame.at[index, "path"]
+    st.session_state[SEED_FIELD] = int(index)
+
+
+def forget_seed() -> None:
+    """Via il seme e via quello che il campo mostrava.
+
+    Serve quando dalla mappa arriva un GRUPPO: seme e gruppo si escludono, e
+    un campo rimasto acceso sul brano di prima direbbe che c'è ancora una
+    scelta singola quando non c'è più.
+    """
+    st.session_state.pop(SEED, None)
+    st.session_state[SEED_FIELD] = None
 
 
 def read_selection() -> list[int]:
@@ -752,7 +776,7 @@ def render_map(store: MapStore) -> tuple | None:
             st.session_state[SELECTION] = []
         else:
             st.session_state[SELECTION] = [frame.at[i, "path"] for i in picked]
-            st.session_state.pop(SEED, None)
+            forget_seed()
         # Le spunte erano quelle della scelta di prima: cerchiarle di giallo
         # attorno a un seme che non c'è più vuol dire indicare il nulla.
         st.session_state[TICKED] = []
@@ -859,7 +883,7 @@ def render_map(store: MapStore) -> tuple | None:
         on_map, _ = playlist_positions([str(chosen)], at_path)
         if on_map:
             st.session_state[SEED_QUERY] = ""
-            st.session_state[SEED_FIELD] = on_map[0]
+            st.session_state[SEED_FIELD] = int(on_map[0])
             st.session_state[SEED_TROUBLE] = ""
         else:
             st.session_state[SEED_TROUBLE] = chosen.name

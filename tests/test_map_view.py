@@ -241,3 +241,50 @@ def test_with_no_chain_there_are_no_rings(monkeypatch):
 
     monkeypatch.setitem(st.session_state, GRAPH_STATE, None)
     assert chain_places({"/lib/a.flac": 0}) == []
+
+
+def _four_tracks() -> "pd.DataFrame":
+    import pandas as pd
+    return pd.DataFrame([{"path": f"/lib/{i}.flac"} for i in range(4)])
+
+
+def test_choosing_a_seed_fills_the_field_that_shows_it(monkeypatch):
+    """Il campo non e' solo da dove si sceglie: e' anche dove si LEGGE il
+    seme, comunque sia arrivato."""
+    import streamlit as st
+
+    from views.map_analysis import SEED, SEED_FIELD, remember_seed
+
+    monkeypatch.setattr(st, "session_state", {})
+    remember_seed(_four_tracks(), 2)
+    assert st.session_state[SEED] == "/lib/2.flac"
+    assert st.session_state[SEED_FIELD] == 2
+
+
+def test_a_new_pick_replaces_the_one_the_field_was_showing(monkeypatch):
+    # Il caso rotto: cliccato un punto DOPO aver scelto per nome, il brano
+    # nuovo compariva solo dentro l'elenco a discesa e il campo restava sul
+    # vecchio.
+    import streamlit as st
+
+    from views.map_analysis import SEED_FIELD, remember_seed
+
+    monkeypatch.setattr(st, "session_state", {})
+    frame = _four_tracks()
+    remember_seed(frame, 1)
+    remember_seed(frame, 3)
+    assert st.session_state[SEED_FIELD] == 3
+
+
+def test_a_group_from_the_map_leaves_the_field_empty(monkeypatch):
+    """Seme e gruppo si escludono: un campo acceso sul brano di prima direbbe
+    che c'e' ancora una scelta singola quando non c'e' piu'."""
+    import streamlit as st
+
+    from views.map_analysis import SEED, SEED_FIELD, forget_seed, remember_seed
+
+    monkeypatch.setattr(st, "session_state", {})
+    remember_seed(_four_tracks(), 0)
+    forget_seed()
+    assert SEED not in st.session_state
+    assert st.session_state[SEED_FIELD] is None
