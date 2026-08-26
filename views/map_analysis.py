@@ -126,13 +126,13 @@ SKIN = {
               "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
               "ticked": "#e8a300", "kept": "#1f9d55",
               "chained": "#f2cc0c", "mixes": "#1f9dd0",
-              "alike": "#8a4fd6"},
+              "alike": "#8a4fd6", "playing": "#d92b2b"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
              "ticked": "#ffc233", "kept": "#3ddc84",
              "chained": "#ffe94d", "mixes": "#5fd0f5",
-             "alike": "#c08cff"},
+             "alike": "#c08cff", "playing": "#ff5c5c"},
 }
 
 # In sessione si tengono i PERCORSI, non le posizioni nella libreria. Una
@@ -375,7 +375,8 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                  selected: list[int] | None = None,
                  chained: list[int] | None = None,
                  mixes: list[int] | None = None,
-                 alike: list[int] | None = None) -> go.Figure:
+                 alike: list[int] | None = None,
+                 playing: int | None = None) -> go.Figure:
     """La mappa: un tracciato per genere, più il percorso e il seme sopra.
 
     Un tracciato per genere e non uno solo con i colori dentro, perché così
@@ -479,6 +480,17 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             name=name, showlegend=listed, hoverinfo="skip",
             marker={"size": size, "color": "rgba(0,0,0,0)",
                     "line": {"width": 2.5, "color": color}}))
+
+    # Il brano che sta suonando: una X e non un anello, perché non dice cosa
+    # quel brano È — come lo dicono gli altri sei segni — ma cosa sta
+    # succedendo adesso. Una forma diversa si distingue anche in mezzo a un
+    # nodo di cerchi concentrici, dove un settimo colore si perderebbe.
+    if playing is not None and playing < len(coords):
+        figure.add_trace(go.Scattergl(
+            x=[coords[playing][0]], y=[coords[playing][1]], mode="markers",
+            name="playing", showlegend=True, hoverinfo="skip",
+            marker={"symbol": "x-thin", "size": 13,
+                    "line": {"width": 2.5, "color": skin["playing"]}}))
 
     if seed is not None and seed < len(coords):
         figure.add_trace(go.Scattergl(
@@ -826,6 +838,7 @@ def render_map(store: MapStore) -> tuple | None:
                 if p in at_path]
     seed = None if selected else at_path.get(st.session_state.get(SEED))
     mixes, alike = suggested(store, cost, pool, seed, placed)
+    playing = at_path.get(st.session_state.get(NOW_PLAYING))
 
     # Sopra ventimila brani se ne disegna un campione, e il campione può non
     # contenere proprio quello che la pagina sta indicando: il cerchio del
@@ -834,6 +847,7 @@ def render_map(store: MapStore) -> tuple | None:
     # al nulla non è un dettaglio estetico, è la mappa che dice il falso.
     if sampled:
         pointed = [i for i in ([seed] if seed is not None else [])
+                   + ([playing] if playing is not None else [])
                    + selected + playlist + mixes + alike
                    if i in visible.index and i not in drawn.index]
         if pointed:
@@ -849,7 +863,7 @@ def render_map(store: MapStore) -> tuple | None:
                                 if seed is not None else None),
                      ticked=st.session_state.get(TICKED) or [],
                      selected=selected, chained=chained,
-                     mixes=mixes, alike=alike),
+                     mixes=mixes, alike=alike, playing=playing),
         key="map::chart", on_select="rerun",
         selection_mode=("points", "box", "lasso"),
         config={"displaylogo": False, "scrollZoom": True})

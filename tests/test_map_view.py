@@ -400,3 +400,23 @@ def test_the_weights_come_from_the_session_not_from_the_sliders(monkeypatch):
     mixes, alike = suggested(Store(), cost, np.arange(3), 0, 3)
     assert (cost.w_map, cost.w_bpm, cost.w_key) == (0.0, 2.0, 0.5)
     assert len(mixes) <= 2 and alike == [1, 2]
+
+
+def test_the_track_playing_gets_a_red_cross():
+    """Una X e non un anello: gli altri segni dicono cosa un brano E', questo
+    dice cosa sta succedendo adesso."""
+    from views.map_analysis import build_figure
+
+    np = _np()
+    figure = build_figure(_drawn(), ["House"],
+                          np.column_stack([np.arange(4.0), np.arange(4.0)]),
+                          playlist=[], seed=None, playing=2)
+    cross = [t for t in figure.data if t.name == "playing"]
+    assert len(cross) == 1
+    assert cross[0].marker.symbol == "x-thin"
+    assert cross[0].showlegend is True
+
+
+def test_with_nothing_playing_there_is_no_cross():
+    names = _legend_of(playlist=[], seed=None, playing=None)
+    assert "playing" not in names
