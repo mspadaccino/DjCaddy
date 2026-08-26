@@ -41,6 +41,7 @@ from analysis.duplicates import folded
 from analysis.dj_export import (build_m3u8, build_rekordbox_xml, read_m3u8,
                                 read_title_artist)
 from analysis.essentia_tags import MODEL_DIR, available, find_taggable, missing_models
+from analysis.graph_playlist import GraphPlaylist
 from analysis.map_job import (DEFAULT_MAP_LOG, caffeinated, load_map_state,
                               open_monitor, pause_job, process_state,
                               resume_job, stop_job)
@@ -52,8 +53,9 @@ from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
 from views.components import (NOW_PLAYING, fill_dock, pick_file, pick_files,
                               pick_folder, play_table, save_as, tick_all)
-from views.graph_board import (TICKED, camelot_picker, mood_popularity,
-                               render_board, render_chain_maker, reordered)
+from views.graph_board import (GRAPH_STATE, TICKED, camelot_picker,
+                               mood_popularity, render_board,
+                               render_chain_maker, reordered)
 from views.track_columns import (PALETTE, READING_ORDER, read_only, reading,
                                  reading_config)
 
@@ -114,11 +116,13 @@ SKIN = {
     "light": {"paper": "#ffffff", "plot": "#f4f6f9", "ink": "#1b1f27",
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
               "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
-              "ticked": "#e8a300", "kept": "#1f9d55"},
+              "ticked": "#e8a300", "kept": "#1f9d55",
+              "chained": "#f2cc0c"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
-             "ticked": "#ffc233", "kept": "#3ddc84"},
+             "ticked": "#ffc233", "kept": "#3ddc84",
+             "chained": "#ffe94d"},
 }
 
 # In sessione si tengono i PERCORSI, non le posizioni nella libreria. Una
@@ -329,7 +333,8 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                  playlist: list[int], seed: int | None,
                  seed_name: str | None = None,
                  ticked: list[int] | None = None,
-                 selected: list[int] | None = None) -> go.Figure:
+                 selected: list[int] | None = None,
+                 chained: list[int] | None = None) -> go.Figure:
     """La mappa: un tracciato per genere, più il percorso e il seme sopra.
 
     Un tracciato per genere e non uno solo con i colori dentro, perché così
@@ -392,8 +397,9 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                     "line": {"width": 1.5, "color": skin["ink"]}},
             hoverinfo="skip"))
 
-    # Verde per quello che è già in playlist, giallo per quello che si sta
-    # spuntando adesso, inchiostro per il gruppo appena preso dalla mappa:
+    # Giallo per la catena che si sta costruendo, verde per quello che è già
+    # in playlist, ambra per quello che si sta spuntando adesso, inchiostro
+    # per il gruppo appena preso dalla mappa:
     # sulla nuvola la differenza fra "l'ho preso", "lo sto guardando" e "sto
     # lavorando su questi" è proprio quella che serve mentre si sceglie. Il
     # verde non dipende da nessuna selezione: la playlist si vede sempre, che
@@ -403,6 +409,10 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
     # stesso diametro l'anello disegnato per ultimo coprirebbe l'altro
     # esattamente. Concentrici, si vedono tutti e due.
     for name, marks, color, size in (
+            # Il più stretto per primo, e non è l'ordine dell'elenco: un
+            # brano della catena è quasi sempre anche in playlist, e un
+            # anello dentro l'altro si vede mentre due sovrapposti no.
+            ("in the chain", chained or [], skin["chained"], 11),
             ("in the playlist", playlist, skin["kept"], 15),
             ("being picked", ticked or [], skin["ticked"], 19),
             ("selected", selected or [], skin["ink"], 23)):
@@ -717,6 +727,7 @@ def render_map(store: MapStore) -> tuple | None:
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
     playlist = [at_path[p] for p in st.session_state.get(PLAYLIST, [])
                 if p in at_path]
+    chained = chain_places(at_path)
 
     # La selezione si legge PRIMA di ridisegnare, non dal valore restituito
     # dal grafico. Streamlit tiene lo stato della selezione in sessione, già
@@ -771,7 +782,7 @@ def render_map(store: MapStore) -> tuple | None:
                      seed_name=(frame.at[seed, "name"]
                                 if seed is not None else None),
                      ticked=st.session_state.get(TICKED) or [],
-                     selected=selected),
+                     selected=selected, chained=chained),
         key="map::chart", on_select="rerun",
         selection_mode=("points", "box", "lasso"),
         config={"displaylogo": False, "scrollZoom": True})
@@ -1486,6 +1497,26 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     # un'altra è l'eccezione.
     with st.expander("📂 Load existing playlist"):
         render_playlist_loader(frame, at_path, playlist)
+
+
+def chain_places(at_path: dict[str, int]) -> list[int]:
+    """I brani già nella catena, come posizioni sulla mappa.
+
+    La catena si costruiva alla cieca: il Chain Maker sta sotto la mappa e
+    dice quali brani ne fanno parte, ma sulla nuvola quei brani non si
+    distinguevano da tutti gli altri — e la nuvola è il posto in cui si
+    guarda per decidere il prossimo. Adesso portano il loro anello, come la
+    playlist porta il suo.
+
+    Nell'ordine della scaletta e non in quello di inserimento, per la stessa
+    ragione per cui gli anelli hanno diametri diversi: se un giorno la catena
+    si disegnasse anche come linea, la linea è quella.
+
+    I percorsi che sulla mappa non ci sono più — un brano tolto, o non ancora
+    piazzato — cadono fuori da soli invece di far esplodere il disegno.
+    """
+    graph = GraphPlaylist.from_state(st.session_state.get(GRAPH_STATE))
+    return [at_path[path] for path in graph.walk() if path in at_path]
 
 
 def graph_seeds(at_path: dict[str, int]) -> list[int]:

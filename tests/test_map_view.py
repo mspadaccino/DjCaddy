@@ -200,3 +200,44 @@ def test_the_accent_is_matched_by_name_too_when_the_library_has_moved():
     found, missing = playlist_positions([composto], {decomposto: 7})
     assert found == [7]
     assert missing == []
+
+
+def test_the_chain_wears_its_own_ring_on_the_map(monkeypatch):
+    """La catena si costruiva alla cieca: il Chain Maker sta sotto la mappa,
+    ma sulla nuvola i suoi brani non si distinguevano dagli altri."""
+    import streamlit as st
+
+    from analysis.graph_playlist import GraphPlaylist
+    from views.graph_board import GRAPH_STATE
+    from views.map_analysis import chain_places
+
+    graph = GraphPlaylist().start("/lib/a.flac")
+    graph.add("/lib/a.flac", "/lib/b.flac")
+    graph.add("/lib/b.flac", "/lib/c.flac")
+    monkeypatch.setitem(st.session_state, GRAPH_STATE, graph.to_state())
+
+    at_path = {"/lib/a.flac": 5, "/lib/b.flac": 2, "/lib/c.flac": 9}
+    assert sorted(chain_places(at_path)) == [2, 5, 9]
+
+
+def test_a_track_no_longer_on_the_map_drops_out_by_itself(monkeypatch):
+    import streamlit as st
+
+    from analysis.graph_playlist import GraphPlaylist
+    from views.graph_board import GRAPH_STATE
+    from views.map_analysis import chain_places
+
+    graph = GraphPlaylist().start("/lib/a.flac")
+    graph.add("/lib/a.flac", "/lib/sparito.flac")
+    monkeypatch.setitem(st.session_state, GRAPH_STATE, graph.to_state())
+    assert chain_places({"/lib/a.flac": 0}) == [0]
+
+
+def test_with_no_chain_there_are_no_rings(monkeypatch):
+    import streamlit as st
+
+    from views.graph_board import GRAPH_STATE
+    from views.map_analysis import chain_places
+
+    monkeypatch.setitem(st.session_state, GRAPH_STATE, None)
+    assert chain_places({"/lib/a.flac": 0}) == []
