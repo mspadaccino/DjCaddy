@@ -37,6 +37,10 @@ from analysis.map_store import MapStore, default_store_dir
 
 ANALYSIS_RATE = 44100
 
+# La sezione aurea: avanzando di questa frazione a ogni passo si copre
+# l'intervallo 0-1 senza mai ricadere vicino a dove si è già stati.
+_GOLDEN = 0.6180339887498949
+
 
 # --------------------------------------------------------------------------
 # Il campione
@@ -49,11 +53,16 @@ def stratified(rows: list[dict], count: int, seed: int = 0) -> list[dict]:
     così i generi rari entrano comunque, che è il punto — una scala tarata
     solo sulla house non saprebbe dove mettere un breakbeat.
 
-    Dentro un genere i brani non si pescano a caso ma si ordinano per colore
-    del mood e si prendono a passo costante: da buio a chiaro senza buchi.
-    Serve perché l'energia va giudicata proprio dove somiglia al mood — se il
-    campione fosse tutto scuro non si vedrebbe se le due misure si stanno
-    ripetendo.
+    Dentro un genere i brani si ordinano per colore del mood e la posizione
+    da cui pescare avanza di un giro d'oro a ogni pesca — 0,618 di frazione,
+    che è la sequenza che copre l'intervallo lasciando meno buchi possibile.
+
+    Il passo fisso che c'era prima sembrava equivalente e non lo era: questa
+    libreria ha PIÙ di duecento generi, quindi un campione da duecento ne
+    prende uno per genere, e uno per genere col passo fisso vuol dire sempre
+    il primo — cioè il brano più SCURO di ogni genere, duecento volte. Il
+    campione va invece steso anche sul mood: l'energia si giudica soprattutto
+    dove somiglia al mood, ed è lì che si vede se le due misure si ripetono.
     """
     by_genre: dict[str, list[dict]] = {}
     for row in rows:
@@ -71,18 +80,19 @@ def stratified(rows: list[dict], count: int, seed: int = 0) -> list[dict]:
     genres = sorted(ordered)
     random.Random(seed).shuffle(genres)     # nessun genere sempre primo
 
-    picked, taken = [], {g: 0 for g in genres}
+    picked, used, turn = [], {g: set() for g in genres}, 0
     while len(picked) < count:
         moved = False
         for genre in genres:
-            group, done = ordered[genre], taken[genre]
-            if done >= len(group) or len(picked) >= count:
+            group = ordered[genre]
+            if len(used[genre]) >= len(group) or len(picked) >= count:
                 continue
-            # A passo costante lungo l'ordine per mood: il primo giro prende
-            # il brano più scuro, il secondo il più chiaro, poi si riempie.
-            step = max(1, len(group) // max(1, count // max(1, len(genres)) + 1))
-            picked.append(group[min(done * step, len(group) - 1)])
-            taken[genre] = done + 1
+            at = int(((turn * _GOLDEN) % 1.0) * len(group))
+            while at in used[genre]:         # il primo posto libero da lì
+                at = (at + 1) % len(group)
+            used[genre].add(at)
+            picked.append(group[at])
+            turn += 1
             moved = True
         if not moved:
             break                            # finiti i brani, non il conteggio
@@ -240,8 +250,11 @@ def main() -> None:
 
     table = _table(rows, measures)
     each = (time.time() - t0) / max(1, len(rows))
+    empty = sum(1 for m in measures if all(v is None for v in m.values()))
     print(f"\n\nFatto in {time.time() - t0:.0f}s · {each:.2f}s a brano "
           f"· sugli 87.000 sarebbero ~{each * 87000 / 3600:.1f} h a un worker")
+    if empty:
+        print(f"  finestre mute o illeggibili, non misurate: {empty}")
     if failed:
         print(f"  falliti {len(failed)}: " +
               ", ".join(f"{n} ({e})" for n, e in failed[:3]))

@@ -148,3 +148,43 @@ def test_measure_reads_a_window_into_the_three_fields():
     assert set(out) == set(energy.INGREDIENTS)
     assert out["energy_density"] == 2.0
     assert out["energy_bass"] > 0.95
+
+
+# --- il tempo piegato ------------------------------------------------------
+
+def test_a_tempo_written_an_octave_up_reads_the_same():
+    # "082BPM - Tone Loc" sta sulla mappa a 172,3: e' il tag a sbagliare
+    # ottava, non il brano a essere meta' denso.
+    assert energy.per_beat(6.0, 86.0) == energy.per_beat(6.0, 172.0)
+    assert energy.per_beat(6.0, 70.0) == energy.per_beat(6.0, 140.0)
+
+
+def test_folding_lands_inside_one_octave():
+    for bpm in (40.0, 63.0, 86.0, 125.0, 172.3, 184.6, 300.0):
+        assert 70.0 <= energy.fold_tempo(bpm) < 140.0
+
+
+def test_folding_leaves_a_tempo_that_is_already_home_alone():
+    assert energy.fold_tempo(125.0) == 125.0
+
+
+def test_a_tempo_that_is_not_a_tempo_folds_to_nothing():
+    assert energy.fold_tempo(None) is None
+    assert energy.fold_tempo(0.0) is None
+    assert energy.fold_tempo(float("nan")) is None
+
+
+# --- la finestra muta ------------------------------------------------------
+
+def test_a_silent_window_is_not_measured():
+    assert not energy.usable(np.zeros(44100, dtype=np.float32))
+    out = energy.measure(np.zeros(44100, dtype=np.float32), 44100, 4.0, 120.0)
+    assert all(v is None for v in out.values())
+
+
+def test_a_window_with_music_in_it_is_measured():
+    assert energy.usable(_tone(200, seconds=1.0))
+
+
+def test_a_window_shorter_than_the_fft_is_not_measured():
+    assert not energy.usable(_tone(200, seconds=0.01))

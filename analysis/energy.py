@@ -54,6 +54,17 @@ INGREDIENTS = ("energy_density", "energy_bass", "energy_bright")
 # ascoltando, come le soglie di `sections`.
 WEIGHTS = (1.0, 1.0, 1.0)
 
+# Dove si piega il tempo prima di dividerci gli attacchi. Una libreria da DJ
+# porta i BPM dai tag, e i tag sbagliano ottava: misurato sul campione, "082BPM
+# - Tone Loc" sta sulla mappa a 172,3 e "Crucial Conflict - Hay (BPM 70)" a
+# 140,3. Senza piegare, quei due brani risultano metà densi di quello che sono
+# — non per come suonano ma per come è scritto un tag.
+TEMPO_FOLD = (70.0, 140.0)
+
+# Sotto questo livello la finestra non è musica: è un decode fallito o un file
+# vuoto. Misurare lì dentro dà numeri che sembrano validi e non lo sono.
+SILENCE_RMS = 1e-4        # -80 dBFS, molto sotto qualunque registrazione vera
+
 LOW_HZ = 200.0    # "sotto" è la stessa soglia con cui sections.py sente la cassa
 MIN_HZ = 20.0     # sotto non c'è musica: c'è la continua e il rumore di trasporto
 
@@ -141,6 +152,24 @@ def brightness(freqs, power) -> float | None:
     return float((freqs[band] * magnitude).sum() / total)
 
 
+def fold_tempo(bpm: float | None) -> float | None:
+    """Il tempo riportato in un'ottava sola, raddoppiando o dimezzando.
+
+    Serve perché il BPM arriva dai tag e i tag sbagliano ottava: lo stesso
+    brano scritto 86 o 172 darebbe due densità diverse a parità di audio.
+    Piegare non perde niente di utile — quello che resta è "quanti attacchi
+    in un battito", e un battito contato al doppio è lo stesso battito.
+    """
+    if bpm is None or not np.isfinite(bpm) or bpm <= 0:
+        return None
+    low, high = TEMPO_FOLD
+    while bpm < low:
+        bpm *= 2
+    while bpm >= high:
+        bpm /= 2
+    return float(bpm)
+
+
 def per_beat(onset_rate: float | None, bpm: float | None) -> float | None:
     """Gli attacchi per battito, dal loro numero al secondo.
 
@@ -148,11 +177,25 @@ def per_beat(onset_rate: float | None, bpm: float | None) -> float | None:
     sono 3,75 per battito a 128 BPM e 5,3 a 90: senza dividere, l'energia
     ridirebbe il BPM invece di aggiungere qualcosa.
     """
-    if onset_rate is None or bpm is None or bpm <= 0:
+    tempo = fold_tempo(bpm)
+    if onset_rate is None or tempo is None or not np.isfinite(onset_rate):
         return None
-    if not np.isfinite(onset_rate) or not np.isfinite(bpm):
-        return None
-    return float(onset_rate * 60.0 / bpm)
+    return float(onset_rate * 60.0 / tempo)
+
+
+def usable(audio) -> bool:
+    """Se in questa finestra c'è abbastanza segnale da misurare qualcosa.
+
+    Un decode fallito — su una libreria vera capita, ffmpeg lo dice e tira
+    dritto — lascia una finestra quasi muta. Le tre misure ci girano sopra
+    lo stesso e restituiscono numeri dall'aria sana: sul campione un brano
+    letto male è uscito con basso 0,000 e centroide a 10 kHz, che nessuna
+    registrazione ha. Meglio dire "non lo so".
+    """
+    x = np.asarray(audio, dtype=np.float64).ravel()
+    if x.size < _N_FFT:
+        return False
+    return float(np.sqrt(np.mean(x * x))) > SILENCE_RMS
 
 
 def measure(audio, sr: float, onset_rate: float | None,
@@ -164,6 +207,8 @@ def measure(audio, sr: float, onset_rate: float | None,
     secondo, e `map_profile` prende solo i primi. Ricalcolarlo qui
     vorrebbe dire pagare due volte la stessa cosa.
     """
+    if not usable(audio):
+        return dict.fromkeys(INGREDIENTS)
     freqs, power = spectrum(audio, sr)
     return {"energy_density": per_beat(onset_rate, bpm),
             "energy_bass": bass_share(freqs, power),
