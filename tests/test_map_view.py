@@ -420,3 +420,15 @@ def test_the_track_playing_gets_a_red_cross():
 def test_with_nothing_playing_there_is_no_cross():
     names = _legend_of(playlist=[], seed=None, playing=None)
     assert "playing" not in names
+
+
+def test_no_two_rings_share_a_colour():
+    """Il rosa era ambra, e l'ambra accanto al giallo della catena erano due
+    gialli: si distinguevano per diametro, cioe' bisognava misurarli."""
+    from views.map_analysis import SKIN
+
+    for theme in ("light", "dark"):
+        rings = [SKIN[theme][k] for k in
+                 ("chained", "kept", "ticked", "ink", "mixes", "alike",
+                  "playing")]
+        assert len(set(rings)) == len(rings), theme

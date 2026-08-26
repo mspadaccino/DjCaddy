@@ -124,13 +124,13 @@ SKIN = {
     "light": {"paper": "#ffffff", "plot": "#f4f6f9", "ink": "#1b1f27",
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
               "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
-              "ticked": "#e8a300", "kept": "#1f9d55",
+              "ticked": "#e0459e", "kept": "#1f9d55",
               "chained": "#f2cc0c", "mixes": "#1f9dd0",
               "alike": "#8a4fd6", "playing": "#d92b2b"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
-             "ticked": "#ffc233", "kept": "#3ddc84",
+             "ticked": "#ff7ad0", "kept": "#3ddc84",
              "chained": "#ffe94d", "mixes": "#5fd0f5",
              "alike": "#c08cff", "playing": "#ff5c5c"},
 }
@@ -440,8 +440,14 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             hoverinfo="skip"))
 
     # Giallo per la catena che si sta costruendo, verde per quello che è già
-    # in playlist, ambra per quello che si sta spuntando adesso, inchiostro
+    # in playlist, rosa per quello che si sta spuntando adesso, inchiostro
     # per il gruppo appena preso dalla mappa:
+    #
+    # Il rosa era ambra, e l'ambra accanto al giallo della catena erano due
+    # gialli: si distinguevano per diametro e basta, il che vuol dire che per
+    # leggerli bisognava misurarli. Il rosa non somiglia a niente altro sulla
+    # mappa, e quello che si sta spuntando è proprio ciò che si sta guardando
+    # mentre si decide.
     # sulla nuvola la differenza fra "l'ho preso", "lo sto guardando" e "sto
     # lavorando su questi" è proprio quella che serve mentre si sceglie. Il
     # verde non dipende da nessuna selezione: la playlist si vede sempre, che

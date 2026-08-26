@@ -444,11 +444,21 @@ def render_chain_maker(frame: pd.DataFrame, cost: TransitionCost, pool,
     _render_tables(frame, cost, pool, at_path, graph, walk, before)
 
     c1, c2, c3 = st.columns(3)
+    # Chi TOCCA la catena riparte per intero, non solo da questo frammento.
+    # Il frammento esiste per non ridisegnare ottantamila punti a ogni casella
+    # spuntata, ed è un risparmio che qui non si può prendere: da quando la
+    # mappa cerchia di giallo i brani in catena, un rerun del solo frammento
+    # lascerebbe quegli anelli addosso a una catena che non c'è più. Un
+    # cerchio attorno al nulla non è un dettaglio estetico, è la mappa che
+    # dice il falso.
+    #
+    # Il riordino delle righe è l'unico che se lo tiene: cambia l'ORDINE dei
+    # brani in catena, non quali sono, e gli anelli sono gli stessi.
     if c1.button("↺ Start over", width="stretch",
                  help="Empties the chain. The playlist is not touched."):
         st.session_state[GRAPH_STATE] = None
         st.session_state[GRAPH_SOURCE] = None
-        st.rerun(scope="fragment")
+        st.rerun()
     # I due escono dalla sezione: la playlist si disegna fuori, e un rerun
     # del solo frammento la lascerebbe indietro di una mossa.
     if c2.button("➡️ Append to playlist", type="primary", width="stretch",
@@ -703,7 +713,7 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
             graph.remove(here)
             _save(graph)
             st.session_state[GRAPH_SOURCE] = graph.tracks[-1] if graph.tracks else None
-            st.rerun(scope="fragment")
+            st.rerun()
 
     st.session_state[GRAPH_SOURCE] = here
     with roster:
@@ -770,7 +780,7 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
             previous = frame.at[i, "path"]
         _save(graph)
         st.session_state[GRAPH_SOURCE] = previous
-        st.rerun(scope="fragment")
+        st.rerun()
 
 
 def _render_by_hand(frame: pd.DataFrame, pool, at_path: dict[str, int],
@@ -807,7 +817,7 @@ def _render_by_hand(frame: pd.DataFrame, pool, at_path: dict[str, int],
             graph.add(source_path, frame.at[chosen, "path"])
             _save(graph)
             st.session_state[GRAPH_SOURCE] = frame.at[chosen, "path"]
-            st.rerun(scope="fragment")
+            st.rerun()
 
 
 def _narrowed(frame: pd.DataFrame, options: list[int], key: str) -> list[int] | None:
@@ -856,7 +866,7 @@ def _render_start(frame: pd.DataFrame, pool, chosen: list[int]) -> None:
         if rest.button("▶ Start from the selection", type="primary",
                        width="stretch"):
             start_board(*[frame.at[i, "path"] for i in chosen])
-            st.rerun(scope="fragment")
+            st.rerun()
         st.caption("…or pick a different one by name:")
 
     options = _narrowed(frame, pool.tolist(), "graph_start_search")
@@ -872,4 +882,4 @@ def _render_start(frame: pd.DataFrame, pool, chosen: list[int]) -> None:
     if c2.button("▶ Start the board", type="primary", width="stretch",
                 disabled=first is None):
         start_board(frame.at[first, "path"])
-        st.rerun(scope="fragment")
+        st.rerun()
