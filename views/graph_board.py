@@ -31,7 +31,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from analysis import mood_scale
-from analysis.duplicates import normalized_name, song_key
+from analysis.duplicates import folded, normalized_name, song_key
 from analysis.graph_playlist import GraphPlaylist, suggestions
 from analysis.mixing import (BPM_TOLERANCE, TransitionCost, bpm_shift,
                              camelot_shift)
@@ -825,8 +825,11 @@ def _narrowed(frame: pd.DataFrame, options: list[int], key: str) -> list[int] | 
     if not search.strip():
         st.caption("Type part of a name to search the library.")
         return None
-    wanted = search.strip().lower()
-    found = [i for i in options if wanted in frame.at[i, "name"].lower()]
+    # Senza accenti da entrambe le parti: un nome che arriva dal disco di un
+    # Mac porta la tilde staccata dalla lettera e non combacia con quella che
+    # si digita, e comunque nessuno vuole cercare l'accento sulla tastiera.
+    wanted = folded(search.strip())
+    found = [i for i in options if wanted in folded(frame.at[i, "name"])]
     if len(found) > START_PICKER_MAX:
         st.caption(f"{len(found):,} match — narrow the search further.")
         return None

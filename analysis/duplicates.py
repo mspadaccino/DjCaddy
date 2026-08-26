@@ -106,6 +106,31 @@ class DuplicateReport:
 # Nomi: normalizzazione e scelta di quale file tenere
 # --------------------------------------------------------------------------
 
+def folded(text: str) -> str:
+    """Il testo senza accenti e senza maiuscole, per confrontarlo o cercarlo.
+
+    Serve per due motivi diversi che si risolvono allo stesso modo.
+
+    Il primo è che macOS restituisce i nomi dei file in forma DECOMPOSTA — la
+    "ã" di "Decisão" è una "a" seguita da una tilde separata — mentre chi
+    digita nella casella di ricerca produce quasi sempre la forma composta,
+    un carattere solo. Le due stringhe si leggono identiche e non lo sono, e
+    il brano non si trovava: capitato per davvero, su una libreria piena di
+    titoli in portoghese.
+
+    Il secondo è che l'accento sulla tastiera è una seccatura. Tolto da
+    entrambe le parti, "decisao" trova "Decisão" e nessuno deve ricordarsi
+    dov'è la tilde.
+
+    Non si tocca altro: quello che non è un accento resta dov'è, perché
+    ridurre il testo alle sole lettere latine renderebbe irraggiungibile un
+    titolo in cirillico o in giapponese. Quel passo in più lo fa
+    `normalized_name`, che confronta interi nomi e non cerca dentro.
+    """
+    plain = unicodedata.normalize("NFKD", text).casefold()
+    return "".join(c for c in plain if not unicodedata.combining(c))
+
+
 def normalized_name(path: Path) -> str:
     """Nome ridotto all'osso, per confrontare titoli scritti in modi diversi.
 
@@ -113,9 +138,7 @@ def normalized_name(path: Path) -> str:
     "O'NEIL& Dj Quba - What Is Love" e "O_NEIL& Dj Quba - What Is Love"
     diventano la stessa stringa.
     """
-    stem = unicodedata.normalize("NFKD", path.stem).casefold()
-    stem = "".join(c for c in stem if not unicodedata.combining(c))
-    return re.sub(r"[^a-z0-9]+", " ", stem).strip()
+    return re.sub(r"[^a-z0-9]+", " ", folded(path.stem)).strip()
 
 
 def song_key(path: Path) -> str:

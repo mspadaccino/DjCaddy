@@ -37,6 +37,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from analysis import mood_scale
+from analysis.duplicates import folded
 from analysis.dj_export import (build_m3u8, build_rekordbox_xml, read_m3u8,
                                 read_title_artist)
 from analysis.essentia_tags import MODEL_DIR, available, find_taggable, missing_models
@@ -286,13 +287,15 @@ def matching_tracks(frame: pd.DataFrame, pool, words: list[str]) -> list[int]:
     """
     inside = frame.loc[list(pool)]
     hay = (inside["name"].fillna("") + " "
-           + inside["folder"].fillna("")).str.casefold()
+           + inside["folder"].fillna("")).map(folded)
     keep = pd.Series(True, index=hay.index)
     for word in words:
         # Anche le parole cercate, non solo il testo in cui si cerca: farlo
         # fare a chi chiama vuol dire che la funzione è giusta solo finché
-        # tutti si ricordano di farlo.
-        keep &= hay.str.contains(word.casefold(), regex=False)
+        # tutti si ricordano di farlo. Vale per le maiuscole e vale per gli
+        # accenti — un nome che arriva dal disco di un Mac ha la tilde
+        # staccata dalla lettera e non combacia con quella che si digita.
+        keep &= hay.str.contains(folded(word), regex=False)
     return keep[keep].index.tolist()
 
 

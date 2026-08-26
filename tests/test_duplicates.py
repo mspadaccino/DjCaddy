@@ -847,3 +847,32 @@ def test_song_key_falls_back_when_nothing_survives():
     # brani senza niente in comune finirebbero nello stesso gruppo.
     from analysis.duplicates import song_key
     assert song_key(Path("(1234).mp3")) == "1234"
+
+
+def test_a_name_from_a_mac_disk_matches_what_you_type():
+    """Il caso che ha reso irraggiungibili i titoli in portoghese: il disco
+    scrive la tilde staccata dalla lettera, la tastiera la scrive attaccata."""
+    import unicodedata
+
+    from analysis.duplicates import folded
+
+    dal_disco = unicodedata.normalize("NFD", "Karametade-Decisão")
+    digitato = unicodedata.normalize("NFC", "decisão")
+    assert dal_disco != digitato
+    assert folded(digitato) in folded(dal_disco)
+
+
+def test_the_accent_does_not_have_to_be_typed_at_all():
+    from analysis.duplicates import folded
+
+    assert folded("decisao") in folded("Karametade-Decisão")
+    assert folded("herve") in folded("Hervé - Cheap Thrills")
+
+
+def test_folding_leaves_alone_what_is_not_an_accent():
+    """Ridurre alle sole lettere latine renderebbe irraggiungibile un titolo
+    in cirillico: quel passo lo fa `normalized_name`, non questo."""
+    from analysis.duplicates import folded
+
+    assert folded("Кино - Группа крови") == "кино - группа крови"
+    assert folded("O'NEIL & Dj Quba") == "o'neil & dj quba"
