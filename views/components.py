@@ -233,6 +233,25 @@ _PINNED = ({"pinned": True}
                st.column_config.ButtonColumn).parameters else {})
 
 
+def next_playing(chosen: str | None, current: str | None) -> str | None:
+    """Cosa suona dopo un clic sul pulsante di una riga.
+
+    Premuto sulla riga che sta gia' suonando si spegne, ed e' il gesto che il
+    segno ⏸ promette: prometterlo senza farlo era peggio che non mostrarlo.
+
+    Spegne e non mette in pausa davvero — il punto in cui si era arrivati si
+    perde. Da Python non c'e' modo di fermare un elemento audio senza
+    ridisegnarlo, e ridisegnarlo lo farebbe ripartire da capo: fra le due
+    bugie, un lettore che sparisce dice la verita' piu' di uno che riparte.
+
+    Un clic che non ha scelto niente — puo' succedere se la tabella si e'
+    riordinata sotto le dita — lascia le cose come stanno invece di spegnere.
+    """
+    if chosen is None:
+        return current
+    return None if chosen == current else chosen
+
+
 def play_marks(paths, playing: str | None) -> list[str]:
     """Il glifo del pulsante per ogni riga: la pausa su quella in ascolto.
 
@@ -279,8 +298,11 @@ def play_table(section: str, table: pd.DataFrame, column_order: list[str],
 
     def _on_play(click_key=click_key):
         chosen = _clicked(click_key)
-        if chosen is not None:
-            st.session_state[NOW_PLAYING] = chosen
+        after = next_playing(chosen, st.session_state.get(NOW_PLAYING))
+        if after is None:
+            _forget()          # stesso canale con cui il lettore si chiude col ✕
+        elif chosen is not None:
+            st.session_state[NOW_PLAYING] = after
 
     def _on_reveal(finder_key=finder_key, trouble_key=trouble_key):
         chosen = _clicked(finder_key)

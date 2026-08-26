@@ -59,3 +59,27 @@ def test_a_cancelled_panel_chooses_nothing(monkeypatch):
 
     monkeypatch.setattr(sp, "run", lambda *a, **k: (_ for _ in ()).throw(OSError))
     assert components.ask_for_file("scegli") is None
+
+
+def test_pressing_the_row_that_is_playing_turns_it_off():
+    """E' il gesto che il segno ⏸ promette: prometterlo senza farlo era
+    peggio che non mostrarlo."""
+    from views.components import next_playing
+
+    assert next_playing("/lib/a.flac", "/lib/a.flac") is None
+
+
+def test_pressing_another_row_moves_the_player_there():
+    from views.components import next_playing
+
+    assert next_playing("/lib/b.flac", "/lib/a.flac") == "/lib/b.flac"
+    assert next_playing("/lib/b.flac", None) == "/lib/b.flac"
+
+
+def test_a_click_that_chose_nothing_leaves_things_as_they_are():
+    # Puo' succedere se la tabella si e' riordinata sotto le dita: spegnere
+    # sarebbe una risposta a un gesto che nessuno ha fatto.
+    from views.components import next_playing
+
+    assert next_playing(None, "/lib/a.flac") == "/lib/a.flac"
+    assert next_playing(None, None) is None
