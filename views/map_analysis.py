@@ -437,27 +437,38 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
     # insieme — lo si è appena selezionato ED è già in playlist — e con lo
     # stesso diametro l'anello disegnato per ultimo coprirebbe l'altro
     # esattamente. Concentrici, si vedono tutti e due.
-    for name, marks, color, size in (
+    # In legenda ci vanno: senza, restano quattro cerchi di colori diversi e
+    # nessun posto dove chiedere cosa vogliano dire. L'anello della playlist è
+    # l'unico che si tiene fuori, e non per dimenticanza — il suo percorso è
+    # già in legenda come "playlist", e due voci per lo stesso insieme di
+    # brani direbbero che sono due cose.
+    #
+    # Compaiono solo quando ci sono davvero: una voce per un insieme vuoto
+    # sarebbe una legenda che promette un colore introvabile sul disegno.
+    for name, marks, color, size, listed in (
             # Il più stretto per primo, e non è l'ordine dell'elenco: un
             # brano della catena è quasi sempre anche in playlist, e un
             # anello dentro l'altro si vede mentre due sovrapposti no.
-            ("in the chain", chained or [], skin["chained"], 11),
-            ("in the playlist", playlist, skin["kept"], 15),
-            ("being picked", ticked or [], skin["ticked"], 19),
-            ("selected", selected or [], skin["ink"], 23)):
+            ("in the chain", chained or [], skin["chained"], 11, True),
+            ("in the playlist", playlist, skin["kept"], 15, False),
+            ("being picked", ticked or [], skin["ticked"], 19, True),
+            ("selected", selected or [], skin["ink"], 23, True)):
         spots = [i for i in marks if i is not None and i < len(coords)]
         if not spots:
             continue
         figure.add_trace(go.Scattergl(
             x=coords[spots][:, 0], y=coords[spots][:, 1], mode="markers",
-            name=name, showlegend=False, hoverinfo="skip",
+            name=name, showlegend=listed, hoverinfo="skip",
             marker={"size": size, "color": "rgba(0,0,0,0)",
                     "line": {"width": 2.5, "color": color}}))
 
     if seed is not None and seed < len(coords):
         figure.add_trace(go.Scattergl(
             x=[coords[seed][0]], y=[coords[seed][1]], mode="markers",
-            name="seed", showlegend=False, hoverinfo="skip",
+            # In legenda anche lui, e non fa doppione con "selected": il
+            # commento qui sotto dice che i due si escludono, quindi sul
+            # disegno ce n'è sempre al massimo uno.
+            name="seed", showlegend=True, hoverinfo="skip",
             # Lo stesso diametro del gruppo selezionato: seme e gruppo sono
             # la stessa cosa detta al singolare e al plurale, e si escludono.
             marker={"size": 23, "color": "rgba(0,0,0,0)",

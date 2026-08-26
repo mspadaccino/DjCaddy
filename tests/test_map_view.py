@@ -288,3 +288,56 @@ def test_a_group_from_the_map_leaves_the_field_empty(monkeypatch):
     forget_seed()
     assert SEED not in st.session_state
     assert st.session_state[SEED_FIELD] is None
+
+
+def _drawn(n: int = 4) -> "pd.DataFrame":
+    import numpy as np
+    import pandas as pd
+    return pd.DataFrame({
+        "x": np.arange(n, dtype=float), "y": np.arange(n, dtype=float),
+        "index": np.arange(n), "name": [f"{i}.flac" for i in range(n)],
+        "bpm": [120] * n, "camelot": ["8A"] * n, "genres": ["House"] * n,
+        "top_genre": ["House"] * n, "genre_key": ["House"] * n,
+        "_size": [7.0] * n})
+
+
+def _legend_of(**kwargs) -> list[str]:
+    import numpy as np
+
+    from views.map_analysis import build_figure
+
+    figure = build_figure(_drawn(), ["House"], np.column_stack(
+        [np.arange(4.0), np.arange(4.0)]), **kwargs)
+    # `showlegend` non impostato vuol dire "si'" per default, non "no": e' il
+    # False esplicito che nasconde.
+    return [t.name for t in figure.data if t.showlegend is not False]
+
+
+def test_the_selection_rings_say_what_they_are_in_the_legend():
+    """Senza, restano cerchi di colori diversi e nessun posto dove chiedere
+    cosa vogliano dire."""
+    names = _legend_of(playlist=[], seed=None, chained=[0], ticked=[1],
+                       selected=[2])
+    assert {"in the chain", "being picked", "selected"} <= set(names)
+
+
+def test_an_empty_ring_promises_no_colour():
+    # Una voce per un insieme vuoto sarebbe una legenda che promette un
+    # colore introvabile sul disegno.
+    names = _legend_of(playlist=[], seed=None, chained=[], ticked=[],
+                       selected=[])
+    assert "in the chain" not in names
+    assert "selected" not in names
+
+
+def test_the_playlist_is_named_once_and_not_twice():
+    """Il percorso e' gia' in legenda: due voci per lo stesso insieme di brani
+    direbbero che sono due cose."""
+    names = _legend_of(playlist=[0, 1], seed=None)
+    assert names.count("playlist") == 1
+    assert "in the playlist" not in names
+
+
+def test_the_seed_has_its_own_entry():
+    names = _legend_of(playlist=[], seed=3)
+    assert "seed" in names
