@@ -341,3 +341,15 @@ def test_the_playlist_is_named_once_and_not_twice():
 def test_the_seed_has_its_own_entry():
     names = _legend_of(playlist=[], seed=3)
     assert "seed" in names
+
+
+def test_no_size_option_promises_a_measure_it_does_not_show():
+    """La voce si chiamava "energy" e mostrava `lufs`: la loudness dice quanto
+    ha spinto chi ha masterizzato, non quanto spinge il brano."""
+    from views.map_analysis import SIZE_FIELDS
+
+    assert SIZE_FIELDS.get("loudness") == "lufs"
+    # L'energia vera ha quattro campi suoi, e finche' non sono su tutta la
+    # libreria questa voce non deve esistere: mezza libreria senza valore
+    # starebbe tutta al diametro minimo, che e' peggio di non offrirla.
+    assert "energy" not in SIZE_FIELDS

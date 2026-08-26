@@ -275,7 +275,7 @@ a filter is about what to propose next, not about breaking a chain someone
 has built.
 
 The **size of a point** carries a number you choose — BPM, groove (how
-regular the onsets are) or energy (integrated loudness) — scaled between the
+regular the onsets are) or loudness (integrated LUFS) — scaled between the
 5th and 95th percentile so one outlier does not flatten everything. The
 position already says how a track sounds; the diameter is room for a quantity
 you can actually read, which is why the map stays in two dimensions: a third

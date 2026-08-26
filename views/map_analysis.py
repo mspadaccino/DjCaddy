@@ -97,14 +97,22 @@ NUMBERED_UP_TO = 40
 
 # Cosa può dire la DIMENSIONE del punto. La posizione la decide l'embedding e
 # non vuol dire niente di preciso — è affinità, non una grandezza. Il diametro
-# invece può portare un numero che si legge: quanto va veloce, quanto è dritto,
-# quanto spinge. Si legge senza ruotare niente, che è il motivo per cui questa
-# è la terza dimensione e non un terzo asse.
+# invece può portare un numero che si legge: quanto va veloce, quanto è
+# uniforme il ritmo, quanto è stato spinto il master. Si legge senza ruotare
+# niente, che è il motivo per cui questa è la terza dimensione e non un terzo
+# asse.
+#
+# L'ultima si chiamava "energy" e mostrava `lufs`, che è un'altra cosa: la
+# loudness dice quanto ha spinto chi ha masterizzato, non quanto spinge il
+# brano — al punto che la pipeline la normalizza via a −14 LUFS prima
+# dell'inferenza, proprio per non farsi influenzare. Il nome prometteva la
+# misura che stiamo costruendo altrove e ne mostrava una che le assomiglia
+# solo nel titolo.
 SIZE_FIELDS = {
     "same size": None,
     "BPM": "bpm",
     "groove": "danceability",
-    "energy": "lufs",
+    "loudness": "lufs",
 }
 FLAT_SIZE = 7.0
 MIN_SIZE, MAX_SIZE = 4.0, 15.0
