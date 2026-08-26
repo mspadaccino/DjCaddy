@@ -209,14 +209,14 @@ def reveal_in_finder(path: Path) -> str | None:
     return out.stderr.strip() or "il Finder non ha risposto"
 
 
-# Il ▶ di una riga qualunque, e il segno della riga che si sta ascoltando.
+# Il ▶ di una riga qualunque, e quello della riga che si sta ascoltando.
 # Due glifi e non un colore perche' `st.data_editor` non accetta uno Styler:
 # le righe non si possono tingere, e l'unica cosa che si puo' cambiare riga
 # per riga e' il contenuto delle celle. La colonna del pulsante e' gia' una
 # cella per riga, quindi il segno sta li' senza aggiungere una colonna che
 # farebbe ballare tutte le altre nel momento in cui si preme play.
 PLAY_GLYPH = "▶"
-HEARING_GLYPH = "⏸"
+HEARING_GLYPH = "🔊"
 
 # La colonna del play resta ferma mentre le altre scorrono di lato: le tabelle
 # della mappa sono larghe — file, BPM, tonalita', groove, mood, generi,
@@ -233,27 +233,8 @@ _PINNED = ({"pinned": True}
                st.column_config.ButtonColumn).parameters else {})
 
 
-def next_playing(chosen: str | None, current: str | None) -> str | None:
-    """Cosa suona dopo un clic sul pulsante di una riga.
-
-    Premuto sulla riga che sta gia' suonando si spegne, ed e' il gesto che il
-    segno ⏸ promette: prometterlo senza farlo era peggio che non mostrarlo.
-
-    Spegne e non mette in pausa davvero — il punto in cui si era arrivati si
-    perde. Da Python non c'e' modo di fermare un elemento audio senza
-    ridisegnarlo, e ridisegnarlo lo farebbe ripartire da capo: fra le due
-    bugie, un lettore che sparisce dice la verita' piu' di uno che riparte.
-
-    Un clic che non ha scelto niente — puo' succedere se la tabella si e'
-    riordinata sotto le dita — lascia le cose come stanno invece di spegnere.
-    """
-    if chosen is None:
-        return current
-    return None if chosen == current else chosen
-
-
 def play_marks(paths, playing: str | None) -> list[str]:
-    """Il glifo del pulsante per ogni riga: la pausa su quella in ascolto.
+    """Il glifo del pulsante per ogni riga: l'altoparlante su quella in ascolto.
 
     Pura, perche' e' l'unico pezzo di `play_table` che si puo' provare senza
     un runtime di Streamlit — e perche' il confronto e' fra percorsi, che e'
@@ -298,11 +279,8 @@ def play_table(section: str, table: pd.DataFrame, column_order: list[str],
 
     def _on_play(click_key=click_key):
         chosen = _clicked(click_key)
-        after = next_playing(chosen, st.session_state.get(NOW_PLAYING))
-        if after is None:
-            _forget()          # stesso canale con cui il lettore si chiude col ✕
-        elif chosen is not None:
-            st.session_state[NOW_PLAYING] = after
+        if chosen is not None:
+            st.session_state[NOW_PLAYING] = chosen
 
     def _on_reveal(finder_key=finder_key, trouble_key=trouble_key):
         chosen = _clicked(finder_key)
@@ -319,8 +297,9 @@ def play_table(section: str, table: pd.DataFrame, column_order: list[str],
                                 st.session_state.get(NOW_PLAYING)))
         config["Play"] = st.column_config.ButtonColumn(
             "▶", on_click=_on_play, key=click_key, width="small", **_PINNED,
-            help="Hear this track. The row playing shows ⏸ instead of the "
-                 "arrow, in every table that shows it.")
+            help="Hear this track. The row you are listening to keeps a "
+                 "speaker instead of the arrow, in every table that shows "
+                 "it. To stop, close the player at the bottom of the page.")
     if reveal:
         buttons.append("Finder")
         shown.insert(len(buttons) - 1, "Finder", "🔍")
