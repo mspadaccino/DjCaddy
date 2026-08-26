@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""Entry point 5 — la prova dell'energia su un campione della libreria.
+
+Prima di aggiungere tre campi a ottantasettemila righe conviene guardare
+cosa dicono su duecento brani che si conoscono a orecchio. Questo script
+sceglie il campione DALLA MAPPA — stratificato per genere e per colore del
+mood, così copre la libreria invece di un angolo — misura i tre ingredienti
+e stampa la classifica.
+
+    poetry run python energy_cli.py --sample 200
+
+    # su file scelti a mano, anche senza mappa
+    poetry run python energy_cli.py --files "a.flac" "b.flac"
+
+    # vedere che campione uscirebbe, senza toccare l'audio
+    poetry run python energy_cli.py --sample 200 --dry-run
+
+Non scrive niente nella mappa: produce un CSV da guardare. La scala 1-10 è
+calcolata SUL CAMPIONE, quindi si giudica l'ORDINE e la separazione fra i
+brani, non il voto assoluto — quello avrà senso solo sulla libreria intera.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import random
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+
+from analysis import energy, mood_scale
+from analysis.map_profile import ProfileSettings, gain_for_target, rhythm_offset
+from analysis.map_store import MapStore, default_store_dir
+
+ANALYSIS_RATE = 44100
+
+
+# --------------------------------------------------------------------------
+# Il campione
+# --------------------------------------------------------------------------
+
+def stratified(rows: list[dict], count: int, seed: int = 0) -> list[dict]:
+    """Un campione che copre generi e mood invece di un angolo della mappa.
+
+    A giro si prende un brano per genere, finché non se ne hanno abbastanza:
+    così i generi rari entrano comunque, che è il punto — una scala tarata
+    solo sulla house non saprebbe dove mettere un breakbeat.
+
+    Dentro un genere i brani non si pescano a caso ma si ordinano per colore
+    del mood e si prendono a passo costante: da buio a chiaro senza buchi.
+    Serve perché l'energia va giudicata proprio dove somiglia al mood — se il
+    campione fosse tutto scuro non si vedrebbe se le due misure si stanno
+    ripetendo.
+    """
+    by_genre: dict[str, list[dict]] = {}
+    for row in rows:
+        by_genre.setdefault(row.get("top_genre") or "—", []).append(row)
+
+    ordered: dict[str, list[dict]] = {}
+    for genre, group in by_genre.items():
+        # `valence` è None per i brani senza mood: vanno in fondo, non a zero,
+        # che li metterebbe in mezzo fra i bui e i chiari senza motivo.
+        ordered[genre] = sorted(
+            group, key=lambda r: (mood_scale.valence(r.get("moods")) is None,
+                                  mood_scale.valence(r.get("moods")) or 0.0,
+                                  r["path"]))
+
+    genres = sorted(ordered)
+    random.Random(seed).shuffle(genres)     # nessun genere sempre primo
+
+    picked, taken = [], {g: 0 for g in genres}
+    while len(picked) < count:
+        moved = False
+        for genre in genres:
+            group, done = ordered[genre], taken[genre]
+            if done >= len(group) or len(picked) >= count:
+                continue
+            # A passo costante lungo l'ordine per mood: il primo giro prende
+            # il brano più scuro, il secondo il più chiaro, poi si riempie.
+            step = max(1, len(group) // max(1, count // max(1, len(genres)) + 1))
+            picked.append(group[min(done * step, len(group) - 1)])
+            taken[genre] = done + 1
+            moved = True
+        if not moved:
+            break                            # finiti i brani, non il conteggio
+    return picked[:count]
+
+
+# --------------------------------------------------------------------------
+# La misura
+# --------------------------------------------------------------------------
+
+def rhythm_window(path: Path, duration: float, settings: ProfileSettings):
+    """I soli secondi che servono, decodificati e basta.
+
+    `EasyLoader` apre il file al punto giusto invece di decodificarlo tutto:
+    su un brano di sette minuti è la differenza fra secondi e frazioni di
+    secondo, ed è ciò che rende il backfill una serata invece che una
+    settimana. Se la versione di Essentia in uso non lo espone si ripiega su
+    `MonoLoader`, che dà lo stesso audio pagandolo di più.
+    """
+    from essentia.standard import EasyLoader, MonoLoader
+
+    start = rhythm_offset(duration, settings)
+    try:
+        return EasyLoader(filename=str(path), sampleRate=ANALYSIS_RATE,
+                          startTime=start,
+                          endTime=start + settings.rhythm_seconds,
+                          replayGain=0.0)()
+    except Exception:
+        audio = MonoLoader(filename=str(path), sampleRate=ANALYSIS_RATE,
+                           resampleQuality=1)()
+        first = int(start * ANALYSIS_RATE)
+        return audio[first:first + int(settings.rhythm_seconds * ANALYSIS_RATE)]
+
+
+def probe(row: dict, settings: ProfileSettings) -> dict:
+    """I tre ingredienti di un brano, dalla sua riga sulla mappa.
+
+    BPM e loudness NON si ricalcolano: sono già nella riga. È il motivo per
+    cui questa passata costa una frazione dell'analisi — niente modello,
+    niente tempo, niente tonalità, solo trenta secondi di audio e una FFT.
+    """
+    from essentia.standard import OnsetRate
+
+    path = Path(row["path"])
+    audio = rhythm_window(path, float(row.get("duration") or 0.0), settings)
+    if audio is None or not len(audio):
+        return dict.fromkeys(energy.INGREDIENTS)
+
+    # Allo stesso livello a cui il resto della pipeline porta i brani. Per
+    # due misure su tre è cosmetico — un rapporto di bande e un centroide
+    # non cambiano se moltiplichi il segnale — ed è esattamente il motivo
+    # per cui la loudness non può rientrare da questa porta.
+    audio = (np.asarray(audio, dtype=np.float32)
+             * gain_for_target(row.get("lufs"))).astype(np.float32)
+
+    rate = float(OnsetRate()(audio)[1])
+    return energy.measure(audio, ANALYSIS_RATE, rate, row.get("bpm"))
+
+
+# --------------------------------------------------------------------------
+
+def _table(rows: list[dict], measures: list[dict]) -> list[dict]:
+    columns = {name: [m.get(name) if m.get(name) is not None else np.nan
+                      for m in measures] for name in energy.INGREDIENTS}
+    level = energy.levels(*(columns[n] for n in energy.INGREDIENTS))
+    out = []
+    for row, measure, value in zip(rows, measures, level):
+        out.append({
+            "energy": "" if not np.isfinite(value) else int(value),
+            "file": Path(row["path"]).name,
+            "genre": row.get("top_genre") or "",
+            "moods": row.get("moods") or "",
+            "bpm": row.get("bpm") or "",
+            "groove": row.get("danceability") if row.get("danceability") is not None else "",
+            "lufs": row.get("lufs") if row.get("lufs") is not None else "",
+            **{n: "" if measure.get(n) is None else round(measure[n], 3)
+               for n in energy.INGREDIENTS},
+            "path": row["path"],
+        })
+    return sorted(out, key=lambda r: (r["energy"] == "", -(r["energy"] or 0)))
+
+
+def _correlations(table: list[dict]) -> None:
+    """I due test di ammissione, sul campione.
+
+    Un asse che ridice il BPM non vale la manopola per sceglierlo; un asse
+    che ridice la loudness vuol dire che l'abbiamo ricostruita per vie
+    traverse, e tutto il ragionamento per cui non l'abbiamo usata era vano.
+    """
+    have = [r for r in table if r["energy"] != ""]
+    if len(have) < 20:
+        print("\n  Troppi pochi brani misurati per le correlazioni.")
+        return
+    value = np.array([r["energy"] for r in have], dtype=float)
+    print("\n  Correlazione dell'energia con quello che c'è già:")
+    for name, key, verdict in (("BPM", "bpm", "ridice il tempo"),
+                               ("groove", "groove", "ridice il groove"),
+                               ("loudness", "lufs", "è loudness travestita")):
+        other = np.array([r[key] if r[key] != "" else np.nan for r in have],
+                         dtype=float)
+        ok = np.isfinite(other)
+        if ok.sum() < 20:
+            continue
+        r = float(np.corrcoef(value[ok], other[ok])[0, 1])
+        flag = f"  <-- ATTENZIONE: {verdict}" if abs(r) > 0.7 else ""
+        print(f"    {name:9s} r = {r:+.2f}{flag}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Misura i tre ingredienti dell'energia su un campione.")
+    parser.add_argument("--sample", type=int, default=200,
+                        help="Quanti brani pescare dalla mappa")
+    parser.add_argument("--files", type=Path, nargs="+",
+                        help="Brani scelti a mano invece del campione")
+    parser.add_argument("--store", type=Path, default=default_store_dir())
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--out", type=Path, default=Path("energy_sample.csv"))
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Mostra il campione senza aprire l'audio")
+    args = parser.parse_args()
+
+    settings = ProfileSettings()
+    if args.files:
+        rows = [{"path": str(p.resolve()), "duration": 0.0, "bpm": None,
+                 "lufs": None, "top_genre": "", "moods": ""} for p in args.files]
+    else:
+        store = MapStore.load(args.store)
+        if not len(store):
+            parser.error(f"Nessuna mappa in {args.store}: usa --files.")
+        rows = stratified(store.rows, args.sample, args.seed)
+        genres = len({r.get("top_genre") for r in rows})
+        print(f"Mappa: {len(store):,} brani · campione {len(rows)} "
+              f"su {genres} generi")
+
+    if args.dry_run:
+        for row in rows:
+            print(f"  {(row.get('top_genre') or '—')[:28]:28s} "
+                  f"{(row.get('moods') or '—')[:34]:34s} "
+                  f"{Path(row['path']).name[:50]}")
+        return
+
+    print(f"Misuro {len(rows)} brani (30 s ciascuno, niente modello)…\n",
+          flush=True)
+    measures, failed, t0 = [], [], time.time()
+    for i, row in enumerate(rows, start=1):
+        try:
+            measures.append(probe(row, settings))
+        except Exception as exc:                      # un brano rotto non ferma la prova
+            measures.append(dict.fromkeys(energy.INGREDIENTS))
+            failed.append((Path(row["path"]).name, str(exc)[:60]))
+        sys.stdout.write(f"\r  {i}/{len(rows)} · "
+                         f"{(time.time() - t0) / i:.2f}s a brano")
+        sys.stdout.flush()
+
+    table = _table(rows, measures)
+    each = (time.time() - t0) / max(1, len(rows))
+    print(f"\n\nFatto in {time.time() - t0:.0f}s · {each:.2f}s a brano "
+          f"· sugli 87.000 sarebbero ~{each * 87000 / 3600:.1f} h a un worker")
+    if failed:
+        print(f"  falliti {len(failed)}: " +
+              ", ".join(f"{n} ({e})" for n, e in failed[:3]))
+
+    print(f"\n{'en':>3s}  {'BPM':>5s} {'grv':>4s}  {'dens':>5s} {'bass':>5s} "
+          f"{'brt':>5s}  {'genere':28s} {'file'}")
+    for r in table:
+        print(f"{str(r['energy']):>3s}  {str(r['bpm'])[:5]:>5s} "
+              f"{str(r['groove'])[:4]:>4s}  "
+              f"{str(r['energy_density'])[:5]:>5s} "
+              f"{str(r['energy_bass'])[:5]:>5s} "
+              f"{str(r['energy_bright'])[:5]:>5s}  "
+              f"{(r['genre'] or '—')[:28]:28s} {r['file'][:46]}")
+
+    _correlations(table)
+
+    with args.out.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(table[0]))
+        writer.writeheader()
+        writer.writerows(table)
+    print(f"\n  Tabella completa in {args.out} — riordinala come vuoi e "
+          "dimmi dove sbaglia.")
+
+
+if __name__ == "__main__":
+    main()
