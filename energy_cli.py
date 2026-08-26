@@ -196,6 +196,52 @@ def _table(rows: list[dict], measures: list[dict]) -> list[dict]:
     return sorted(out, key=lambda r: (r["energy"] == "", -(r["energy"] or 0)))
 
 
+def write_playlist(table: list[dict], path: Path) -> int:
+    """La stessa tabella come playlist, dal più calmo al più energico.
+
+    Perche' una scala di energia si giudica ASCOLTANDOLA di fila: letta in
+    tabella si vede se un brano sta troppo in alto, ma sentita in rampa si
+    sente se la rampa sale davvero — che e' la domanda vera, visto che a
+    questo asse serve reggere la costruzione di un set.
+
+    I brani che non si e' riusciti a misurare vanno in coda con un punto
+    interrogativo invece di sparire: sentirli e' il modo piu' rapido di
+    capire se il file e' rotto o se la finestra era davvero muta.
+    """
+    order = sorted(table, key=lambda r: (r["energy"] == "", r["energy"] or 0))
+    with path.open("w", encoding="utf-8") as fh:
+        fh.write("#EXTM3U\n")
+        for row in order:
+            level = row["energy"] if row["energy"] != "" else "?"
+            fh.write(f"#EXTINF:-1,{level} · {row['file']}\n{row['path']}\n")
+    return len(order)
+
+
+def _from_csv(path: Path) -> list[dict]:
+    """La tabella di una prova gia' fatta, senza riaprire un solo file audio.
+
+    Serve a rileggere un campione di ieri — o a farne la playlist — senza
+    ripagare i due minuti di misura.
+    """
+    with path.open(encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    for row in rows:
+        row["energy"] = int(row["energy"]) if row["energy"] else ""
+    return sorted(rows, key=lambda r: (r["energy"] == "", -(r["energy"] or 0)))
+
+
+def _print_table(table: list[dict]) -> None:
+    print(f"\n{'en':>3s}  {'BPM':>5s} {'grv':>4s}  {'dens':>5s} {'bass':>5s} "
+          f"{'brt':>5s}  {'genere':28s} {'file'}")
+    for r in table:
+        print(f"{str(r['energy']):>3s}  {str(r['bpm'])[:5]:>5s} "
+              f"{str(r['groove'])[:4]:>4s}  "
+              f"{str(r['energy_density'])[:5]:>5s} "
+              f"{str(r['energy_bass'])[:5]:>5s} "
+              f"{str(r['energy_bright'])[:5]:>5s}  "
+              f"{(r['genre'] or '—')[:28]:28s} {r['file'][:46]}")
+
+
 def _correlations(table: list[dict]) -> None:
     """I due test di ammissione, sul campione.
 
@@ -234,11 +280,22 @@ def main() -> None:
     parser.add_argument("--min-seconds", type=float, default=MIN_SECONDS,
                         help="Sotto questa durata non e' un brano (0 = tieni tutto)")
     parser.add_argument("--out", type=Path, default=Path("energy_sample.csv"))
+    parser.add_argument("--from-csv", type=Path,
+                        help="Rilegge una prova gia' fatta invece di misurare")
     parser.add_argument("--dry-run", action="store_true",
                         help="Mostra il campione senza aprire l'audio")
     args = parser.parse_args()
 
     settings = ProfileSettings()
+    if args.from_csv:
+        table = _from_csv(args.from_csv)
+        _print_table(table)
+        _correlations(table)
+        playlist = args.from_csv.with_suffix(".m3u")
+        print(f"\n  Playlist di {write_playlist(table, playlist)} brani in "
+              f"{playlist}, dal piu' calmo al piu' energico.")
+        return
+
     if args.files:
         rows = [{"path": str(p.resolve()), "duration": 0.0, "bpm": None,
                  "lufs": None, "top_genre": "", "moods": ""} for p in args.files]
@@ -286,24 +343,18 @@ def main() -> None:
         print(f"  falliti {len(failed)}: " +
               ", ".join(f"{n} ({e})" for n, e in failed[:3]))
 
-    print(f"\n{'en':>3s}  {'BPM':>5s} {'grv':>4s}  {'dens':>5s} {'bass':>5s} "
-          f"{'brt':>5s}  {'genere':28s} {'file'}")
-    for r in table:
-        print(f"{str(r['energy']):>3s}  {str(r['bpm'])[:5]:>5s} "
-              f"{str(r['groove'])[:4]:>4s}  "
-              f"{str(r['energy_density'])[:5]:>5s} "
-              f"{str(r['energy_bass'])[:5]:>5s} "
-              f"{str(r['energy_bright'])[:5]:>5s}  "
-              f"{(r['genre'] or '—')[:28]:28s} {r['file'][:46]}")
-
+    _print_table(table)
     _correlations(table)
 
     with args.out.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(table[0]))
         writer.writeheader()
         writer.writerows(table)
-    print(f"\n  Tabella completa in {args.out} — riordinala come vuoi e "
-          "dimmi dove sbaglia.")
+    playlist = args.out.with_suffix(".m3u")
+    count = write_playlist(table, playlist)
+    print(f"\n  Tabella completa in {args.out} (col percorso di ogni brano).")
+    print(f"  Playlist di {count} brani in {playlist}, dal piu' calmo al piu' "
+          f"energico:\n    open {playlist}")
 
 
 if __name__ == "__main__":
