@@ -208,3 +208,53 @@ def test_a_drop_too_short_to_be_a_track_stays_out():
 def test_a_missing_duration_is_not_a_short_track():
     import energy_cli
     assert energy_cli.playable([{"duration": 0.0}, {}]) == [{"duration": 0.0}, {}]
+
+
+# --- il basso che batte in tempo -------------------------------------------
+
+def _kicks(at_beats, bpm=120.0, seconds=8.0, sr=44100, hz=60.0):
+    """Un basso che colpisce nei punti dati, misurati in battiti."""
+    out = np.zeros(int(seconds * sr), dtype=np.float32)
+    body = np.arange(int(0.15 * sr)) / sr
+    hit = (np.sin(2 * np.pi * hz * body) * np.exp(-body * 25)).astype(np.float32)
+    for beat in at_beats:
+        start = int(beat * 60.0 / bpm * sr)
+        if start + len(hit) <= len(out):
+            out[start:start + len(hit)] += hit
+    return out
+
+
+def test_a_straight_kick_pulses_on_every_beat():
+    floor = _kicks(np.arange(16))                     # una cassa per battito
+    assert energy.pulse(floor, 44100, 120.0) > 0.5
+
+
+def test_a_syncopated_bass_does_not_pulse_on_the_beat():
+    # Gli STESSI colpi, spostati fuori dal battito: un 808 che cade in punti
+    # diversi di ogni battuta ha la stessa densita' e non spinge.
+    floor = _kicks(np.arange(16))
+    off = _kicks(np.arange(16) * 0.75)
+    assert energy.pulse(off, 44100, 120.0) < energy.pulse(floor, 44100, 120.0)
+
+
+def test_a_bass_that_never_stops_does_not_pulse():
+    # Un sub tenuto e' tanto basso quanto vuoi ma non batte: e' la differenza
+    # fra "quanto fondo c'e'" (energy_bass) e "il fondo va a tempo" (questa).
+    t = np.arange(int(8.0 * 44100)) / 44100
+    drone = np.sin(2 * np.pi * 60 * t).astype(np.float32)
+    assert energy.pulse(drone, 44100, 120.0) < 0.2
+
+
+def test_without_a_tempo_there_is_no_pulse():
+    assert energy.pulse(_kicks(np.arange(16)), 44100, None) is None
+
+
+def test_a_half_time_tag_still_finds_the_beat():
+    floor = _kicks(np.arange(16))
+    assert energy.pulse(floor, 44100, 60.0) > 0.5      # 60 si piega a 120
+
+
+def test_measure_now_reads_four_things():
+    out = energy.measure(_kicks(np.arange(16)), 44100, onset_rate=2.0, bpm=120.0)
+    assert set(out) == set(energy.INGREDIENTS)
+    assert out["energy_pulse"] > 0.5

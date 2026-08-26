@@ -13,12 +13,21 @@ unico nel segnale. Ha tre componenti che si muovono in modo indipendente:
 - `bass` — quanta potenza sta sotto i 200 Hz. È la parte fisica: un
   breakdown senza cassa ha energia percepita bassa anche se il resto suona.
   La soglia è la stessa che `sections.py` usa per dire "il basso c'è".
-- `bright` — dove sta il baricentro dello spettro. È l'unica delle tre che
-  separa una deep roller da una peak-time a PARITÀ di tempo, di groove e
-  di basso: la prima è chiusa e scura, la seconda ha hats aperti e lead.
+- `bright` — dove sta il baricentro dello spettro. È l'unica che separa una
+  deep roller da una peak-time a PARITÀ di tempo, di groove e di basso: la
+  prima è chiusa e scura, la seconda ha hats aperti e lead.
+- `pulse` — quanto il basso batte IN TEMPO, cioè quanta della sua energia è
+  periodica sul battito. Le altre tre misurano quanto un brano è AFFOLLATO;
+  questa misura se SPINGE, che non è la stessa cosa. Una cassa dritta pulsa
+  su ogni battito; un 808 sincopato con gli hats a riempire i buchi ha la
+  stessa densità e non muove niente.
 
-Nessuna delle tre da sola mette i brani nell'ordine giusto. La deep roller
-ha PIÙ basso della peak-time; a leggere solo `bass` le si invertirebbe.
+Nessuna da sola mette i brani nell'ordine giusto. La deep roller ha PIÙ
+basso della peak-time; a leggere solo `bass` le si invertirebbe. E il
+giudizio a orecchio su quattrocento brani ha mostrato che le prime tre non
+bastano: hip hop, ragga e pop a 85-95 BPM stanno nel decile alto di tutte e
+tre — sono produzioni affollate — e nessun peso poteva portarli dove un DJ
+li sente senza trascinare giù anche l'acid house.
 
 **Perché il rango e non il valore.** Le tre misure hanno unità
 incompatibili — attacchi per battito, un rapporto, degli hertz — e sommarle
@@ -47,12 +56,12 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
 # I nomi con cui le tre misure vivono nella riga della mappa.
-INGREDIENTS = ("energy_density", "energy_bass", "energy_bright")
+INGREDIENTS = ("energy_density", "energy_bass", "energy_bright", "energy_pulse")
 
 # Quanto pesa ognuna nella media. Uguali: non ci sono dati per giustificare
 # altro, e un peso inventato è peggio di un peso neutro. Si taranno
 # ascoltando, come le soglie di `sections`.
-WEIGHTS = (1.0, 1.0, 1.0)
+WEIGHTS = (1.0, 1.0, 1.0, 1.0)
 
 # Sotto questo tempo non si conta: si raddoppia. Una libreria da DJ porta i
 # BPM dai tag, e i tag scrivono il mezzo tempo — un hip hop segnato 60 è un
@@ -86,6 +95,59 @@ _BLOCK = 256      # quanti frame per volta, per non tenere 40 MB per worker
 # Le tre misure, da audio già caricato
 # --------------------------------------------------------------------------
 
+def _scan(audio, sr: float):
+    """Una passata sola sui frame: lo spettro medio E l'inviluppo del basso.
+
+    Le due cose escono dalla stessa FFT e calcolarle separatamente
+    raddoppiava il costo del backfill — misurato, mezzo secondo a brano che
+    su ottantasettemila diventa una notte in piu'.
+    """
+    x = np.asarray(audio, dtype=np.float32).ravel()
+    if x.size < _N_FFT:
+        return None, None, None
+    frames = sliding_window_view(x, _N_FFT)[::_HOP]
+    if not len(frames):
+        return None, None, None
+
+    window = np.hanning(_N_FFT).astype(np.float32)
+    freqs = np.fft.rfftfreq(_N_FFT, 1 / sr)
+    band = (freqs >= MIN_HZ) & (freqs < LOW_HZ)
+    total = np.zeros(_N_FFT // 2 + 1, dtype=np.float64)
+    envelope = np.empty(len(frames))
+    for start in range(0, len(frames), _BLOCK):
+        chunk = frames[start:start + _BLOCK]
+        # Via la continua, frame per frame. Non e' pignoleria: la finestra di
+        # Hann sparpaglia il valore medio sui due bin accanto allo zero, e a
+        # 44,1 kHz con 2048 punti il primo di quelli cade a 21,5 Hz, cioe'
+        # DENTRO la banda bassa. Un file con un offset di registrazione
+        # risulterebbe il piu' bassoso della libreria: misurato, il 40% della
+        # sua potenza finiva sotto i 200 Hz senza che ci fosse una nota.
+        chunk = (chunk - chunk.mean(axis=1, keepdims=True)) * window
+        power = np.abs(np.fft.rfft(chunk, axis=1)) ** 2
+        total += power.sum(axis=0)
+        envelope[start:start + len(chunk)] = power[:, band].sum(axis=1)
+    return freqs, total / len(frames), envelope
+
+
+def _modulation(envelope, sr: float, tempo: float) -> float | None:
+    """Quanto l'inviluppo va su e giu' alla frequenza del battito, in
+    proporzione al suo livello medio. Vedi `pulse` per il perche'."""
+    if envelope is None:
+        return None
+    per_second = sr / _HOP
+    # Almeno quattro battiti di inviluppo, o la componente non si distingue
+    # da un andamento qualunque.
+    if len(envelope) / per_second * tempo / 60.0 < 4:
+        return None
+    taper = np.hanning(len(envelope))
+    level = float(np.dot(envelope, taper) / taper.sum())
+    if level <= 0:
+        return None
+    turns = 2 * np.pi * (tempo / 60.0) / per_second * np.arange(len(envelope))
+    beat = np.abs(np.dot(envelope * taper, np.exp(-1j * turns)))
+    return float(2 * beat / taper.sum() / level)
+
+
 def spectrum(audio, sr: float):
     """Lo spettro di potenza medio della finestra, e le sue frequenze.
 
@@ -98,26 +160,8 @@ def spectrum(audio, sr: float):
     risoluzione in frequenza che non serve a nessuno e sarebbe dominata da
     qualunque transiente.
     """
-    x = np.asarray(audio, dtype=np.float32).ravel()
-    if x.size < _N_FFT:
-        return None, None
-    frames = sliding_window_view(x, _N_FFT)[::_HOP]
-    if not len(frames):
-        return None, None
-
-    window = np.hanning(_N_FFT).astype(np.float32)
-    total = np.zeros(_N_FFT // 2 + 1, dtype=np.float64)
-    for start in range(0, len(frames), _BLOCK):
-        chunk = frames[start:start + _BLOCK]
-        # Via la continua, frame per frame. Non e' pignoleria: la finestra di
-        # Hann sparpaglia il valore medio sui due bin accanto allo zero, e a
-        # 44,1 kHz con 2048 punti il primo di quelli cade a 21,5 Hz, cioe'
-        # DENTRO la banda bassa. Un file con un offset di registrazione
-        # risulterebbe il piu' bassoso della libreria: misurato, il 40% della
-        # sua potenza finiva sotto i 200 Hz senza che ci fosse una nota.
-        chunk = (chunk - chunk.mean(axis=1, keepdims=True)) * window
-        total += (np.abs(np.fft.rfft(chunk, axis=1)) ** 2).sum(axis=0)
-    return np.fft.rfftfreq(_N_FFT, 1 / sr), total / len(frames)
+    freqs, power, _ = _scan(audio, sr)
+    return freqs, power
 
 
 def bass_share(freqs, power) -> float | None:
@@ -201,6 +245,42 @@ def usable(audio) -> bool:
     return float(np.sqrt(np.mean(x * x))) > SILENCE_RMS
 
 
+def pulse(audio, sr: float, bpm: float | None) -> float | None:
+    """Quanto il basso batte in tempo: la profondità della sua pulsazione.
+
+    Si prende l'inviluppo della sola banda bassa — quanta potenza sotto i
+    200 Hz c'è istante per istante — e se ne misura la componente ALLA
+    frequenza del battito, rapportata al suo livello medio. È l'indice di
+    modulazione: quanto il fondo va su e giù a tempo, in proporzione a
+    quanto fondo c'è.
+
+    Una cassa dritta alterna colpo e silenzio su ogni battito e dà un valore
+    alto; un 808 sincopato, che cade in punti diversi di ogni battuta, mette
+    la sua energia ad altre frequenze e su questa quasi niente; un sub
+    tenuto, che è bassissimo ma non batte, dà zero — ed è il caso per cui la
+    prima versione di questa funzione, che correlava l'inviluppo con sé
+    stesso spostato di un battito, dava 0,78: un inviluppo costante meno la
+    sua media è rumore numerico, e la correlazione di quel rumore non
+    significa niente. Rapportare alla media invece si annulla da sé.
+
+    Il battito viene dal BPM piegato: un tag a mezzo tempo cercherebbe la
+    modulazione a metà frequenza, dove una cassa dritta ha molta meno
+    energia che sul battito vero.
+
+    Misura la pulsazione, NON la quantità: un brano con pochissimo fondo, se
+    quel poco cade in tempo, esce alto lo stesso. Non è un difetto da
+    correggere qui — quanto fondo ci sia lo dice già `bass_share`, e le due
+    entrano nella media una di fianco all'altra. Separarle è il motivo per
+    cui un ragga fitto ma senza cassa dritta e una house con la cassa dritta
+    non si confondono più: il primo perde su `pulse`, la seconda vince su
+    entrambe.
+    """
+    tempo = fold_tempo(bpm)
+    if tempo is None:
+        return None
+    return _modulation(_scan(audio, sr)[2], sr, tempo)
+
+
 def measure(audio, sr: float, onset_rate: float | None,
             bpm: float | None) -> dict:
     """Le tre misure di un brano, dalla sua finestra ritmica.
@@ -212,10 +292,12 @@ def measure(audio, sr: float, onset_rate: float | None,
     """
     if not usable(audio):
         return dict.fromkeys(INGREDIENTS)
-    freqs, power = spectrum(audio, sr)
+    freqs, power, envelope = _scan(audio, sr)
+    tempo = fold_tempo(bpm)
     return {"energy_density": per_beat(onset_rate, bpm),
             "energy_bass": bass_share(freqs, power),
-            "energy_bright": brightness(freqs, power)}
+            "energy_bright": brightness(freqs, power),
+            "energy_pulse": _modulation(envelope, sr, tempo) if tempo else None}
 
 
 # --------------------------------------------------------------------------
@@ -244,14 +326,15 @@ def ranks(values) -> np.ndarray:
     return out
 
 
-def mix(density, bass, bright, weights=WEIGHTS) -> np.ndarray:
+def mix(*columns, weights=WEIGHTS) -> np.ndarray:
     """La media pesata dei tre ranghi, da 0 a 1. `nan` se non c'è niente.
 
     Una misura che manca esce dal conto invece di valere zero: un brano
     senza BPM non ha `density`, e contarla nulla lo spedirebbe in fondo
     alla scala per un dato assente invece che per come suona.
     """
-    stacked = np.vstack([ranks(density), ranks(bass), ranks(bright)])
+    stacked = np.vstack([ranks(c) for c in columns])
+    weights = np.asarray(weights, dtype=float)[:len(columns)]
     present = np.isfinite(stacked)
     weight = np.where(present, np.asarray(weights, dtype=float)[:, None], 0.0)
     total = weight.sum(axis=0)
@@ -260,7 +343,7 @@ def mix(density, bass, bright, weights=WEIGHTS) -> np.ndarray:
                      out=np.full(stacked.shape[1], np.nan), where=total > 0)
 
 
-def spread(density, bass, bright, weights=WEIGHTS) -> np.ndarray:
+def spread(*columns, weights=WEIGHTS) -> np.ndarray:
     """L'energia da 0 (in basso) a 1 (in cima), distribuita davvero.
 
     È `mix` passata un'altra volta per il rango, e il secondo giro non è
@@ -271,10 +354,10 @@ def spread(density, bass, bright, weights=WEIGHTS) -> np.ndarray:
     esattamente il difetto per cui l'asse energia dal mood era stato
     scartato, ricreato per un'altra strada.
     """
-    return ranks(mix(density, bass, bright, weights))
+    return ranks(mix(*columns, weights=weights))
 
 
-def levels(density, bass, bright, weights=WEIGHTS) -> np.ndarray:
+def levels(*columns, weights=WEIGHTS) -> np.ndarray:
     """L'energia come la scrive DJoid: un intero da 1 a 10. `nan` se manca.
 
     Sono decili: il 10 è "il decimo più energico di CIÒ CHE HAI", non un
@@ -283,7 +366,7 @@ def levels(density, bass, bright, weights=WEIGHTS) -> np.ndarray:
     onesta — "energia 8" non vuol dire niente finché non si dice rispetto
     a cosa.
     """
-    value = spread(density, bass, bright, weights)
+    value = spread(*columns, weights=weights)
     out = np.full(value.shape, np.nan)
     ok = np.isfinite(value)
     out[ok] = np.clip(1 + np.floor(value[ok] * 10), 1, 10)

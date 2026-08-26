@@ -232,14 +232,15 @@ def _from_csv(path: Path) -> list[dict]:
 
 def _print_table(table: list[dict]) -> None:
     print(f"\n{'en':>3s}  {'BPM':>5s} {'grv':>4s}  {'dens':>5s} {'bass':>5s} "
-          f"{'brt':>5s}  {'genere':28s} {'file'}")
+          f"{'brt':>5s} {'puls':>5s}  {'genere':26s} {'file'}")
     for r in table:
         print(f"{str(r['energy']):>3s}  {str(r['bpm'])[:5]:>5s} "
               f"{str(r['groove'])[:4]:>4s}  "
               f"{str(r['energy_density'])[:5]:>5s} "
               f"{str(r['energy_bass'])[:5]:>5s} "
-              f"{str(r['energy_bright'])[:5]:>5s}  "
-              f"{(r['genre'] or '—')[:28]:28s} {r['file'][:46]}")
+              f"{str(r['energy_bright'])[:5]:>5s} "
+              f"{str(r['energy_pulse'])[:5]:>5s}  "
+              f"{(r['genre'] or '—')[:26]:26s} {r['file'][:44]}")
 
 
 def _correlations(table: list[dict]) -> None:
