@@ -188,3 +188,16 @@ def test_a_window_with_music_in_it_is_measured():
 
 def test_a_window_shorter_than_the_fft_is_not_measured():
     assert not energy.usable(_tone(200, seconds=0.01))
+
+
+# --- chi entra nella scala -------------------------------------------------
+
+def test_a_drop_too_short_to_be_a_track_stays_out():
+    import energy_cli
+    rows = [{"duration": 12.0}, {"duration": 240.0}, {"duration": 61.0}]
+    assert energy_cli.playable(rows) == [{"duration": 240.0}, {"duration": 61.0}]
+
+
+def test_a_missing_duration_is_not_a_short_track():
+    import energy_cli
+    assert energy_cli.playable([{"duration": 0.0}, {}]) == [{"duration": 0.0}, {}]

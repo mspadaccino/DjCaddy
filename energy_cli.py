@@ -46,7 +46,28 @@ _GOLDEN = 0.6180339887498949
 # Il campione
 # --------------------------------------------------------------------------
 
-def stratified(rows: list[dict], count: int, seed: int = 0) -> list[dict]:
+# Sotto questa durata non e' un brano: e' un drop, un sample, uno stacco da
+# toolbox. Non si toglie dalla mappa — resta cercabile — ma non partecipa a
+# definire la scala dell'energia, dove occuperebbe i decili bassi al posto
+# della musica calma vera. La durata e' un fatto, mentre l'etichetta di genere
+# sulla coda tira a indovinare: sul campione un "Non-Music - Political" era
+# Mary Wells.
+MIN_SECONDS = 60.0
+
+
+def playable(rows: list[dict], min_seconds: float = MIN_SECONDS) -> list[dict]:
+    """Le sole righe abbastanza lunghe da essere un brano.
+
+    Una durata assente o a zero non si giudica e passa: e' un dato mancante,
+    non un brano corto, e se la finestra e' davvero vuota se ne accorge
+    `energy.usable`.
+    """
+    return [r for r in rows
+            if not (r.get("duration") or 0.0) or r["duration"] >= min_seconds]
+
+
+def stratified(rows: list[dict], count: int, seed: int = 0,
+               min_seconds: float = MIN_SECONDS) -> list[dict]:
     """Un campione che copre generi e mood invece di un angolo della mappa.
 
     A giro si prende un brano per genere, finché non se ne hanno abbastanza:
@@ -65,7 +86,7 @@ def stratified(rows: list[dict], count: int, seed: int = 0) -> list[dict]:
     dove somiglia al mood, ed è lì che si vede se le due misure si ripetono.
     """
     by_genre: dict[str, list[dict]] = {}
-    for row in rows:
+    for row in playable(rows, min_seconds):
         by_genre.setdefault(row.get("top_genre") or "—", []).append(row)
 
     ordered: dict[str, list[dict]] = {}
@@ -210,6 +231,8 @@ def main() -> None:
                         help="Brani scelti a mano invece del campione")
     parser.add_argument("--store", type=Path, default=default_store_dir())
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--min-seconds", type=float, default=MIN_SECONDS,
+                        help="Sotto questa durata non e' un brano (0 = tieni tutto)")
     parser.add_argument("--out", type=Path, default=Path("energy_sample.csv"))
     parser.add_argument("--dry-run", action="store_true",
                         help="Mostra il campione senza aprire l'audio")
@@ -223,10 +246,14 @@ def main() -> None:
         store = MapStore.load(args.store)
         if not len(store):
             parser.error(f"Nessuna mappa in {args.store}: usa --files.")
-        rows = stratified(store.rows, args.sample, args.seed)
+        rows = stratified(store.rows, args.sample, args.seed, args.min_seconds)
         genres = len({r.get("top_genre") for r in rows})
+        short = len(store) - len(playable(store.rows, args.min_seconds))
         print(f"Mappa: {len(store):,} brani · campione {len(rows)} "
               f"su {genres} generi")
+        if short:
+            print(f"  esclusi {short:,} sotto {args.min_seconds:.0f}s "
+                  f"({short / len(store):.1%} della libreria): non sono brani")
 
     if args.dry_run:
         for row in rows:
