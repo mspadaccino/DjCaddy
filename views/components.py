@@ -209,14 +209,14 @@ def reveal_in_finder(path: Path) -> str | None:
     return out.stderr.strip() or "il Finder non ha risposto"
 
 
-# Il ▶ di una riga qualunque, e quello della riga che si sta ascoltando.
+# Il ▶ di una riga qualunque, e il segno della riga che si sta ascoltando.
 # Due glifi e non un colore perche' `st.data_editor` non accetta uno Styler:
 # le righe non si possono tingere, e l'unica cosa che si puo' cambiare riga
 # per riga e' il contenuto delle celle. La colonna del pulsante e' gia' una
 # cella per riga, quindi il segno sta li' senza aggiungere una colonna che
 # farebbe ballare tutte le altre nel momento in cui si preme play.
 PLAY_GLYPH = "▶"
-HEARING_GLYPH = "🔊"
+HEARING_GLYPH = "⏸"
 
 # La colonna del play resta ferma mentre le altre scorrono di lato: le tabelle
 # della mappa sono larghe — file, BPM, tonalita', groove, mood, generi,
@@ -234,7 +234,7 @@ _PINNED = ({"pinned": True}
 
 
 def play_marks(paths, playing: str | None) -> list[str]:
-    """Il glifo del pulsante per ogni riga: l'altoparlante su quella in ascolto.
+    """Il glifo del pulsante per ogni riga: la pausa su quella in ascolto.
 
     Pura, perche' e' l'unico pezzo di `play_table` che si puo' provare senza
     un runtime di Streamlit — e perche' il confronto e' fra percorsi, che e'
@@ -297,9 +297,8 @@ def play_table(section: str, table: pd.DataFrame, column_order: list[str],
                                 st.session_state.get(NOW_PLAYING)))
         config["Play"] = st.column_config.ButtonColumn(
             "▶", on_click=_on_play, key=click_key, width="small", **_PINNED,
-            help="Hear this track. The row you are listening to keeps a "
-                 "speaker instead of the arrow, in every table that shows "
-                 "it.")
+            help="Hear this track. The row playing shows ⏸ instead of the "
+                 "arrow, in every table that shows it.")
     if reveal:
         buttons.append("Finder")
         shown.insert(len(buttons) - 1, "Finder", "🔍")

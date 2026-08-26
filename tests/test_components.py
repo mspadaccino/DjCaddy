@@ -3,7 +3,7 @@ import pandas as pd
 from views.components import HEARING_GLYPH, PLAY_GLYPH, play_marks
 
 
-def test_the_row_you_are_listening_to_carries_a_speaker():
+def test_the_row_you_are_listening_to_carries_a_pause():
     paths = ["/lib/a.flac", "/lib/b.flac", "/lib/c.flac"]
     assert play_marks(paths, "/lib/b.flac") == [PLAY_GLYPH, HEARING_GLYPH,
                                                 PLAY_GLYPH]
