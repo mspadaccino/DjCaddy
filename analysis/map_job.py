@@ -16,6 +16,7 @@ ogni brano.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
 import signal
@@ -159,6 +160,40 @@ def caffeinated(command: list[str]) -> list[str]:
     if sys.platform != "darwin":
         return command
     return ["caffeinate", "-i", *command]
+
+
+@contextlib.contextmanager
+def awake():
+    """Tiene la macchina sveglia finché dura il blocco, non un secondo di più.
+
+    Stessa sveglia di `caffeinated` e stessa ragione — un Mac addormentato
+    congela il lavoro invece di rallentarlo — ma per chi il lavoro lo fa
+    dentro di sé invece di lanciarlo come sottoprocesso. `caffeinate -w`
+    aspetta un PID e se ne va da solo quando quello sparisce: anche se il job
+    venisse ucciso di brutto, non resta una sveglia accesa a impedire alla
+    macchina di dormire per sempre.
+
+    Il rischio che copre non è teorico. Il backfill dell'energia e' nato
+    senza, e su una libreria vera l'attesa era passata da otto ore a sedici
+    per la sola ragione che nessuno toccava la tastiera.
+
+    Se `caffeinate` non c'è — un altro sistema operativo, o un Mac che non lo
+    espone — non succede niente: il lavoro parte lo stesso, solo senza
+    sveglia.
+    """
+    if sys.platform != "darwin":
+        yield
+        return
+    try:
+        keeper = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
+    except OSError:
+        yield
+        return
+    try:
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            keeper.terminate()
 
 
 def open_monitor(log: Path = DEFAULT_MAP_LOG) -> None:

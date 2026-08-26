@@ -80,3 +80,47 @@ def test_elsewhere_the_command_is_left_alone(monkeypatch):
 
     monkeypatch.setattr(map_job.sys, "platform", "linux")
     assert caffeinated(["python", "map_cli.py"]) == ["python", "map_cli.py"]
+
+
+def test_the_machine_is_kept_awake_only_while_the_work_lasts(monkeypatch):
+    """Un Mac addormentato non rallenta il lavoro: lo CONGELA. E una sveglia
+    dimenticata accesa e' l'errore opposto, altrettanto scortese."""
+    import subprocess as sp
+
+    from analysis import map_job
+
+    started, killed = [], []
+
+    class Keeper:
+        def terminate(self):
+            killed.append(True)
+
+    monkeypatch.setattr(map_job.sys, "platform", "darwin")
+    monkeypatch.setattr(sp, "Popen", lambda cmd, *a, **k: (started.append(cmd), Keeper())[1])
+
+    with map_job.awake():
+        assert started and started[0][0] == "caffeinate"
+        # Aspetta il NOSTRO pid: se il job muore di brutto, la sveglia se ne
+        # va da sola invece di restare accesa per sempre.
+        assert started[0][-1] == str(os.getpid())
+        assert not killed
+    assert killed
+
+
+def test_without_caffeinate_the_work_still_runs(monkeypatch):
+    import subprocess as sp
+
+    from analysis import map_job
+
+    monkeypatch.setattr(map_job.sys, "platform", "darwin")
+    monkeypatch.setattr(sp, "Popen", lambda *a, **k: (_ for _ in ()).throw(OSError))
+    with map_job.awake():
+        pass          # niente sveglia, ma il blocco gira lo stesso
+
+
+def test_off_a_mac_there_is_nothing_to_keep_awake(monkeypatch):
+    from analysis import map_job
+
+    monkeypatch.setattr(map_job.sys, "platform", "linux")
+    with map_job.awake():
+        pass

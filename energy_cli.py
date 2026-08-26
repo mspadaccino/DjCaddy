@@ -32,6 +32,7 @@ from pathlib import Path
 import numpy as np
 
 from analysis import energy, mood_scale
+from analysis.map_job import awake
 from analysis.map_profile import (ProfileSettings, default_workers,
                                   gain_for_target, rhythm_offset)
 from analysis.map_store import MapStore, default_store_dir
@@ -265,8 +266,12 @@ def backfill(store: MapStore, settings: ProfileSettings, workers: int,
             value = (values or {}).get(name)
             row[name] = round(value, 4) if value is not None else None
 
-    with ProcessPoolExecutor(max_workers=workers, initializer=_worker_start,
-                             initargs=(settings,)) as pool:
+    # Senza questo il Mac si addormenta e il job non rallenta: si FERMA, per
+    # poi ripartire al primo tocco della tastiera come se niente fosse.
+    # Misurato, otto ore di lavoro diventavano sedici di attesa.
+    with awake(), ProcessPoolExecutor(
+            max_workers=workers, initializer=_worker_start,
+            initargs=(settings,)) as pool:
         for path, values, error in pool.map(_worker, todo, chunksize=8):
             keep(path, values)
             if error:
