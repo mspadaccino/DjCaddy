@@ -353,3 +353,50 @@ def test_no_size_option_promises_a_measure_it_does_not_show():
     # libreria questa voce non deve esistere: mezza libreria senza valore
     # starebbe tutta al diametro minimo, che e' peggio di non offrirla.
     assert "energy" not in SIZE_FIELDS
+
+
+def test_the_two_suggestion_lists_get_their_own_rings():
+    """Le proposte del seme non erano cerchiate: la mappa e' proprio il posto
+    in cui si guarda per decidere il prossimo brano."""
+    names = _legend_of(playlist=[], seed=0, mixes=[1, 2], alike=[3])
+    assert "mixes out of it" in names
+    assert "sounds like it" in names
+
+
+def test_without_a_seed_there_is_nothing_to_propose(monkeypatch):
+    import streamlit as st
+
+    from analysis.mixing import TransitionCost
+    from views.map_analysis import suggested
+
+    monkeypatch.setattr(st, "session_state", {})
+    cost = TransitionCost(_np().zeros((3, 2)), [120, 121, 122], ["8A"] * 3)
+    assert suggested(None, cost, _np().arange(3), None, 3) == ([], [])
+
+
+def _np():
+    import numpy as np
+    return np
+
+
+def test_the_weights_come_from_the_session_not_from_the_sliders(monkeypatch):
+    """Gli slider dei pesi stanno nel pannello, cioe' PIU' IN BASSO del
+    disegno: senza chiave il loro valore non si potrebbe leggere in tempo."""
+    import streamlit as st
+
+    from analysis.mixing import TransitionCost
+    from views.map_analysis import suggested
+
+    monkeypatch.setattr(st, "session_state",
+                        {"map::w_sound": 0.0, "map::w_bpm": 2.0,
+                         "map::w_key": 0.5, "map_suggestion_count": 2})
+    np = _np()
+
+    class Store:
+        def similar(self, index, k, limit):
+            return [(1, 0.9), (2, 0.8)][:k]
+
+    cost = TransitionCost(np.zeros((3, 2)), [120, 121, 122], ["8A"] * 3)
+    mixes, alike = suggested(Store(), cost, np.arange(3), 0, 3)
+    assert (cost.w_map, cost.w_bpm, cost.w_key) == (0.0, 2.0, 0.5)
+    assert len(mixes) <= 2 and alike == [1, 2]

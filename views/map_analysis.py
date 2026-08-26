@@ -125,12 +125,14 @@ SKIN = {
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
               "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
               "ticked": "#e8a300", "kept": "#1f9d55",
-              "chained": "#f2cc0c"},
+              "chained": "#f2cc0c", "mixes": "#1f9dd0",
+              "alike": "#8a4fd6"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
              "ticked": "#ffc233", "kept": "#3ddc84",
-             "chained": "#ffe94d"},
+             "chained": "#ffe94d", "mixes": "#5fd0f5",
+             "alike": "#c08cff"},
 }
 
 # In sessione si tengono i PERCORSI, non le posizioni nella libreria. Una
@@ -371,7 +373,9 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                  seed_name: str | None = None,
                  ticked: list[int] | None = None,
                  selected: list[int] | None = None,
-                 chained: list[int] | None = None) -> go.Figure:
+                 chained: list[int] | None = None,
+                 mixes: list[int] | None = None,
+                 alike: list[int] | None = None) -> go.Figure:
     """La mappa: un tracciato per genere, più il percorso e il seme sopra.
 
     Un tracciato per genere e non uno solo con i colori dentro, perché così
@@ -458,6 +462,12 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             # brano della catena è quasi sempre anche in playlist, e un
             # anello dentro l'altro si vede mentre due sovrapposti no.
             ("in the chain", chained or [], skin["chained"], 11, True),
+            # I due elenchi di proposte stanno FUORI da tutto: sono molti
+            # punti, e un alone largo attorno al seme si legge come "guarda
+            # da queste parti" invece di litigare con gli anelli di dentro,
+            # che dicono cosa un brano E'.
+            ("mixes out of it", mixes or [], skin["mixes"], 27, True),
+            ("sounds like it", alike or [], skin["alike"], 31, True),
             ("in the playlist", playlist, skin["kept"], 15, False),
             ("being picked", ticked or [], skin["ticked"], 19, True),
             ("selected", selected or [], skin["ink"], 23, True)):
@@ -815,6 +825,7 @@ def render_map(store: MapStore) -> tuple | None:
     selected = [at_path[p] for p in st.session_state.get(SELECTION, [])
                 if p in at_path]
     seed = None if selected else at_path.get(st.session_state.get(SEED))
+    mixes, alike = suggested(store, cost, pool, seed, placed)
 
     # Sopra ventimila brani se ne disegna un campione, e il campione può non
     # contenere proprio quello che la pagina sta indicando: il cerchio del
@@ -823,7 +834,7 @@ def render_map(store: MapStore) -> tuple | None:
     # al nulla non è un dettaglio estetico, è la mappa che dice il falso.
     if sampled:
         pointed = [i for i in ([seed] if seed is not None else [])
-                   + selected + playlist
+                   + selected + playlist + mixes + alike
                    if i in visible.index and i not in drawn.index]
         if pointed:
             drawn = pd.concat([drawn, visible.loc[pointed]])
@@ -837,7 +848,8 @@ def render_map(store: MapStore) -> tuple | None:
                      seed_name=(frame.at[seed, "name"]
                                 if seed is not None else None),
                      ticked=st.session_state.get(TICKED) or [],
-                     selected=selected, chained=chained),
+                     selected=selected, chained=chained,
+                     mixes=mixes, alike=alike),
         key="map::chart", on_select="rerun",
         selection_mode=("points", "box", "lasso"),
         config={"displaylogo": False, "scrollZoom": True})
@@ -880,9 +892,15 @@ def render_map(store: MapStore) -> tuple | None:
         options = pool.tolist()
     else:
         options = []
-    # Il seme in testa comunque: è il valore che il campo deve poter mostrare,
-    # e Streamlit non sa disegnare una scelta che fra le opzioni non c'è.
-    if seed is not None and seed not in options:
+    # Il seme in testa, ma SOLO quando non si sta cercando: è il valore che il
+    # campo deve poter mostrare, e Streamlit non sa disegnare una scelta che
+    # fra le opzioni non c'è.
+    #
+    # Mentre una ricerca è in corso invece va tolto, o resta primo in un
+    # elenco di risultati con cui non c'entra niente — e il campo in quel
+    # momento non porta più lui: porta le parole digitate, che
+    # `accept_new_options` lascia passare comunque.
+    if seed is not None and not words and seed not in options:
         options = [seed, *options]
 
     def _browse_seed() -> None:
@@ -1116,13 +1134,13 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                 f"{mood_scale.summary(row['moods'], common)}")
 
     w1, w2, w3 = st.columns(3)
-    cost.w_map = w1.slider("Weight — sound", 0.0, 2.0, 1.0, 0.1,
+    cost.w_map = w1.slider("Weight — sound", 0.0, 2.0, 1.0, 0.1, key="map::w_sound",
                            help="How much the distance on the map counts: "
                                 "the acoustic affinity of the two tracks.")
-    cost.w_bpm = w2.slider("Weight — BPM", 0.0, 2.0, 1.0, 0.1,
+    cost.w_bpm = w2.slider("Weight — BPM", 0.0, 2.0, 1.0, 0.1, key="map::w_bpm",
                            help="How much the tempo gap counts. Beyond ±6% "
                                 "the cost climbs fast.")
-    cost.w_key = w3.slider("Weight — key", 0.0, 2.0, 1.0, 0.1,
+    cost.w_key = w3.slider("Weight — key", 0.0, 2.0, 1.0, 0.1, key="map::w_key",
                            help="How much harmonic distance counts. Adjacent "
                                 "or relative keys (8A→9A, 8A→8B) cost nothing.")
 
@@ -1561,6 +1579,34 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     # un'altra è l'eccezione.
     with st.expander("📂 Load existing playlist"):
         render_playlist_loader(frame, at_path, playlist)
+
+
+def suggested(store: MapStore, cost: TransitionCost, pool, seed: int | None,
+              placed: int) -> tuple[list[int], list[int]]:
+    """Le due liste di proposte del seme, per cerchiarle sulla mappa.
+
+    Si calcolano QUI, prima del disegno, e non nel pannello che poi le
+    elenca: la mappa sta più in alto nella pagina, e prendere le liste dal
+    giro precedente vorrebbe dire cerchiare le proposte del seme di PRIMA.
+    Non un ritardo — un'informazione sbagliata, e proprio nel momento in cui
+    si è appena cambiato brano.
+
+    Si pagano due volte, una qui e una nel pannello. Rifarle costa una scorsa
+    sulla libreria; passarsele avrebbe voluto dire allungare la tupla che
+    questa pagina si porta dietro fin dentro le sue schede, per risparmiare
+    qualche decina di millisecondi su un gesto che ne dura centinaia.
+
+    I pesi si leggono dalla sessione e non dagli slider: quelli stanno nel
+    pannello, cioè più in basso del disegno. Hanno una chiave apposta.
+    """
+    if seed is None:
+        return [], []
+    cost.w_map = st.session_state.get("map::w_sound", 1.0)
+    cost.w_bpm = st.session_state.get("map::w_bpm", 1.0)
+    cost.w_key = st.session_state.get("map::w_key", 1.0)
+    shown = st.session_state.get("map_suggestion_count", SUGGESTION_DEFAULT)
+    return ([i for i, _ in nearest(cost, seed, k=shown, pool=pool)],
+            [i for i, _ in store.similar(seed, k=shown, limit=placed)])
 
 
 def chain_places(at_path: dict[str, int]) -> list[int]:
