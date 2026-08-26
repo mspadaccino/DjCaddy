@@ -57,8 +57,13 @@ PALETTE = ["#e0503b", "#3d9be0", "#3fbf7f", "#f2a33c", "#a06fd6", "#e06fa8",
 OTHER_COLOR = {"light": "#9aa4b0", "dark": "#6b7684"}
 
 # I gradini su cui si scrive una misura continua in tabella. Dieci come in
-# djoid, e non è un vezzo: un numero da leggere dentro una pastiglia larga
-# venti pixel deve stare in una cifra.
+# djoid: un numero da leggere dentro una pastiglia larga venti pixel sta
+# comodo in una cifra.
+#
+# Il groove però NON li usa, ed è una scelta di chi legge queste tabelle: la
+# scheda del brano e la lavagna scrivono `0,61`, e vedere `6` in tabella e
+# `0,61` sulla scheda costringe a ricordarsi che sono lo stesso numero. La
+# pastiglia si allarga di due caratteri e la coerenza vale il prezzo.
 LEVELS = 10
 
 
@@ -95,6 +100,12 @@ KEY_COLORS = {key: camelot_color(key) for key in KEY_OPTIONS}
 
 LEVEL_OPTIONS = [str(n) for n in range(1, LEVELS + 1)]
 
+# Il groove come lo scrivono la scheda e la lavagna: due decimali, da 0,00 a
+# 1,00. Sono centouno pastiglie possibili, e il colore va agganciato a
+# ognuna perché la tinta segue la posizione nell'elenco delle opzioni — non
+# c'è modo di dire "colora per valore" e scrivere altro.
+GROOVE_OPTIONS = [f"{n / 100:.2f}" for n in range(101)]
+
 
 def _ramp(hue: float, steps: int = LEVELS) -> list[str]:
     """Una scala di `steps` colori di tinta fissa, dal pallido al pieno.
@@ -115,7 +126,11 @@ def _ramp(hue: float, steps: int = LEVELS) -> list[str]:
 
 
 # Il verde del groove, che è il colore con cui djoid scrive la danceability.
-GROOVE_COLORS = _ramp(145)
+# Centouno gradini invece di dieci, uno per valore: la scala percorre le
+# stesse due estremità di prima, solo più fitta, quindi da lontano la colonna
+# si legge di traverso esattamente come prima — anzi meglio, perché il
+# passaggio da un brano all'altro è continuo e non a scalini.
+GROOVE_COLORS = _ramp(145, len(GROOVE_OPTIONS))
 
 # Il verso dell'emotion, non la sua misura: la freccia dice da che parte
 # guarda il brano, e la colonna del mood di fianco dice quali parole ce lo
@@ -148,14 +163,14 @@ def key_column(label: str = "key"):
 
 
 def groove_column(label: str = "groove"):
-    """La danceability sui dieci gradini, in verde."""
+    """La danceability com'è, in verde: due decimali da 0,00 a 1,00."""
     return st.column_config.MultiselectColumn(
         label, disabled=True, width="small",
-        options=LEVEL_OPTIONS, color=GROOVE_COLORS,
-        help="The danceability from 1 to 10: regularity of the onsets, low "
-             "is loose and high is a straight kick. It is the same 0..1 "
-             "number the board and the filters call groove, written on ten "
-             "steps because a pill is too small for two decimals.")
+        options=GROOVE_OPTIONS, color=GROOVE_COLORS,
+        help="The danceability from 0.00 to 1.00: regularity of the onsets, "
+             "low is loose and high is a straight kick. The same number the "
+             "track card, the board and the filters all call groove, written "
+             "the same way everywhere so there is nothing to convert.")
 
 
 def emotion_column(label: str = "emotion"):
@@ -228,11 +243,16 @@ def _pill(value) -> list[str]:
     return [] if value is None else [str(value)]
 
 
-def groove_level(danceability) -> int | None:
-    """La regolarità degli onset (0..1) sui dieci gradini della tabella."""
+def groove_pill(danceability) -> str | None:
+    """La regolarità degli onset come si scrive nella pastiglia: "0.61".
+
+    Bloccata fra 0 e 1 e a due decimali perché deve cadere ESATTAMENTE su
+    una delle opzioni della colonna: una stringa fuori elenco non è un
+    errore, è una pastiglia che non si colora e nessuno capisce perché.
+    """
     if danceability is None or pd.isna(danceability):
         return None
-    return int(min(LEVELS, max(1, round(float(danceability) * LEVELS))))
+    return f"{min(1.0, max(0.0, float(danceability))):.2f}"
 
 
 def emotion_arrow(moods) -> str | None:
@@ -257,7 +277,7 @@ def reading(row, common: dict[str, int]) -> dict:
         "file": row["name"],
         "BPM": round(bpm) if bpm is not None else None,
         "key": _pill(_value(row, "camelot")),
-        "groove": _pill(groove_level(_value(row, "danceability"))),
+        "groove": _pill(groove_pill(_value(row, "danceability"))),
         "emotion": _pill(emotion_arrow(row["moods"] if "moods" in row else "")),
         "mood": mood_scale.summary(row["moods"] if "moods" in row else "",
                                    common),

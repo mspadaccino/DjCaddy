@@ -1,7 +1,8 @@
 import pandas as pd
 
-from views.track_columns import (PALETTE, camelot_color, emotion_arrow,
-                                 genre_colors, groove_level, reading)
+from views.track_columns import (GROOVE_OPTIONS, PALETTE, camelot_color,
+                                 emotion_arrow, genre_colors, groove_pill,
+                                 reading)
 
 
 def _track(**changes) -> pd.Series:
@@ -20,14 +21,25 @@ def test_the_key_carries_the_colour_it_has_on_the_wheel():
     assert camelot_color("") == camelot_color(None) == camelot_color("13A")
 
 
-def test_the_groove_lands_on_ten_steps_and_never_on_a_zero():
-    assert groove_level(0.83) == 8
-    assert groove_level(1.0) == 10
-    # Uno a fondo scala e non zero: la pastiglia porta un numero da leggere,
-    # e uno zero si scambia per un dato che manca.
-    assert groove_level(0.0) == 1
-    assert groove_level(None) is None
-    assert groove_level(float("nan")) is None
+def test_the_groove_is_written_the_way_the_card_writes_it():
+    # Due decimali come sulla scheda del brano e sulla lavagna: chi legge
+    # non deve convertire niente fra una vista e l'altra.
+    assert groove_pill(0.83) == "0.83"
+    assert groove_pill(0.613) == "0.61"
+    assert groove_pill(0.0) == "0.00"
+    assert groove_pill(1.0) == "1.00"
+
+
+def test_the_groove_always_lands_on_one_of_the_column_options():
+    # Una stringa fuori elenco non e' un errore: e' una pastiglia che non si
+    # colora, e nessuno capisce perche'.
+    for value in (0.0, 0.004, 0.615, 0.999, 1.0, 1.2, -0.3):
+        assert groove_pill(value) in GROOVE_OPTIONS
+
+
+def test_a_track_without_a_groove_has_no_pill():
+    assert groove_pill(None) is None
+    assert groove_pill(float("nan")) is None
 
 
 def test_the_emotion_is_an_arrow_only_when_the_track_has_a_way_to_look():
@@ -43,7 +55,7 @@ def test_the_emotion_is_an_arrow_only_when_the_track_has_a_way_to_look():
 def test_a_track_reads_as_pills_and_what_is_missing_stays_empty():
     got = reading(_track(), {"Deep": 3, "Energetic": 900})
     assert got["key"] == ["8A"]
-    assert got["groove"] == ["8"]
+    assert got["groove"] == ["0.83"]
     assert got["emotion"] == ["↓"]
     assert got["genres"] == ["Electronic - House"]
     assert got["BPM"] == 126
