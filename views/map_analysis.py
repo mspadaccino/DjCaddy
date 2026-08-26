@@ -51,7 +51,7 @@ from analysis.map_projection import available as umap_available
 from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
-from views.components import (NOW_PLAYING, fill_dock, pick_file, pick_files,
+from views.components import (NOW_PLAYING, ask_for_file, fill_dock, pick_files,
                               pick_folder, play_table, save_as, tick_all)
 from views.graph_board import (GRAPH_STATE, TICKED, camelot_picker,
                                mood_popularity, render_board,
@@ -130,11 +130,16 @@ SKIN = {
 # è un altro brano: la playlist resterebbe in piedi indicando le tracce
 # sbagliate, che è peggio di un errore. Il percorso invece è il brano.
 SEED = "map::seed"
+# Il campo del seme: uno solo, e porta due cose diverse a seconda di cosa ci
+# si e' fatto dentro. Un indice se si e' scelto un brano dall'elenco, il testo
+# digitato se si sta ancora cercando — `accept_new_options` manda al server
+# quello che si scrive, ed e' il tipo del valore a dire quale delle due e'.
+SEED_FIELD = "map::seedpick"
+SEED_QUERY = "map::seedquery"
+# Il file scelto dal Finder ma che sulla mappa non c'è: si ricorda per poterlo
+# dire, e si spegne alla scelta buona dopo.
+SEED_TROUBLE = "map::seedfile_missing"
 PICKED = "map::seedpick_applied"
-# L'ultimo file passato dal Finder su cui si è già agito. Senza, il campo
-# resterebbe a comandare: cliccato un punto sulla mappa, al giro dopo quel
-# percorso rimetterebbe il seme dov'era e il clic non varrebbe niente.
-PICKED_FILE = "map::seedfile_applied"
 # I brani scelti dal Finder che sulla mappa non c'erano. Passano di qui
 # perché l'avviso va scritto DOPO la ripartenza che aggiunge gli altri:
 # scritto prima, sparirebbe insieme alla pagina che lo mostra.
@@ -751,10 +756,17 @@ def render_map(store: MapStore) -> tuple | None:
         # Le spunte erano quelle della scelta di prima: cerchiarle di giallo
         # attorno a un seme che non c'è più vuol dire indicare il nulla.
         st.session_state[TICKED] = []
-    by_name = st.session_state.get("map::seedpick")
-    if by_name is not None and by_name < placed:
+    # Il campo si legge QUI e non dove si disegna: la mappa sta piu' in su, e
+    # un seme scelto per nome deve avere il suo cerchio addosso subito invece
+    # che dal gesto dopo.
+    held = st.session_state.get(SEED_FIELD)
+    if isinstance(held, str):
+        st.session_state[SEED_QUERY] = held
+    elif held is not None and int(held) < placed:
+        by_name = int(held)
         if frame.at[by_name, "path"] != st.session_state.get(PICKED):
             st.session_state[PICKED] = frame.at[by_name, "path"]
+            st.session_state[SEED_QUERY] = ""      # scelto: la ricerca ha finito
             remember_seed(frame, by_name)
             st.session_state[SELECTION] = []
     selected = [at_path[p] for p in st.session_state.get(SELECTION, [])
@@ -804,83 +816,92 @@ def render_map(store: MapStore) -> tuple | None:
           "the **lasso** and the **box** grab the group they enclose, to be "
           "sorted into a set. Scroll to zoom.")
 
-    # Il seme si sceglie cliccando un punto, ma non solo: quando la serata
-    # parte da un brano deciso prima, cercarlo per nome è più veloce che
-    # trovarne il puntino. Sopra qualche migliaio di voci l'elenco non si apre
-    # più in fretta, e allora si chiede di restringere i filtri.
-    query = st.text_input(
-        "Find a track", key="map::seedsearch",
-        placeholder="a few words in any order — artist, title, remix…",
-        help="Every word has to appear, in any order, in the file name or "
-             "the folder. Picking one makes it the seed, exactly as "
-             "clicking its point does.")
+    # Un campo solo per tre strade. Ci si scrive dentro per cercare — è
+    # `accept_new_options` a mandare al server quello che si digita, e il TIPO
+    # del valore dice quale delle due cose è: una stringa sono parole da
+    # cercare, un indice è un brano scelto — e sotto compaiono i candidati. Lo
+    # stesso campo mostra però anche il seme arrivato da un clic sulla mappa o
+    # dal Finder, così quello che si sta guardando ha sempre un posto dove
+    # leggersi.
+    #
+    # Prima erano tre righe: una casella per cercare, un menu per scegliere
+    # fra i risultati e un campo per il file. Tre modi di dire la stessa cosa,
+    # e il brano scelto che non compariva in nessuno dei tre.
+    query = st.session_state.get(SEED_QUERY, "")
     words = [word for word in query.casefold().split() if word]
-
+    found = matching_tracks(frame, pool, words) if words else []
     if words:
-        found = matching_tracks(frame, pool, words)
         options = found[:SEED_MATCHES_MAX]
-        st.caption(f"**{len(found):,}** match"
-                   + (f" — the first {len(options)} are listed."
-                      if len(found) > len(options) else "."))
     elif len(pool) <= SEED_PICKER_MAX:
         # Pochi brani: l'elenco intero si apre in fretta e cercare è inutile.
         options = pool.tolist()
     else:
         options = []
+    # Il seme in testa comunque: è il valore che il campo deve poter mostrare,
+    # e Streamlit non sa disegnare una scelta che fra le opzioni non c'è.
+    if seed is not None and seed not in options:
+        options = [seed, *options]
+
+    def _browse_seed() -> None:
+        """Il file dal Finder, che alimenta lo STESSO campo.
+
+        Il nome che uno ricorda non è quasi mai il nome del file — "Blue
+        Monday" contro "04. Blue Monday - New Order (12'' mix).mp3" — mentre
+        dentro la cartella quel brano lo si riconosce a colpo d'occhio.
+
+        Scrive nel campo e non nel seme: da lì in poi è la stessa strada di
+        una scelta fatta per nome, e il seme si applica dove si applicano
+        tutti gli altri.
+        """
+        chosen = ask_for_file("Choose the seed track")
+        if chosen is None:
+            return
+        on_map, _ = playlist_positions([str(chosen)], at_path)
+        if on_map:
+            st.session_state[SEED_QUERY] = ""
+            st.session_state[SEED_FIELD] = on_map[0]
+            st.session_state[SEED_TROUBLE] = ""
+        else:
+            st.session_state[SEED_TROUBLE] = chosen.name
+
+    listening, picking, browsing = st.columns([1, 10, 2],
+                                              vertical_alignment="bottom")
+    # Il ▶ a sinistra del campo: si sceglie un brano per nome senza averlo mai
+    # sentito, e la prova sta nell'ascoltarlo. È lo stesso ▶ delle tabelle — il
+    # brano finisce nel lettore in fondo alla pagina — e per la stessa ragione
+    # passa da un `on_click`: il lettore si disegna prima di questa riga, e un
+    # valore scritto adesso lo troverebbe già disegnato sul brano di prima.
+    listening.button(
+        "▶", key="map::seedplay", width="stretch", disabled=seed is None,
+        on_click=_play,
+        args=(frame.at[seed, "path"] if seed is not None else None,),
+        help="Hear the seed, in the player at the bottom of the page.")
+    picking.selectbox(
+        "Seed track", options=options, accept_new_options=True, key=SEED_FIELD,
+        format_func=lambda i: (str(i) if isinstance(i, str) else
+                               f"{frame.at[i, 'name']}  ·  "
+                               f"{Path(frame.at[i, 'folder']).name}"),
+        placeholder="type a few words — artist, title, remix — or click a "
+                    "point on the map",
+        help="Type and press Enter to search: every word has to appear, in "
+             "any order, in the file name or the folder. The same field shows "
+             "whichever track is the seed, however it was chosen — by name, "
+             "from the Finder, or by clicking its point.")
+    browsing.button("🎵 Browse…", on_click=_browse_seed, width="stretch",
+                    key="map::seedbrowse",
+                    help="Pick the seed's file from the Finder.")
+
+    if words:
+        st.caption(f"**{len(found):,}** match"
+                   + (f" — the first {len(options)} are listed."
+                      if len(found) > SEED_MATCHES_MAX else "."))
+    elif not options:
         st.caption(f"{len(visible):,} tracks on the map — type a few words "
                    "above to pick one by name, or click its point.")
-
-    # Una scelta di prima che i filtri, una ricerca nuova o una rimozione
-    # hanno fatto sparire dalle opzioni va tolta PRIMA che il menu esista, o
-    # si troverebbe addosso un valore che non può mostrare.
-    if st.session_state.get("map::seedpick") not in set(options):
-        st.session_state.pop("map::seedpick", None)
-    if options:
-        # Il ▶ accanto al menu, non sotto: si sceglie un brano per nome senza
-        # averlo mai sentito, e la prova sta nell'ascoltarlo. È lo stesso ▶
-        # delle tabelle — il brano finisce nel lettore in fondo alla pagina —
-        # e per la stessa ragione passa da un `on_click`: il lettore si
-        # disegna prima di questa riga, e un valore scritto adesso lo
-        # troverebbe già disegnato sul brano di prima.
-        picking, listening = st.columns([6, 1], vertical_alignment="bottom")
-        picking.selectbox("Seed track", options=options, index=None,
-                          format_func=lambda i: f"{frame.at[i, 'name']}  ·  "
-                                                f"{Path(frame.at[i, 'folder']).name}",
-                          key="map::seedpick", placeholder="…pick one")
-        chosen = st.session_state.get("map::seedpick")
-        listening.button(
-            "▶", key="map::seedplay", width="stretch",
-            disabled=chosen is None, on_click=_play,
-            args=(frame.at[chosen, "path"] if chosen is not None else None,),
-            help="Hear the track picked here, in the player at the bottom "
-                 "of the page.")
-
-    # …oppure si dà il file. Il nome che uno ricorda non è quasi mai il nome
-    # del file — "Blue Monday" contro "04. Blue Monday - New Order (12''
-    # mix).mp3" — mentre dentro la cartella quel brano lo si riconosce a
-    # colpo d'occhio, ed è lì che si va a finire quando la serata parte da un
-    # pezzo deciso prima.
-    chosen_file = pick_file(
-        "map::seedfile", "…or the seed's file, straight from the Finder",
-        placeholder="a track already on the map",
-        prompt="Choose the seed track")
-    if chosen_file is not None and str(chosen_file) != st.session_state.get(PICKED_FILE):
-        st.session_state[PICKED_FILE] = str(chosen_file)
-        # Stesse regole con cui si ritrova una playlist caricata da file:
-        # il percorso, e se non basta il nome — un brano scelto dal disco
-        # sbagliato è lo stesso brano.
-        on_map, _ = playlist_positions([str(chosen_file)], at_path)
-        if not on_map:
-            st.warning(f"`{chosen_file.name}` is not on the map: add its "
-                       "folder under **Map settings** at the top, or pick "
-                       "another file.")
-        else:
-            remember_seed(frame, on_map[0])
-            st.session_state[SELECTION] = []
-            # Il seme di questo giro è già stato deciso più in su: senza
-            # ripartire, il cerchio resterebbe sul brano di prima fino al
-            # gesto successivo.
-            st.rerun()
+    missing_file = st.session_state.get(SEED_TROUBLE)
+    if missing_file:
+        st.warning(f"`{missing_file}` is not on the map: add its folder under "
+                   "**Map settings** at the top, or pick another file.")
 
     return frame, cost, pool, store, seed, selected, playlist
 

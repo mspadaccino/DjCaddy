@@ -33,3 +33,29 @@ def test_it_reads_a_pandas_column_the_way_the_table_hands_it_over():
     # da zero — una tabella filtrata — il segno deve restare sulla riga giusta.
     column = pd.Series(["/lib/a.flac", "/lib/b.flac"], index=[7, 12])
     assert play_marks(column, "/lib/b.flac") == [PLAY_GLYPH, HEARING_GLYPH]
+
+
+def test_the_finder_panel_can_be_asked_for_on_its_own(monkeypatch):
+    """Serve dove il campo dove scrivere il percorso c'e' gia' altrove: il
+    seme della mappa ha un menu solo, e accanto vuole un pulsante, non un
+    secondo campo."""
+    import subprocess as sp
+    from pathlib import Path
+
+    from views import components
+
+    class Out:
+        stdout = "/Volumes/X/DJSet/a.flac\n"
+
+    monkeypatch.setattr(sp, "run", lambda *a, **k: Out())
+    assert components.ask_for_file("scegli") == Path("/Volumes/X/DJSet/a.flac")
+
+
+def test_a_cancelled_panel_chooses_nothing(monkeypatch):
+    # In AppleScript annullare e' un ERRORE, non una risposta vuota.
+    import subprocess as sp
+
+    from views import components
+
+    monkeypatch.setattr(sp, "run", lambda *a, **k: (_ for _ in ()).throw(OSError))
+    assert components.ask_for_file("scegli") is None

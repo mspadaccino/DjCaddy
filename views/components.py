@@ -103,28 +103,44 @@ FILE_PANEL = """on run argv
 end run"""
 
 
+def ask_for_file(prompt: str = "Choose a track") -> Path | None:
+    """Il pannello del Finder e basta, senza il campo di testo accanto.
+
+    Gemello di `pick_files` al singolare: si chiama da un pulsante quando
+    l'unica cosa che serve e' scegliere un file, e il posto dove scriverne il
+    percorso c'e' gia' altrove. `pick_file` ci si appoggia sopra invece di
+    rifare la stessa chiamata, cosi' il pannello si chiede in un punto solo.
+    """
+    try:
+        out = subprocess.run(["osascript", "-e", FILE_PANEL, prompt],
+                             capture_output=True, text=True, check=True)
+    except Exception:
+        return None                # dialogo annullato o non disponibile
+    chosen = out.stdout.strip()
+    return Path(chosen) if chosen else None
+
+
 def pick_file(state_key: str, label: str = "Track", placeholder: str = "",
-              prompt: str = "Choose a track") -> Path | None:
+              prompt: str = "Choose a track",
+              browse: str = "🎵 Browse…") -> Path | None:
     """Campo di testo più il selettore di file nativo del Mac.
 
     Gemello di `pick_folder`: stessa forma e stessa ragione — l'app gira in
     locale, quindi il Finder si può chiedere — e cambia solo cosa si sceglie.
     """
     def _browse() -> None:
-        try:
-            out = subprocess.run(["osascript", "-e", FILE_PANEL, prompt],
-                                 capture_output=True, text=True, check=True)
-            chosen = out.stdout.strip()
-            if chosen:
-                st.session_state[state_key] = chosen
-        except Exception:
-            pass   # dialogo annullato o non disponibile: nessuna modifica
+        chosen = ask_for_file(prompt)
+        if chosen is not None:
+            st.session_state[state_key] = str(chosen)
 
     col_path, col_browse = st.columns([5, 1])
     typed = col_path.text_input(label, key=state_key, placeholder=placeholder)
     col_browse.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
-    col_browse.button("🎵 Browse…", on_click=_browse, width="stretch",
-                      key=f"browsefile::{state_key}")
+    # L'etichetta si accorcia dove il campo sta stretto — dentro una colonna
+    # annidata "🎵 Browse…" va a capo e il pulsante diventa alto il doppio.
+    col_browse.button(browse, on_click=_browse, width="stretch",
+                      key=f"browsefile::{state_key}",
+                      help="Choose the file from the Finder.")
 
     if not typed.strip():
         return None
