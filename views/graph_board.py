@@ -49,7 +49,6 @@ _camelot_wheel = components.declare_component("camelot_wheel", path=str(_WHEEL_D
 # I brani spuntati in questo momento, in una tabella qualunque della pagina.
 # La mappa li cerchia di giallo. Sta qui e non in `views.map_analysis` perché
 # quel modulo importa questo: definirla di là chiuderebbe il giro.
-TICKED = "map::ticked"
 
 GRAPH_STATE = "map::graph"
 GRAPH_SOURCE = "map::graph_source"
@@ -765,10 +764,6 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
         editor_key=f"graph_roster_editor::{source_path}::{len(graph)}")
 
     wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
-    # La mappa sta più in alto e si disegna prima di questa tabella: la
-    # spunta si annota qui e viene cerchiata al giro successivo, che è quello
-    # che parte da sola appena si spunta.
-    st.session_state[TICKED] = wanted
     if st.button(f"➕ Add {len(wanted)} to the chain", type="primary",
                  width="stretch", disabled=not wanted):
         # In fila uno dietro l'altro: spuntarne tre vuol dire "poi questi

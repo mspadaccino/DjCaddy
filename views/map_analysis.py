@@ -53,7 +53,7 @@ from analysis.map_store import MapStore, default_store_dir
 from analysis.mixing import TransitionCost, magic_sort, nearest
 from views.components import (NOW_PLAYING, ask_for_file, fill_dock, pick_files,
                               pick_folder, play_table, save_as, tick_all)
-from views.graph_board import (GRAPH_STATE, TICKED, camelot_picker,
+from views.graph_board import (GRAPH_STATE, camelot_picker,
                                mood_popularity, render_board,
                                render_chain_maker, reordered)
 from views.track_columns import (PALETTE, READING_ORDER, read_only, reading,
@@ -124,13 +124,13 @@ SKIN = {
     "light": {"paper": "#ffffff", "plot": "#f4f6f9", "ink": "#1b1f27",
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
               "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
-              "ticked": "#e0459e", "kept": "#1f9d55",
+              "kept": "#1f9d55",
               "chained": "#f2cc0c", "mixes": "#1f9dd0",
               "alike": "#8a4fd6", "playing": "#d92b2b"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
-             "ticked": "#ff7ad0", "kept": "#3ddc84",
+             "kept": "#3ddc84",
              "chained": "#ffe94d", "mixes": "#5fd0f5",
              "alike": "#c08cff", "playing": "#ff5c5c"},
 }
@@ -371,7 +371,6 @@ def marker_sizes(frame: pd.DataFrame, column: str | None):
 def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                  playlist: list[int], seed: int | None,
                  seed_name: str | None = None,
-                 ticked: list[int] | None = None,
                  selected: list[int] | None = None,
                  chained: list[int] | None = None,
                  mixes: list[int] | None = None,
@@ -440,14 +439,13 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             hoverinfo="skip"))
 
     # Giallo per la catena che si sta costruendo, verde per quello che è già
-    # in playlist, rosa per quello che si sta spuntando adesso, inchiostro
-    # per il gruppo appena preso dalla mappa:
+    # in playlist, inchiostro per il gruppo appena preso dalla mappa:
     #
-    # Il rosa era ambra, e l'ambra accanto al giallo della catena erano due
-    # gialli: si distinguevano per diametro e basta, il che vuol dire che per
-    # leggerli bisognava misurarli. Il rosa non somiglia a niente altro sulla
-    # mappa, e quello che si sta spuntando è proprio ciò che si sta guardando
-    # mentre si decide.
+    # C'era anche un anello per le caselle appena spuntate. È stato tolto: la
+    # spunta dura il tempo di premere il pulsante accanto, e per cerchiarla in
+    # tempo la mappa avrebbe dovuto ridisegnare ottantamila punti a ogni
+    # casella — mentre quello che la spunta diventerà, la catena o la
+    # playlist, il suo anello ce l'ha già.
     # sulla nuvola la differenza fra "l'ho preso", "lo sto guardando" e "sto
     # lavorando su questi" è proprio quella che serve mentre si sceglie. Il
     # verde non dipende da nessuna selezione: la playlist si vede sempre, che
@@ -476,7 +474,6 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             ("mixes out of it", mixes or [], skin["mixes"], 27, True),
             ("sounds like it", alike or [], skin["alike"], 31, True),
             ("in the playlist", playlist, skin["kept"], 15, False),
-            ("being picked", ticked or [], skin["ticked"], 19, True),
             ("selected", selected or [], skin["ink"], 23, True)):
         spots = [i for i in marks if i is not None and i < len(coords)]
         if not spots:
@@ -824,9 +821,6 @@ def render_map(store: MapStore) -> tuple | None:
         else:
             st.session_state[SELECTION] = [frame.at[i, "path"] for i in picked]
             forget_seed()
-        # Le spunte erano quelle della scelta di prima: cerchiarle di giallo
-        # attorno a un seme che non c'è più vuol dire indicare il nulla.
-        st.session_state[TICKED] = []
     # Il campo si legge QUI e non dove si disegna: la mappa sta piu' in su, e
     # un seme scelto per nome deve avere il suo cerchio addosso subito invece
     # che dal gesto dopo.
@@ -867,7 +861,6 @@ def render_map(store: MapStore) -> tuple | None:
         build_figure(drawn, top_genres, store.coords, playlist, seed,
                      seed_name=(frame.at[seed, "name"]
                                 if seed is not None else None),
-                     ticked=st.session_state.get(TICKED) or [],
                      selected=selected, chained=chained,
                      mixes=mixes, alike=alike, playing=playing),
         key="map::chart", on_select="rerun",
@@ -1226,7 +1219,6 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                  **read_only("cost", "sound", "bpm cost", "key cost")},
                 editor_key=mix_key)
             wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
-            st.session_state[TICKED] = wanted
             if st.button(f"➕ Add {len(wanted)} to the playlist",
                          disabled=not wanted, type="primary"):
                 remember_playlist(frame, playlist + [i for i in wanted

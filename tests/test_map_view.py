@@ -113,13 +113,14 @@ def _ring(figure, name):
     return next((t for t in figure.data if t.name == name), None)
 
 
-def test_ticked_tracks_get_a_yellow_ring():
+def test_the_tick_no_longer_draws_a_ring():
+    """La spunta dura il tempo di premere il pulsante accanto, e per
+    cerchiarla in tempo la mappa avrebbe dovuto ridisegnare ottantamila punti
+    a ogni casella. Quello che la spunta diventera' — la catena o la
+    playlist — il suo anello ce l'ha gia'."""
     coords = np.column_stack([np.arange(4.0), np.zeros(4)])
-    figure = build_figure(_drawn(), ["House"], coords, playlist=[],
-                          seed=None, ticked=[1, 3])
-    ring = _ring(figure, "being picked")
-    assert list(ring.x) == [1.0, 3.0]
-    assert ring.marker.line.color == SKIN["light"]["ticked"]
+    figure = build_figure(_drawn(), ["House"], coords, playlist=[], seed=None)
+    assert _ring(figure, "being picked") is None
 
 
 def test_playlist_tracks_get_a_green_ring():
@@ -131,11 +132,11 @@ def test_playlist_tracks_get_a_green_ring():
     assert ring.marker.line.color == SKIN["light"]["kept"]
 
 
-def test_no_ring_when_nothing_is_ticked():
+def test_no_ring_when_there_is_nothing_to_ring():
     coords = np.column_stack([np.arange(4.0), np.zeros(4)])
     figure = build_figure(_drawn(), ["House"], coords, playlist=[], seed=None)
-    assert _ring(figure, "being picked") is None
     assert _ring(figure, "in the playlist") is None
+    assert _ring(figure, "selected") is None
 
 
 def test_the_selected_group_gets_the_ink_ring():
@@ -153,7 +154,7 @@ def test_the_playlist_ring_does_not_need_a_selection():
     """Il principio di fondo: quello che è in playlist si vede sempre."""
     coords = np.column_stack([np.arange(4.0), np.zeros(4)])
     figure = build_figure(_drawn(), ["House"], coords, playlist=[1],
-                          seed=None, selected=[], ticked=[])
+                          seed=None, selected=[])
     assert list(_ring(figure, "in the playlist").x) == [1.0]
     assert _ring(figure, "selected") is None
 
@@ -316,16 +317,14 @@ def _legend_of(**kwargs) -> list[str]:
 def test_the_selection_rings_say_what_they_are_in_the_legend():
     """Senza, restano cerchi di colori diversi e nessun posto dove chiedere
     cosa vogliano dire."""
-    names = _legend_of(playlist=[], seed=None, chained=[0], ticked=[1],
-                       selected=[2])
-    assert {"in the chain", "being picked", "selected"} <= set(names)
+    names = _legend_of(playlist=[], seed=None, chained=[0], selected=[2])
+    assert {"in the chain", "selected"} <= set(names)
 
 
 def test_an_empty_ring_promises_no_colour():
     # Una voce per un insieme vuoto sarebbe una legenda che promette un
     # colore introvabile sul disegno.
-    names = _legend_of(playlist=[], seed=None, chained=[], ticked=[],
-                       selected=[])
+    names = _legend_of(playlist=[], seed=None, chained=[], selected=[])
     assert "in the chain" not in names
     assert "selected" not in names
 
@@ -429,6 +428,5 @@ def test_no_two_rings_share_a_colour():
 
     for theme in ("light", "dark"):
         rings = [SKIN[theme][k] for k in
-                 ("chained", "kept", "ticked", "ink", "mixes", "alike",
-                  "playing")]
+                 ("chained", "kept", "ink", "mixes", "alike", "playing")]
         assert len(set(rings)) == len(rings), theme
