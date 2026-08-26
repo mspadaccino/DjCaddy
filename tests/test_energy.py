@@ -152,16 +152,23 @@ def test_measure_reads_a_window_into_the_three_fields():
 
 # --- il tempo piegato ------------------------------------------------------
 
-def test_a_tempo_written_an_octave_up_reads_the_same():
-    # "082BPM - Tone Loc" sta sulla mappa a 172,3: e' il tag a sbagliare
-    # ottava, non il brano a essere meta' denso.
-    assert energy.per_beat(6.0, 86.0) == energy.per_beat(6.0, 172.0)
-    assert energy.per_beat(6.0, 70.0) == energy.per_beat(6.0, 140.0)
+def test_a_half_time_tag_reads_like_the_tempo_it_really_is():
+    # "60 bpm - Nicki Minaj" e' un 120 contato a meta': diviso per 60 la sua
+    # densita' verrebbe il doppio del vero.
+    assert energy.per_beat(6.0, 60.0) == energy.per_beat(6.0, 120.0)
+    assert energy.fold_tempo(60.0) == 120.0
 
 
-def test_folding_lands_inside_one_octave():
-    for bpm in (40.0, 63.0, 86.0, 125.0, 172.3, 184.6, 300.0):
-        assert 70.0 <= energy.fold_tempo(bpm) < 140.0
+def test_folding_never_slows_a_tempo_down():
+    # I due errori peggiori del campione erano i due brani piu' veloci, e
+    # venivano da qui: piegare 151,6 a 75,8 ne raddoppiava la densita'.
+    for bpm in (142.2, 149.0, 151.6, 172.3, 184.6):
+        assert energy.fold_tempo(bpm) == bpm
+
+
+def test_folding_lands_at_or_above_the_floor():
+    for bpm in (40.0, 63.0, 86.0, 125.0, 300.0):
+        assert energy.fold_tempo(bpm) >= 70.0
 
 
 def test_folding_leaves_a_tempo_that_is_already_home_alone():

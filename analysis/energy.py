@@ -54,12 +54,19 @@ INGREDIENTS = ("energy_density", "energy_bass", "energy_bright")
 # ascoltando, come le soglie di `sections`.
 WEIGHTS = (1.0, 1.0, 1.0)
 
-# Dove si piega il tempo prima di dividerci gli attacchi. Una libreria da DJ
-# porta i BPM dai tag, e i tag sbagliano ottava: misurato sul campione, "082BPM
-# - Tone Loc" sta sulla mappa a 172,3 e "Crucial Conflict - Hay (BPM 70)" a
-# 140,3. Senza piegare, quei due brani risultano metà densi di quello che sono
-# — non per come suonano ma per come è scritto un tag.
-TEMPO_FOLD = (70.0, 140.0)
+# Sotto questo tempo non si conta: si raddoppia. Una libreria da DJ porta i
+# BPM dai tag, e i tag scrivono il mezzo tempo — un hip hop segnato 60 è un
+# 120 contato a metà, e diviso per 60 la sua densità viene il doppio del vero.
+#
+# Solo verso l'alto, e questa asimmetria viene da un giudizio a orecchio su
+# duecento brani. Piegare anche verso il basso — l'ottava 70-140 che questo
+# codice ha avuto per un giorno — dimezzava il denominatore dei brani veloci e
+# quindi ne RADDOPPIAVA la densità: i due errori peggiori del campione erano
+# una bossa nova a 151,6 (data 9, vale 2) e un forró a 149 (data 9, vale 3),
+# cioè i due brani più veloci di tutti. Sopra i 140 il tag di solito ha
+# ragione: drum'n'bass, hardcore, samba e forró sono veloci davvero, e
+# piegarli è inventare un tempo che nessuno sente.
+TEMPO_FLOOR = 70.0
 
 # Sotto questo livello la finestra non è musica: è un decode fallito o un file
 # vuoto. Misurare lì dentro dà numeri che sembrano validi e non lo sono.
@@ -153,20 +160,16 @@ def brightness(freqs, power) -> float | None:
 
 
 def fold_tempo(bpm: float | None) -> float | None:
-    """Il tempo riportato in un'ottava sola, raddoppiando o dimezzando.
+    """Il tempo riportato sopra la soglia, raddoppiando finché serve.
 
-    Serve perché il BPM arriva dai tag e i tag sbagliano ottava: lo stesso
-    brano scritto 86 o 172 darebbe due densità diverse a parità di audio.
-    Piegare non perde niente di utile — quello che resta è "quanti attacchi
-    in un battito", e un battito contato al doppio è lo stesso battito.
+    Un mezzo tempo scritto nel tag è lo stesso battito contato ogni due, e
+    raddoppiarlo non perde niente. Un tempo alto invece si lascia stare: vedi
+    `TEMPO_FLOOR` per il perché l'asimmetria non è una svista.
     """
     if bpm is None or not np.isfinite(bpm) or bpm <= 0:
         return None
-    low, high = TEMPO_FOLD
-    while bpm < low:
+    while bpm < TEMPO_FLOOR:
         bpm *= 2
-    while bpm >= high:
-        bpm /= 2
     return float(bpm)
 
 
