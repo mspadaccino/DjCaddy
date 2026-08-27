@@ -87,3 +87,55 @@ def test_the_mood_scale_is_read_in_words_not_in_numbers():
     frame = _board()
     ticks = _ticks("mood", {"/a.mp3": -1.0}, frame)
     assert [t["label"] for t in ticks] == ["dark", "mid", "bright"]
+
+
+# --- la stessa scala, sui pesi veri del modello ----------------------------
+
+def test_the_weighted_valence_reads_the_activations_not_the_order():
+    # Le stesse due etichette nello stesso ordine: a decidere e' quanto il
+    # modello ci crede, non chi viene prima.
+    assert mood_scale.valence_of({"Dark": 0.60, "Happy": 0.10}) < 0
+    assert mood_scale.valence_of({"Dark": 0.10, "Happy": 0.60}) > 0
+
+
+def test_a_faint_mood_and_a_strong_one_no_longer_read_the_same():
+    # E' il difetto che questa funzione esiste per togliere: con le sole
+    # etichette i due brani leggevano tutti e due -1,00.
+    faint = {"Dark": 0.06, "Energetic": 0.80}
+    strong = {"Dark": 0.62, "Energetic": 0.80}
+    assert mood_scale.valence_of(faint) == mood_scale.valence_of(strong) == -1.0
+    assert mood_scale.evidence(faint) < mood_scale.evidence(strong)
+
+
+def test_evidence_below_every_threshold_still_counts():
+    # Tre prove di buio da 0,04: nessuna etichetta passa la soglia di 0,05 e
+    # `valence` non risponde, ma il brano buio lo e'.
+    faint = {"Sad": 0.049, "Melancholic": 0.045, "Dark": 0.041}
+    assert mood_scale.valence("") is None
+    assert mood_scale.valence_of(faint) == -1.0
+
+
+def test_a_track_with_no_colour_at_all_is_not_a_zero():
+    assert mood_scale.valence_of({"Energetic": 0.9, "Melodic": 0.4}) is None
+    assert mood_scale.evidence({"Energetic": 0.9}) == 0.0
+
+
+def test_the_neutral_labels_do_not_move_the_direction():
+    # Cambio rispetto a `valence`: con i pesi veri le neutre restano fuori
+    # anche dal denominatore. Quanto un brano sia poco colorato lo dice
+    # `evidence`, che e' un numero a parte.
+    plain = {"Dark": 0.5}
+    crowded = {"Dark": 0.5, "Energetic": 0.9, "Melodic": 0.7}
+    assert mood_scale.valence_of(plain) == mood_scale.valence_of(crowded)
+    assert mood_scale.evidence(plain) == mood_scale.evidence(crowded)
+
+
+def test_the_activations_survive_a_trip_through_the_stored_line():
+    line = mood_scale.spell_weights({"Dark": 0.62, "Happy": 0.05})
+    assert line == "Dark:0.620; Happy:0.050"
+    assert mood_scale.weights(line) == {"Dark": 0.62, "Happy": 0.05}
+
+
+def test_a_line_written_by_hand_does_not_break_the_reading():
+    assert mood_scale.weights("") == {}
+    assert mood_scale.weights("Dark; Happy:0.4") == {"Happy": 0.4}

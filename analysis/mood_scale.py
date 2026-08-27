@@ -106,3 +106,96 @@ def summary(moods, common: dict[str, int]) -> str:
     rare = distinctive(labels, common)
     rest = [label for label in labels if label != rare]
     return f"{rare} · {'; '.join(rest)}" if rest else rare
+
+
+# --------------------------------------------------------------------------
+# La stessa scala, letta sui pesi veri del modello
+# --------------------------------------------------------------------------
+#
+# `valence` qui sopra legge le ETICHETTE: quelle sopra soglia, al massimo
+# quattro, e al posto della confidenza usa il rango (1, 1/2, 1/3, 1/4). È
+# un'approssimazione, e butta via due cose.
+#
+# La prima è la forza. Un brano che porta *Dark* a 0,62 e uno che lo porta a
+# 0,06 leggono tutti e due −1,00: la sola etichetta che hanno è quella, e il
+# rango non sa dire che il primo è buio e il secondo lo sfiora appena.
+#
+# La seconda sono le altre cinquantadue. Un brano con *Sad* 0,049,
+# *Melancholic* 0,045 e *Dark* 0,041 non passa la soglia di 0,05 con
+# nessuna: di etichette non ne ha, `valence` risponde `None`, e in tabella
+# non compare nessuna freccia — mentre di prove di buio ne ha tre.
+#
+# Il modello quelle attivazioni le calcola tutte e cinquantasei, sempre. È
+# solo la riga su disco che le perde.
+
+def weights(text) -> dict[str, float]:
+    """Le attivazioni come stanno sulla riga: "Dark:0.62; Deep:0.41".
+
+    È lo stesso formato con cui la riga porta già la confidenza dei generi,
+    e per lo stesso motivo: leggibile aprendo il file, e senza una struttura
+    annidata dentro un formato che è una riga per brano.
+    """
+    if isinstance(text, dict):
+        return {str(k): float(v) for k, v in text.items()}
+    out: dict[str, float] = {}
+    for piece in split(text):
+        label, _, value = piece.rpartition(":")
+        try:
+            out[label.strip()] = float(value)
+        except ValueError:
+            continue
+    return out
+
+
+def spell_weights(pairs) -> str:
+    """Le attivazioni come si scrivono sulla riga, dalla più forte."""
+    ordered = sorted(pairs.items() if isinstance(pairs, dict) else pairs,
+                     key=lambda pair: -pair[1])
+    return "; ".join(f"{label}:{value:.3f}" for label, value in ordered)
+
+
+def valence_of(activations) -> float | None:
+    """Da −1 (buio) a +1 (chiaro), sui pesi veri. `None` se non c'è colore.
+
+    È lo stesso asse di `valence` — la valence in senso proprio, l'arco
+    piacevole/spiacevole — misurata meglio: non l'ordine delle etichette ma
+    quanto il modello ci crede.
+
+    A contare sono SOLO le etichette che un colore ce l'hanno:
+
+        (somma delle chiare − somma delle buie) / (somma di tutte e due)
+
+    Le neutre restano fuori anche dal denominatore, ed è un cambio rispetto
+    a `valence`, dove diluivano. Il motivo è che con i pesi veri diluire non
+    è più neutro: *Energetic* sta sull'89% della libreria e ci sta forte, e
+    lasciata nel denominatore schiaccerebbe tutti verso lo zero per una
+    quantità quasi uguale su ogni brano — cioè toglierebbe escursione senza
+    aggiungere lettura. Quanto un brano sia POCO colorato si legge meglio da
+    `evidence`, che è un numero a parte e dice quanto colore c'è in tutto.
+
+    `None` quando di prove non ce n'è nessuna: uno zero direbbe "in mezzo
+    fra buio e chiaro", che è un'altra cosa da "di questo non si sa".
+    """
+    dark = bright = 0.0
+    for label, value in weights(activations).items():
+        if not value > 0:
+            continue
+        if label in DARK:
+            dark += value
+        elif label in BRIGHT:
+            bright += value
+    total = dark + bright
+    return (bright - dark) / total if total > 0 else None
+
+
+def evidence(activations) -> float:
+    """Quanto colore porta un brano in tutto, comunque orientato.
+
+    È il denominatore di `valence_of`, tenuto a parte perché dice una cosa
+    che la direzione non dice: un brano a +0,90 su 0,05 di prove e uno a
+    +0,90 su 1,40 sono chiari tutti e due, ma il primo lo è per un soffio
+    di attivazione e il secondo lo grida. Serve a decidere quando la
+    freccia in tabella si disegna e quando no.
+    """
+    return sum(v for label, v in weights(activations).items()
+               if v > 0 and (label in DARK or label in BRIGHT))

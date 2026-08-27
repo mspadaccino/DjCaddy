@@ -55,6 +55,7 @@ from .essentia_tags import (
 from .energy import INGREDIENTS as ENERGY_FIELDS
 from .energy import measure as measure_energy
 from .mixing import to_camelot
+from . import mood_scale
 
 # Il modello vuole 16 kHz, ma il file si legge a 44100: a 16 kHz il tempo e
 # la tonalità escono sbagliati (misurato su un disco a 124 BPM: 86,5 BPM e
@@ -102,6 +103,16 @@ class ProfileSettings:
     max_genres: int = 4
     max_moods: int = 4
 
+    # Quante attivazioni di mood si scrivono sulla riga, e sopra che valore.
+    # Piu' basse e piu' larghe di quelle che scelgono le ETICHETTE, perche'
+    # servono a un'altra cosa: le etichette dicono di cosa parla il brano e
+    # devono restare poche o la tabella diventa illeggibile, i pesi servono
+    # a spiegare la valence e a poterla ricontrollare aprendo il file. La
+    # valence pero' NON si calcola da questi: si calcola su tutte e 56, e
+    # questi sono la parte che si riesce a scrivere.
+    weight_threshold: float = 0.02
+    max_weights: int = 8
+
     # Tempo e tonalità: se il file li porta già nei tag (una libreria da DJ
     # di solito sì) si prendono da lì, che è esatto e gratis.
     trust_tags: bool = True
@@ -124,6 +135,11 @@ class TrackProfile:
     energy: dict = field(default_factory=dict)
     genres: list[tuple[str, float]] = field(default_factory=list)
     moods: list[tuple[str, float]] = field(default_factory=list)
+    # Il mood come numero, non come parole: da -1 (buio) a +1 (chiaro), e
+    # quanto colore c'e' in tutto. Vedi `analysis.mood_scale`.
+    valence: float | None = None
+    mood_evidence: float | None = None
+    mood_weights: list[tuple[str, float]] = field(default_factory=list)
     embedding: np.ndarray | None = None
     error: str | None = None
 
@@ -151,6 +167,11 @@ class TrackProfile:
             "genres": "; ".join(g for g, _ in self.genres),
             "top_genre": self.top_genre,
             "moods": "; ".join(m for m, _ in self.moods),
+            "valence": round(self.valence, 4)
+            if self.valence is not None else None,
+            "mood_evidence": round(self.mood_evidence, 3)
+            if self.mood_evidence is not None else None,
+            "mood_conf": mood_scale.spell_weights(self.mood_weights),
             "confidence": "; ".join(f"{g}:{c:.2f}" for g, c in self.genres),
         }
 
@@ -422,10 +443,21 @@ class ProfileAnalyzer:
             np.mean(self._genre(frames), axis=0),
             [format_genre_tag(g, "parent_child") for g in self.genre_labels],
             settings.genre_threshold, settings.max_genres)
-        profile.moods = select_labels(
-            np.mean(self._mood(frames), axis=0),
-            [format_mood_tag(m) for m in self.mood_labels],
-            settings.mood_threshold, settings.max_moods)
+        # Le attivazioni del mood si leggono TRE volte e si calcolano una:
+        # le etichette forti per la tabella, i pesi da scrivere sulla riga,
+        # e la valence, che e' l'unica delle tre a guardarle tutte e 56 —
+        # anche le cinquanta che non passano nessuna soglia, perche' tre
+        # prove di buio da 0,04 l'una sono comunque tre prove di buio.
+        scores = np.mean(self._mood(frames), axis=0)
+        labels = [format_mood_tag(m) for m in self.mood_labels]
+        profile.moods = select_labels(scores, labels,
+                                      settings.mood_threshold, settings.max_moods)
+        profile.mood_weights = select_labels(scores, labels,
+                                             settings.weight_threshold,
+                                             settings.max_weights)
+        whole = dict(zip(labels, (float(s) for s in scores)))
+        profile.valence = mood_scale.valence_of(whole)
+        profile.mood_evidence = mood_scale.evidence(whole)
         return profile
 
 

@@ -5,6 +5,7 @@ import pytest
 
 from analysis.map_profile import (
     ProfileSettings,
+    TrackProfile,
     gain_for_target,
     onset_regularity,
     rhythm_offset,
@@ -145,3 +146,27 @@ def test_a_dead_worker_does_not_take_the_whole_queue_with_it(monkeypatch):
     # scritti sulla mappa, quindi il rilancio li rimette in coda da solo.
     assert [p.path.name for p in out if p.error] == ["3.mp3", "4.mp3"]
     assert len(pools) == 2                      # ne ha aperto uno nuovo
+
+
+# --- il mood come numero, sulla riga ---------------------------------------
+
+def test_the_row_carries_the_valence_and_the_weights_that_explain_it():
+    profile = TrackProfile(path=Path("/x/a.mp3"),
+                           moods=[("Dark", 0.62), ("Deep", 0.41)],
+                           mood_weights=[("Dark", 0.62), ("Deep", 0.41),
+                                         ("Energetic", 0.33)],
+                           valence=-0.8969, mood_evidence=0.97)
+    row = profile.to_row()
+    assert row["moods"] == "Dark; Deep"
+    assert row["valence"] == -0.8969
+    assert row["mood_evidence"] == 0.97
+    # I pesi si scrivono dal piu' forte, come la confidenza dei generi.
+    assert row["mood_conf"] == "Dark:0.620; Deep:0.410; Energetic:0.330"
+
+
+def test_a_track_the_model_reads_as_colourless_writes_no_valence():
+    # `None` e non zero: zero direbbe "in mezzo fra buio e chiaro", che e'
+    # un'altra cosa da "di questo non si sa".
+    row = TrackProfile(path=Path("/x/a.mp3"), moods=[("Energetic", 0.9)]).to_row()
+    assert row["valence"] is None
+    assert row["mood_conf"] == ""
