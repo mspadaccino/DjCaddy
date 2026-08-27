@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import streamlit as st
 
 from views.map_analysis import (SKIN, build_figure, matching_tracks,
                                 playlist_positions, sorted_after)
@@ -437,3 +438,127 @@ def test_no_two_rings_share_a_colour():
         rings = [SKIN[theme][k] for k in
                  ("chained", "kept", "ink", "mixes", "alike", "playing")]
         assert len(set(rings)) == len(rings), theme
+
+
+# --- i quadranti: gli stessi brani su due misure a scelta -----------------
+
+def _measured():
+    """Quattro brani con due misure vere addosso, oltre alle coordinate."""
+    frame = _drawn()
+    frame["valence"] = [-0.8, -0.2, 0.3, 0.9]
+    frame["energy"] = [0.1, 0.9, 0.4, 0.6]
+    frame["bpm"] = [96.0, 120.0, 128.0, 140.0]
+    return frame
+
+
+def test_the_quadrants_draw_the_same_tracks_on_two_chosen_measures():
+    from views.map_analysis import build_figure
+
+    frame = _measured()
+    places = frame[["valence", "energy"]].to_numpy()
+    figure = build_figure(frame, ["House"], places, playlist=[], seed=None,
+                          axes=("valence", "energy"),
+                          titles=("valence (mood)", "energy"))
+    points = next(t for t in figure.data if t.name == "House")
+    assert list(points.x) == [-0.8, -0.2, 0.3, 0.9]
+    assert list(points.y) == [0.1, 0.9, 0.4, 0.6]
+    assert figure.layout.xaxis.title.text == "valence (mood)"
+    assert figure.layout.yaxis.title.text == "energy"
+
+
+def test_the_rings_follow_the_tracks_onto_the_new_axes():
+    """E' il punto di avere una funzione sola: il seme, la catena e le
+    proposte dicono le stesse cose di qua e di la', invece di essere due
+    schermi che non si parlano."""
+    from views.map_analysis import build_figure
+
+    frame = _measured()
+    places = frame[["valence", "energy"]].to_numpy()
+    figure = build_figure(frame, ["House"], places, playlist=[1], seed=3,
+                          axes=("valence", "energy"), titles=("v", "e"))
+    kept = _ring(figure, "in the playlist")
+    assert list(kept.x) == [-0.2] and list(kept.y) == [0.9]
+    seed = _ring(figure, "seed")
+    assert list(seed.x) == [0.9] and list(seed.y) == [0.6]
+
+
+def test_the_map_keeps_its_axes_hidden_and_its_square_scale():
+    """Le due dimensioni della proiezione non sono misure: un numero su di
+    esse non vuol dire niente, e stirarne una falserebbe le distanze."""
+    from views.map_analysis import build_figure
+
+    coords = np.column_stack([np.arange(4.0), np.zeros(4)])
+    figure = build_figure(_drawn(), ["House"], coords, playlist=[], seed=None)
+    assert figure.layout.xaxis.visible is False
+    assert figure.layout.yaxis.scaleanchor == "x"
+
+
+def test_the_quadrant_axes_are_not_tied_to_each_other():
+    """Portano due misure diverse — dei BPM e un rango — e legarle
+    schiaccerebbe il disegno in una riga."""
+    from views.map_analysis import build_figure
+
+    frame = _measured()
+    figure = build_figure(frame, ["House"],
+                          frame[["bpm", "energy"]].to_numpy(),
+                          playlist=[], seed=None, axes=("bpm", "energy"),
+                          titles=("BPM", "energy"))
+    assert figure.layout.yaxis.scaleanchor is None
+    assert figure.layout.xaxis.visible is True
+
+
+def test_the_cross_sits_where_the_measure_has_its_own_middle():
+    from views.map_analysis import axis_guide
+
+    # Lo zero della valence vuol dire "ne' buia ne' chiara", e il mezzo
+    # dell'energia E' la mediana perche' l'energia e' un rango.
+    assert axis_guide([-0.8, -0.7, -0.6], "valence") == 0.0
+    assert axis_guide([0.1, 0.2, 0.3], "energy") == 0.5
+
+
+def test_the_cross_falls_back_to_the_median_of_what_is_on_screen():
+    from views.map_analysis import axis_guide
+
+    assert axis_guide([96.0, 120.0, 128.0, 140.0], "bpm") == 124.0
+    assert axis_guide([], "bpm") is None
+
+
+def test_the_caption_says_which_of_the_two_kinds_of_middle_it_is():
+    """Una riga tratteggiata a meta' del disegno sembra un centro assoluto,
+    e su quasi tutte le misure e' invece la mediana di cio' che i filtri
+    lasciano — cioe' si sposta appena si tocca un filtro."""
+    from views.map_analysis import guide_caption
+
+    told = guide_caption((124.0, 0.5), ("bpm", "energy"), ("BPM", "energy"))
+    assert "median of what the filters leave" in told
+    assert "middle of the measure itself" in told
+    assert guide_caption((None, 0.5), ("bpm", "energy"), ("BPM", "e")) == ""
+
+
+def test_both_charts_feed_the_same_choice():
+    """Si sceglie indifferentemente sulla mappa o sui quadranti, e la scelta
+    e' una sola. Il doppione si toglie: due volte lo stesso brano vorrebbe
+    dire un GRUPPO di due invece di un seme."""
+    from views.map_analysis import MAP_CHART, QUAD_CHART, read_selection
+
+    def state(points):
+        return {"selection": {"points": [{"customdata": [i]} for i in points]}}
+
+    st.session_state[MAP_CHART] = state([7])
+    st.session_state[QUAD_CHART] = state([7])
+    try:
+        assert read_selection() == [7]
+        st.session_state[QUAD_CHART] = state([3])
+        assert read_selection() == [7, 3]
+    finally:
+        del st.session_state[MAP_CHART], st.session_state[QUAD_CHART]
+
+
+def test_the_default_axes_are_the_two_that_answer_the_question():
+    """Valence e arousal, i due assi di Russell: dove sta questo brano fra il
+    buio e il chiaro, fra il calmo e lo spinto."""
+    from views.map_analysis import AXIS_FIELDS, DEFAULT_AXES
+
+    assert all(name in AXIS_FIELDS for name in DEFAULT_AXES)
+    assert AXIS_FIELDS[DEFAULT_AXES[0]] == "valence"
+    assert AXIS_FIELDS[DEFAULT_AXES[1]] == "energy"

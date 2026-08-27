@@ -118,6 +118,36 @@ SIZE_FIELDS = {
     "groove": "danceability",
     "loudness": "lufs",
 }
+# Cosa si puo' mettere sui due assi del grafico a quadranti. Tutto quello
+# che e' un numero per brano e che significa qualcosa da solo: la mappa dice
+# come un brano SUONA, i quadranti dicono dove sta su due misure scelte.
+#
+# I quattro grezzi dell'energia ci sono uno per uno oltre che nel voto: sono
+# quelli che spiegano PERCHE' un brano legge 8, e guardarli separati e' come
+# si scopre che una deep roller ha piu' basso di una peak-time.
+AXIS_FIELDS = {
+    "energy": "energy",
+    "valence (mood)": "valence",
+    "BPM": "bpm",
+    "groove": "danceability",
+    "loudness": "lufs",
+    "length": "duration",
+    "mood evidence": "mood_evidence",
+    "energy · density": "energy_density",
+    "energy · bass": "energy_bass",
+    "energy · brightness": "energy_bright",
+    "energy · pulse": "energy_pulse",
+}
+DEFAULT_AXES = ("valence (mood)", "energy")
+
+# Dove passa la croce che divide i quadranti, per le misure che un centro
+# vero ce l'hanno. La valence e' firmata e il suo zero vuol dire "ne' buia
+# ne' chiara"; l'energia e' un rango sulla libreria e il suo mezzo E' la
+# mediana per costruzione. Tutte le altre non hanno un centro naturale e la
+# croce si mette dove passa la meta' di quello che si sta guardando — che e'
+# una lettura onesta, purche' si scriva.
+AXIS_CENTRES = {"valence": 0.0, "energy": 0.5}
+
 FLAT_SIZE = 7.0
 MIN_SIZE, MAX_SIZE = 4.0, 15.0
 
@@ -170,6 +200,11 @@ PLAYLIST = "map::playlist"
 # qualcuno si era ricordato di salvare. Letta una volta e messa qui, la
 # selezione sopravvive a qualunque ridisegno.
 SELECTION = "map::selection"
+
+# Le chiavi dei due grafici. Sono due viste sugli stessi brani — si sceglie
+# da tutte e due, e la scelta è una sola.
+MAP_CHART = "map::chart"
+QUAD_CHART = "map::quadrants"
 
 # Oltre queste voci il menu dei nomi smette di essere comodo (e di aprirsi
 # in fretta): sopra, si restringe coi filtri.
@@ -235,6 +270,47 @@ def _energy_of(_store: MapStore, stamp: tuple) -> np.ndarray:
     allora i ranghi si rifanno.
     """
     return energy.from_rows(_store.rows)
+
+
+@st.cache_data(show_spinner=False)
+def _valence_of(_store: MapStore, stamp: tuple) -> np.ndarray:
+    """Il mood come numero per ogni brano, da −1 (buio) a +1 (chiaro).
+
+    Due sorgenti, e la seconda è quella che tiene la pagina in piedi finché
+    il backfill non è passato: se la riga porta `valence` — scritta sui pesi
+    veri di tutte e 56 le etichette — si legge quella; altrimenti si ricava
+    dalle parole, che è la vecchia lettura per rango. La prima è migliore, la
+    seconda c'è su tutta la libreria da sempre, e sono lo stesso asse: un
+    grafico che aspettasse la prima resterebbe vuoto per giorni.
+    """
+    out = []
+    for row in _store.rows:
+        value = row.get("valence")
+        if value is None:
+            value = mood_scale.valence(row.get("moods", ""))
+        out.append(np.nan if value is None else float(value))
+    return np.asarray(out, dtype=float)
+
+
+def mood_valence(store: MapStore, placed: int) -> np.ndarray:
+    """La valence dei brani piazzati, allineata alle righe del frame."""
+    return _valence_of(store, _stamp(store.directory))[:placed]
+
+
+def axis_guide(values, column: str) -> float | None:
+    """Dove passa la riga che divide i quadranti, su un asse.
+
+    Dove la misura un centro vero ce l'ha si mette lì: lo zero della valence
+    vuol dire "né buia né chiara", e il mezzo dell'energia È la mediana della
+    libreria perché l'energia è un rango. Dove non c'è — i BPM, la loudness,
+    la durata — si mette alla mediana di quello che si sta guardando, che è
+    l'unica riga che significhi qualcosa: metà dei brani di qua, metà di là.
+    Cambia con i filtri, ed è giusto che cambi.
+    """
+    if column in AXIS_CENTRES:
+        return AXIS_CENTRES[column]
+    numbers = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    return float(numbers.median()) if len(numbers) else None
 
 
 def energy_ranks(store: MapStore, placed: int) -> np.ndarray:
@@ -325,23 +401,42 @@ def forget_seed() -> None:
     st.session_state[SEED_FIELD] = None
 
 
-def read_selection() -> list[int]:
-    """I brani selezionati sul grafico in QUESTO giro, se ce ne sono.
+def _picked_on(key: str) -> list[int]:
+    """I brani presi su UN grafico, se ce n'è stato uno."""
+    state = st.session_state.get(key)
+    selection = state.get("selection") if state else None
+    if not selection:
+        return []
+    return [int(p["customdata"][0]) for p in selection.get("points", [])
+            if p.get("customdata")]
 
-    Lo stato del grafico sta in sessione sotto la sua chiave. I punti dei
+
+def read_selection() -> list[int]:
+    """I brani selezionati sui grafici in QUESTO giro, se ce ne sono.
+
+    Lo stato di un grafico sta in sessione sotto la sua chiave. I punti dei
     tracciati di servizio (il percorso della playlist, i cerchi) non portano
     `customdata` e vengono scartati: sono disegno, non brani.
 
     Vuoto non vuol dire "niente selezionato": vuol dire "nessun gesto in
     questo giro", perché al primo ridisegno il widget è un altro (vedi
     `SELECTION`). Chi vuole sapere cosa è scelto lo chiede alla sessione.
+
+    I grafici sono due — la mappa e i quadranti — e si legge da tutti e due.
+    Non è un'unione di due scelte diverse: è la stessa identità di widget che
+    cambia a ogni ridisegno a garantire che di gesto ce ne sia al massimo uno
+    per giro. Il doppione si toglie comunque, perché due volte lo stesso
+    brano vorrebbe dire un GRUPPO di due invece di un seme, e la differenza
+    fra le due cose decide se il cerchio del seme resta acceso.
     """
-    state = st.session_state.get("map::chart")
-    selection = state.get("selection") if state else None
-    if not selection:
-        return []
-    return [int(p["customdata"][0]) for p in selection.get("points", [])
-            if p.get("customdata")]
+    seen: set[int] = set()
+    out = []
+    for key in (MAP_CHART, QUAD_CHART):
+        for index in _picked_on(key):
+            if index not in seen:
+                seen.add(index)
+                out.append(index)
+    return out
 
 
 def matching_tracks(frame: pd.DataFrame, pool, words: list[str]) -> list[int]:
@@ -403,14 +498,34 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                  chained: list[int] | None = None,
                  mixes: list[int] | None = None,
                  alike: list[int] | None = None,
-                 playing: int | None = None) -> go.Figure:
+                 playing: int | None = None,
+                 axes: tuple[str, str] = ("x", "y"),
+                 titles: tuple[str, str] | None = None,
+                 guides: tuple[float | None, float | None] | None = None,
+                 ) -> go.Figure:
     """La mappa: un tracciato per genere, più il percorso e il seme sopra.
 
     Un tracciato per genere e non uno solo con i colori dentro, perché così
     la legenda esiste e ci si può cliccare per spegnere un genere. L'indice
     del brano nella libreria viaggia in `customdata`: è come si risale dal
     punto cliccato alla riga, senza dipendere dall'ordine dei tracciati.
+
+    **Due disegni, una funzione.** `axes` dice quali colonne di `drawn`
+    fanno da coordinate e `coords` dove sta OGNI brano della libreria — che
+    non è la stessa cosa: i punti si disegnano da `drawn`, che è il campione
+    filtrato, mentre gli anelli e il percorso si disegnano per indice, e un
+    brano cerchiato può benissimo non essere nel campione. Per la mappa le
+    due cose sono la proiezione; per i quadranti sono le due misure scelte.
+    Il resto — anelli, percorso, seme, etichette dei generi, la X di chi
+    suona — non sa su che assi sta e non deve saperlo: è quello che rende i
+    due disegni due modi di guardare la stessa scelta invece che due schermi
+    che non si parlano.
+
+    `titles` sono i nomi degli assi (nessuno sulla mappa: le due dimensioni
+    della proiezione non hanno un nome che voglia dire qualcosa) e `guides`
+    dove passa la croce dei quadranti.
     """
+    xcol, ycol = axes
     skin = _skin()
     color_of = dict(zip(top_genres, PALETTE))
     figure = go.Figure()
@@ -421,7 +536,7 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
         if not len(part):
             continue
         figure.add_trace(go.Scattergl(
-            x=part["x"], y=part["y"], mode="markers", name=genre[:28],
+            x=part[xcol], y=part[ycol], mode="markers", name=genre[:28],
             customdata=part[["index", "name", "bpm", "camelot", "genres"]].to_numpy(),
             marker={
                 "size": part["_size"], "opacity": 0.85,
@@ -447,10 +562,23 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
         # opacita' e spariva dentro il colore dei punti proprio dove i punti
         # sono piu' fitti, cioe' dove l'etichetta serve.
         figure.add_annotation(
-            x=float(part["x"].median()), y=float(part["y"].median()),
+            x=float(part[xcol].median()), y=float(part[ycol].median()),
             text=f"<b>{genre.split(' - ')[-1][:22]}</b>", showarrow=False,
             font={"size": 14, "color": skin["label"]},
             bgcolor=skin["halo"], borderpad=3)
+
+    # La croce, prima di tutto il resto perché ci sta SOTTO: una riga che
+    # passasse sopra i punti dividerebbe il disegno invece di misurarlo.
+    for at, direction in zip(guides or (), ("v", "h")):
+        if at is None:
+            continue
+        figure.add_shape(
+            type="line", **({"x0": at, "x1": at, "y0": 0, "y1": 1,
+                             "yref": "paper"} if direction == "v"
+                            else {"y0": at, "y1": at, "x0": 0, "x1": 1,
+                                  "xref": "paper"}),
+            line={"color": skin["other"], "width": 1, "dash": "dot"},
+            layer="below")
 
     if playlist:
         line = coords[playlist]
@@ -555,12 +683,39 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
         # barra del grafico, a un clic di distanza.
         showlegend=True, hovermode="closest",
         hoverlabel={"align": "left", "font": {"size": 11}},
-        legend={"orientation": "h", "y": -0.02, "x": 0,
+        # Sotto al disegno quando sotto non c'è nient'altro, sopra quando
+        # gli assi hanno un nome: là sotto ci stanno già i numeri della scala
+        # e il nome dell'asse, e la legenda ci finiva addosso — le voci dei
+        # generi scritte sopra i "-1" e gli "0,5", con nessuno dei due
+        # leggibile.
+        legend={"orientation": "h", "x": 0,
+                "y": 1.04 if titles else -0.02,
+                "yanchor": "bottom" if titles else "auto",
                 "font": {"size": 10, "color": skin["ink"]},
                 "bgcolor": "rgba(0,0,0,0)", "itemsizing": "constant"},
-        xaxis={"visible": False, "showgrid": False, "zeroline": False},
-        yaxis={"visible": False, "showgrid": False, "zeroline": False,
-               "scaleanchor": "x"},
+        # Sulla mappa gli assi non si disegnano: le due dimensioni della
+        # proiezione non sono misure, sono il risultato di uno schiacciamento
+        # e un numero su di esse non vuol dire niente. Sui quadranti invece
+        # gli assi SONO il disegno.
+        #
+        # E `scaleanchor` solo sulla mappa: là le due dimensioni hanno la
+        # stessa unità e stirarne una falserebbe le distanze, cioè l'unica
+        # cosa che la mappa dice. Sui quadranti gli assi portano due misure
+        # diverse — dei BPM e un rango — e legarli schiaccerebbe il disegno
+        # in una riga.
+        #
+        # `automargin` va acceso insieme ai nomi, o il margine a zero qui
+        # sopra taglia via il nome dell'asse orizzontale: il disegno arriva
+        # fino al bordo e sotto non resta niente in cui scriverlo. Sulla
+        # mappa il margine a zero e' invece giusto — non c'e' niente da
+        # scrivere fuori dal riquadro, e ogni pixel e' territorio.
+        xaxis={"visible": bool(titles), "title": titles[0] if titles else None,
+               "automargin": bool(titles),
+               "showgrid": False, "zeroline": False},
+        yaxis={"visible": bool(titles), "title": titles[1] if titles else None,
+               "automargin": bool(titles),
+               "showgrid": False, "zeroline": False,
+               "scaleanchor": None if titles else "x"},
     )
     return figure
 
@@ -757,6 +912,88 @@ def render_filters(frame: pd.DataFrame) -> pd.DataFrame:
     return kept
 
 
+def guide_caption(guides: tuple, columns: tuple[str, str],
+                  names: tuple[str, str]) -> str:
+    """Cosa dice la croce, scritto sotto al disegno.
+
+    Va scritto perché la croce è la sola parte del grafico che non si spiega
+    da sé: una riga tratteggiata a metà del disegno sembra un centro
+    assoluto, e su quasi tutte le misure è invece la mediana di ciò che i
+    filtri lasciano — cioè si sposta appena si tocca un filtro. Un quadrante
+    letto come "questi sono i brani veloci" quando dice "questi sono i più
+    veloci della metà che stai guardando" è una conclusione sbagliata presa
+    con fiducia.
+    """
+    if any(at is None for at in guides):
+        return ""
+    where = (f"The cross sits at **{guides[0]:.2f}** across and "
+             f"**{guides[1]:.2f}** up.")
+    return where + "".join(
+        (f" On **{name}** that is the middle of the measure itself."
+         if column in AXIS_CENTRES else
+         f" On **{name}** it is the median of what the filters leave: half "
+         "the tracks on each side, and it moves when they do.")
+        for column, name in zip(columns, names))
+
+
+def render_quadrants(frame: pd.DataFrame, drawn: pd.DataFrame,
+                     visible: pd.DataFrame, top_genres: list[str],
+                     playlist: list[int], seed: int | None,
+                     marks: dict, placed: int) -> None:
+    """Gli stessi brani su due misure a scelta, invece che sulla proiezione.
+
+    La mappa risponde a "che cosa somiglia a che cosa" e per farlo schiaccia
+    milleduecentottanta numeri in due, che poi non vogliono dire niente presi
+    uno per uno. Questo risponde a un'altra domanda — "dove sta questo brano
+    fra il buio e il chiaro, fra il calmo e lo spinto" — e per farlo prende
+    due misure vere e le mette sugli assi. Sono i due assi di Russell,
+    valence e arousal, che è il modo in cui l'emozione di un brano si
+    descrive da cinquant'anni; l'energia qui è l'arousal, misurata sul
+    segnale invece che sulle parole.
+
+    Si disegna lo STESSO campione della mappa: i punti sono gli stessi brani,
+    con lo stesso colore e lo stesso diametro, e i cerchi dicono le stesse
+    cose. Cambiano solo le due coordinate.
+    """
+    by_x, by_y = st.columns(2)
+    names = list(AXIS_FIELDS)
+    x_name = by_x.selectbox(
+        "Across", names, index=names.index(DEFAULT_AXES[0]), key="quad::x",
+        help="What the horizontal axis measures.")
+    y_name = by_y.selectbox(
+        "Up", names, index=names.index(DEFAULT_AXES[1]), key="quad::y",
+        help="What the vertical axis measures.")
+    xcol, ycol = AXIS_FIELDS[x_name], AXIS_FIELDS[y_name]
+
+    for column, name in ((xcol, x_name), (ycol, y_name)):
+        if column not in frame or not pd.to_numeric(
+                frame[column], errors="coerce").notna().any():
+            st.info(f"No track carries **{name}** yet. The energy fields "
+                    "arrive with the backfill; everything else is measured "
+                    "when a track goes on the map.")
+            return
+
+    # Gli anelli si disegnano per INDICE, su tutta la libreria piazzata: un
+    # brano cerchiato può non essere nel campione, e per la mappa lo stesso
+    # servizio lo fa `store.coords`.
+    places = np.column_stack([
+        pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
+        for column in (xcol, ycol)])
+    guides = (axis_guide(visible[xcol], xcol), axis_guide(visible[ycol], ycol))
+
+    st.plotly_chart(
+        build_figure(drawn, top_genres, places, playlist, seed, **marks,
+                     axes=(xcol, ycol), titles=(x_name, y_name),
+                     guides=guides),
+        key=QUAD_CHART, on_select="rerun",
+        selection_mode=("points", "box", "lasso"),
+        config={"displaylogo": False, "scrollZoom": True})
+
+    told = guide_caption(guides, (xcol, ycol), (x_name, y_name))
+    if told:
+        st.caption(told)
+
+
 def render_map(store: MapStore) -> tuple | None:
     """La mappa e la scelta: il cuore della pagina.
 
@@ -786,6 +1023,7 @@ def render_map(store: MapStore) -> tuple | None:
     frame["x"], frame["y"] = store.coords[:, 0], store.coords[:, 1]
     frame["index"] = np.arange(len(frame))
     frame["energy"] = energy_ranks(store, placed)
+    frame["valence"] = mood_valence(store, placed)
     frame["genre_list"] = frame["genres"].fillna("").str.split("; ")
     # Una mappa fatta prima che il mood si registrasse non ha la colonna:
     # meglio un filtro che non propone niente di un errore a metà pagina.
@@ -886,15 +1124,27 @@ def render_map(store: MapStore) -> tuple | None:
         genre_key=drawn["top_genre"].map(lambda g: genre_level(g, level)))
     ranked = Counter(g for g in drawn["genre_key"] if g)
     top_genres = [g for g, _ in ranked.most_common(COLORED_GENRES)]
-    st.plotly_chart(
-        build_figure(drawn, top_genres, store.coords, playlist, seed,
-                     seed_name=(frame.at[seed, "name"]
-                                if seed is not None else None),
-                     selected=selected, chained=chained,
-                     mixes=mixes, alike=alike, playing=playing),
-        key="map::chart", on_select="rerun",
-        selection_mode=("points", "box", "lasso"),
-        config={"displaylogo": False, "scrollZoom": True})
+    marks = {"seed_name": (frame.at[seed, "name"] if seed is not None else None),
+             "selected": selected, "chained": chained,
+             "mixes": mixes, "alike": alike, "playing": playing}
+
+    # Due viste sugli stessi brani, non due schermi. La mappa dice come un
+    # brano SUONA — è il vicinato a portare il significato, e gli assi non ne
+    # hanno uno; i quadranti dicono dove sta su due misure che si scelgono, e
+    # lì il significato sta proprio nei numeri. Il seme, il gruppo, la
+    # catena, la playlist e chi sta suonando sono gli stessi da tutte e due
+    # le parti, e si sceglie indifferentemente di qua o di là.
+    on_map, on_axes = st.tabs(["🗺️ Map", "⊞ Quadrants"])
+    with on_map:
+        st.plotly_chart(
+            build_figure(drawn, top_genres, store.coords, playlist, seed,
+                         **marks),
+            key=MAP_CHART, on_select="rerun",
+            selection_mode=("points", "box", "lasso"),
+            config={"displaylogo": False, "scrollZoom": True})
+    with on_axes:
+        render_quadrants(frame, drawn, visible, top_genres, playlist, seed,
+                         marks, placed)
 
     waiting = len(store) - placed
     if waiting:
