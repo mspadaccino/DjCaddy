@@ -396,12 +396,19 @@ def test_the_weights_come_from_the_session_not_from_the_sliders(monkeypatch):
     from analysis.mixing import TransitionCost
     from views.map_analysis import suggested
 
+    from views.map_analysis import ASKED_ALIKE, ASKED_MIXES
+
     monkeypatch.setattr(st, "session_state",
                         {"map::w_sound": 0.0, "map::w_bpm": 2.0,
-                         "map::w_key": 0.5, "map_suggestion_count": 2})
+                         "map::w_key": 0.5, "map_suggestion_count": 2,
+                         # Le liste si cerchiano solo se chieste, e questo
+                         # test guarda i pesi: le si chiede tutte e due.
+                         ASKED_MIXES: "/x/a.mp3", ASKED_ALIKE: "/x/a.mp3"})
     np = _np()
 
     class Store:
+        rows = [{"path": "/x/a.mp3"}, {"path": "/x/b.mp3"}, {"path": "/x/c.mp3"}]
+
         def similar(self, index, k, limit):
             return [(1, 0.9), (2, 0.8)][:k]
 
@@ -690,3 +697,35 @@ def test_no_section_builds_the_library_frame_on_its_own():
     body = inspect.getsource(map_analysis)
     built = body.count("pd.DataFrame(store.rows[:placed])")
     assert built == 1, "solo `library_frame` costruisce la libreria"
+
+
+def test_the_rings_show_only_the_lists_that_were_asked_for():
+    """Gli anelli attorno a venti punti dicevano che una scelta era stata
+    fatta mentre sotto la scheda diceva "premi il bottone". Peggio: erano
+    gli anelli di una lista che nessuno aveva visto."""
+    from analysis.map_store import MapStore
+    from analysis.mixing import TransitionCost
+    from views.map_analysis import ASKED_ALIKE, ASKED_MIXES, suggested
+
+    rows = [{"path": f"/x/{i}.mp3", "name": f"{i}.mp3", "bpm": 120.0,
+             "camelot": "8A"} for i in range(6)]
+    coords = np.column_stack([np.arange(6.0), np.zeros(6)])
+    store = MapStore(directory=Path("/tmp/none"), rows=rows,
+                     embeddings=np.eye(6, 1280, dtype=np.float32),
+                     coords=coords)
+    cost = TransitionCost(coords, [120.0] * 6, ["8A"] * 6)
+    pool = np.arange(6)
+
+    for key in (ASKED_MIXES, ASKED_ALIKE):
+        st.session_state.pop(key, None)
+    try:
+        assert suggested(store, cost, pool, 0, 6) == ([], [])
+        # Chiesta una sola: si cerchia una sola.
+        st.session_state[ASKED_MIXES] = "/x/0.mp3"
+        mixes, alike = suggested(store, cost, pool, 0, 6)
+        assert mixes and not alike
+        # E per un ALTRO seme la richiesta di prima non vale.
+        assert suggested(store, cost, pool, 3, 6) == ([], [])
+    finally:
+        for key in (ASKED_MIXES, ASKED_ALIKE):
+            st.session_state.pop(key, None)

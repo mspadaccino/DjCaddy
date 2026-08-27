@@ -1545,17 +1545,15 @@ def asked_for(key: str, path: str, label: str, why: str) -> bool:
     """
     if st.session_state.get(key) == path:
         return True
-    # Dentro un contenitore vuotabile, e non sciolto: premuto, la lista si
-    # disegna nello STESSO giro, e il bottone resterebbe li' sopra a
-    # chiedere di fare una cosa già fatta finché qualcuno non tocca
-    # dell'altro. Svuotare il contenitore lo toglie subito e costa niente —
-    # l'alternativa era una ripartenza, cioè ridisegnare ottantamila punti
-    # per far sparire un bottone.
-    holder = st.empty()
-    if holder.button(label, key=f"{key}::ask", type="primary", help=why):
+    if st.button(label, key=f"{key}::ask", type="primary", help=why):
         st.session_state[key] = path
-        holder.empty()
-        return True
+        # E si riparte, invece di disegnare la lista qui sotto e basta. Il
+        # bottone sta PIÙ IN BASSO della mappa: nel giro in cui lo si preme
+        # la mappa è già disegnata, e i suoi anelli — quelli che cerchiano
+        # proprio la lista appena chiesta — arriverebbero al gesto dopo. Una
+        # lista sotto e nessun anello sopra è la stessa incoerenza di prima
+        # rovesciata, e costa più di un ridisegno.
+        st.rerun()
     return False
 
 
@@ -2031,7 +2029,8 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
 
 def suggested(store: MapStore, cost: TransitionCost, pool, seed: int | None,
               placed: int) -> tuple[list[int], list[int]]:
-    """Le due liste di proposte del seme, per cerchiarle sulla mappa.
+    """Le due liste di proposte del seme, per cerchiarle sulla mappa — se
+    sono state chieste.
 
     Si calcolano QUI, prima del disegno, e non nel pannello che poi le
     elenca: la mappa sta più in alto nella pagina, e prendere le liste dal
@@ -2049,12 +2048,26 @@ def suggested(store: MapStore, cost: TransitionCost, pool, seed: int | None,
     """
     if seed is None:
         return [], []
+    # Cerchiate solo le liste che sono state CHIESTE. Il bottone che le apre
+    # sta piu' in basso nella pagina; finche' non lo si preme la scheda dice
+    # "premi il bottone", e degli anelli attorno a venti punti dicevano che
+    # una scelta era stata fatta mentre sotto non c'era niente. Peggio: erano
+    # gli anelli di una lista che nessuno aveva visto.
+    #
+    # Cosi' le due scorse della libreria si pagano quando servono e non a
+    # ogni clic sulla mappa, che era il motivo per cui il bottone esiste.
+    path = store.rows[seed]["path"]
+    if st.session_state.get(ASKED_MIXES) != path \
+            and st.session_state.get(ASKED_ALIKE) != path:
+        return [], []
     cost.w_map = st.session_state.get("map::w_sound", 1.0)
     cost.w_bpm = st.session_state.get("map::w_bpm", 1.0)
     cost.w_key = st.session_state.get("map::w_key", 1.0)
     shown = st.session_state.get("map_suggestion_count", SUGGESTION_DEFAULT)
-    return ([i for i, _ in nearest(cost, seed, k=shown, pool=pool)],
-            [i for i, _ in store.similar(seed, k=shown, limit=placed)])
+    return ([i for i, _ in nearest(cost, seed, k=shown, pool=pool)]
+            if st.session_state.get(ASKED_MIXES) == path else [],
+            [i for i, _ in store.similar(seed, k=shown, limit=placed)]
+            if st.session_state.get(ASKED_ALIKE) == path else [])
 
 
 def chain_places(at_path: dict[str, int]) -> list[int]:
