@@ -428,3 +428,47 @@ def test_a_rewrite_after_a_duplicate_was_absorbed_realigns_the_vectors(tmp_path)
     # Senza riscrivere anche i vettori qui uscirebbe [0, 1, 2]: /lib/b.flac si
     # ritroverebbe il vettore della sua copia scartata e /lib/c.flac quello di b.
     assert list(again.embeddings[:, 0]) == [0.0, 2.0, 3.0]
+
+
+# --- il contratto della riga ----------------------------------------------
+
+# Cosa la pagina si aspetta di trovare su una riga della mappa. Non e' un
+# elenco decorativo: e' l'unico punto in cui il lato che SCRIVE le righe e il
+# lato che le LEGGE si guardano in faccia. Un campo aggiunto a una colonna
+# nuova e dimenticato in `to_row` non si vede finche' qualcuno non riapre la
+# libreria settimane dopo e trova una colonna vuota senza spiegazione.
+READ_BY_THE_PAGE = (
+    "path", "name", "folder", "duration", "bpm", "camelot", "key", "lufs",
+    "danceability", "genres", "top_genre", "moods", "confidence",
+    # I quattro grezzi dell'energia: il voto da 1 a 10 e' un rango sulla
+    # libreria intera e si calcola a ogni apertura, questi si salvano.
+    "energy_density", "energy_bass", "energy_bright", "energy_pulse",
+    # Il mood come numero, sui pesi veri di tutte e 56 le etichette.
+    "valence", "mood_evidence", "mood_conf",
+)
+
+
+def test_a_track_analyzed_today_carries_everything_the_page_reads(tmp_path):
+    audio = tmp_path / "a.mp3"
+    audio.write_bytes(b"not really audio")
+    store = MapStore.load(tmp_path / "map")
+    store.append([_profile(audio, 1.0)])
+
+    written = MapStore.load(tmp_path / "map").rows[0]
+    assert not [name for name in READ_BY_THE_PAGE if name not in written]
+
+
+def test_a_row_written_before_a_field_existed_still_loads(tmp_path):
+    """La libreria ha ottantasettemila righe scritte prima che questi campi
+    ci fossero: leggerle non deve rompersi, e il backfill le raggiunge."""
+    import json
+
+    directory = tmp_path / "map"
+    directory.mkdir()
+    (directory / "tracks.jsonl").write_text(
+        json.dumps({"path": "/x/a.mp3", "name": "a.mp3", "folder": "/x",
+                    "bpm": 128.0, "moods": "Dark"}) + "\n")
+    np.full(EMBEDDING_DIM, 1.0, dtype=np.float32).tofile(
+        directory / "embeddings.f32")
+    row = MapStore.load(directory).rows[0]
+    assert row.get("valence") is None and row.get("energy_bass") is None

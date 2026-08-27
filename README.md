@@ -33,6 +33,10 @@ the batch CLI and the Streamlit app — no duplicated logic.
 | `analysis/engine.py` | orchestration: two-pass, cache, organize plan |
 | `analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) feeding the genre/mood heads, over twelve 10 s windows spread across the track; BPM and key from tags or Essentia; groove from onset regularity |
 | `analysis/map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
+| `analysis/energy.py` | the four raw energy measures, and the library-wide ranking that turns them into a 1–10 |
+| `analysis/mood_scale.py` | the words of the mood onto one dark→bright axis (valence), by rank or by the model's real weights |
+| `energy_cli.py` | measure the four energy fields on tracks already on the map — re-reads the audio, resumable |
+| `mood_cli.py` | re-score valence from the stored embeddings — no audio, minutes instead of hours |
 | `analysis/map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
 | `analysis/mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
 | `analysis/mood_scale.py` | the mood labels read as one scale, dark to bright: the height a playlist takes on the board, and which of a track's moods tells it apart |
@@ -397,6 +401,13 @@ Validated on 27 tracks judged by ear across the whole range: mean error 0.33
 levels, 25 of 27 within one level, r = +0.96. Removing `energy_pulse` triples
 the error.
 
+Where you see it: an `energy` column in every table (red, 1–10, between the
+BPM and the groove), a `Δenergy` in the Chain Maker's two tables written in
+**steps** rather than ranks (`+2` is two deciles up, which is how you decide
+whether the set is lifting), one of the point-size options on the map, one of
+the board's height axes, and the default vertical axis of the quadrant chart.
+An empty cell means the track has not been measured yet.
+
 ### Mood, and the emotion arrow
 
 **`moods`** are words, not a number: up to four labels from the MTG-Jamendo
@@ -407,21 +418,75 @@ which is why the words are kept alongside the numbers rather than replaced by
 them. In tables the **rarest** of a track's moods is printed first, because
 the strongest one is usually the one nearly everybody shares.
 
-**Valence** — the `emotion` arrow, and the height of the board's mood axis —
-is a projection of those words onto one dark→bright axis, −1 to +1. Two
-things about it are hand-made and should be known:
+**Valence** — the `emotion` arrow, the height of the board's mood axis, and
+the horizontal axis of the quadrant chart — is a projection of those words
+onto one dark→bright axis, −1 to +1. "Valence" is the proper name for it:
+it is one of the two axes of Russell's circumplex, and Energy above is the
+other one (arousal) measured from the signal instead of from words. There is
+no third indicator to invent — the two together are the model.
 
-- the sign of each word comes from **two lists written by hand**: 8 words
-  pull dark, 13 pull bright, the other 35 are neutral. Reclassifying a single
-  word can move a track across the axis — the same track reads −0.27 with
-  `Deep` counted dark and +0.27 with it counted neutral;
-- the weight of each word is its **position** (1, ½, ⅓), because the row
-  keeps only the label names. The model's real confidences exist at analysis
-  time and are discarded on write.
+The sign of each word comes from **two lists written by hand**: 8 words pull
+dark, 13 pull bright, the other 35 are neutral. That part stays hand-made,
+and it matters: reclassifying a single word can move a track across the axis
+— the same track reads −0.27 with `Deep` counted dark and +0.27 with it
+counted neutral.
 
-Neutral words count in the denominator and not in the numerator, on purpose:
-a track that is `Dark` *and also* energetic and melodic is less dark than one
-that is only `Dark`.
+The *weight* of each word is measured two different ways, and which one you
+get depends on what the row carries:
+
+| field on the row | how it weighs the words | what it misses |
+|---|---|---|
+| `moods` only | the label's **position** (1, ½, ⅓) | the strength, and the 52 labels under the threshold |
+| `valence` | the model's **real activation**, over all 56 | nothing |
+
+The first is what the library carried until the mood backfill; the second is
+what `mood_cli` writes. The difference is not cosmetic. Under the first, a
+track with `Dark` at 0.62 and one with `Dark` at 0.06 both read −1.00; and a
+track with `Sad` 0.049, `Melancholic` 0.045 and `Dark` 0.041 passes no
+threshold at all, carries no label, and gets no arrow — while having three
+pieces of evidence for dark.
+
+The two also treat neutral words differently, on purpose. By position,
+neutral words count in the denominator: a track that is `Dark` *and also*
+energetic and melodic reads less dark than one that is only `Dark`. By real
+activation they are left out of both sides, because `Energetic` sits on 89%
+of the library **and sits strongly**, so keeping it in the denominator would
+push every track towards zero by nearly the same amount — losing range
+without adding reading. How little colour a track carries is said instead by
+`mood_evidence`, which is the sum of the coloured activations and is kept as
+its own number.
+
+`mood_conf` on the row is the top few activations written out
+(`Dark:0.620; Deep:0.410; …`), the same way genre confidences are written.
+It is there to be read, and to check the number against.
+
+> The mood head reads the **embedding**, not the audio — so the whole library
+> can be re-scored from `embeddings.f32` in minutes rather than the hours the
+> energy backfill needs. One caveat: the stored embedding is the mean of the
+> windows, while the labels saved at analysis time were the mean of the
+> per-window *predictions*. The head is not linear, so the two differ.
+> `mood_cli --check N` re-predicts a sample and reports how often the top
+> label survives, before anything gets rewritten.
+
+### The quadrant chart
+
+A second tab next to the map, on the same tracks. The map answers *what
+sounds like what* and to do it flattens 1280 numbers into two that mean
+nothing on their own; the quadrants answer *where does this track sit between
+dark and bright, between calm and driving* and put two real measures on the
+axes. Both charts feed the same seed and the same selection: click a point in
+either one.
+
+Either axis can be any of eleven measures, the four raw energy ingredients
+included — those are what explain *why* a track reads 8.
+
+The cross is at the measure's own middle where it has one (valence's zero,
+energy's half — energy is a rank, so its half *is* the median by
+construction) and at the median of what the filters leave where it does not.
+The caption under the chart says which of the two you are looking at, because
+reading a quadrant as "these are the fast ones" when it says "these are the
+faster half of what you are currently looking at" is a wrong conclusion drawn
+confidently.
 
 ### Distances, in the tables
 
