@@ -4,8 +4,11 @@ import numpy as np
 import pytest
 
 from analysis.map_profile import (
+    MOOD_FIELDS,
     ProfileSettings,
     TrackProfile,
+    mood_numbers,
+    pooled_mood,
     gain_for_target,
     onset_regularity,
     rhythm_offset,
@@ -150,23 +153,74 @@ def test_a_dead_worker_does_not_take_the_whole_queue_with_it(monkeypatch):
 
 # --- il mood come numero, sulla riga ---------------------------------------
 
-def test_the_row_carries_the_valence_and_the_weights_that_explain_it():
-    profile = TrackProfile(path=Path("/x/a.mp3"),
-                           moods=[("Dark", 0.62), ("Deep", 0.41)],
-                           mood_weights=[("Dark", 0.62), ("Deep", 0.41),
-                                         ("Energetic", 0.33)],
-                           valence=-0.8969, mood_evidence=0.97)
-    row = profile.to_row()
-    assert row["moods"] == "Dark; Deep"
-    assert row["valence"] == -0.8969
-    assert row["mood_evidence"] == 0.97
+LABELS = ["Dark", "Happy", "Energetic"]
+
+
+def test_the_three_numbers_come_out_of_the_activations():
+    numbers = mood_numbers([0.60, 0.20, 0.90], LABELS, SETTINGS)
+    assert numbers["valence"] == -0.5           # (0,20 - 0,60) / 0,80
+    assert numbers["mood_evidence"] == 0.8      # la neutra non conta
     # I pesi si scrivono dal piu' forte, come la confidenza dei generi.
-    assert row["mood_conf"] == "Dark:0.620; Deep:0.410; Energetic:0.330"
+    assert numbers["mood_conf"] == "Energetic:0.900; Dark:0.600; Happy:0.200"
 
 
-def test_a_track_the_model_reads_as_colourless_writes_no_valence():
+def test_a_track_the_model_reads_as_colourless_gets_no_valence():
     # `None` e non zero: zero direbbe "in mezzo fra buio e chiaro", che e'
     # un'altra cosa da "di questo non si sa".
-    row = TrackProfile(path=Path("/x/a.mp3"), moods=[("Energetic", 0.9)]).to_row()
-    assert row["valence"] is None
-    assert row["mood_conf"] == ""
+    numbers = mood_numbers([0.0, 0.0, 0.90], LABELS, SETTINGS)
+    assert numbers["valence"] is None
+    assert numbers["mood_evidence"] == 0.0
+    assert numbers["mood_conf"] == "Energetic:0.900"
+
+
+def test_the_row_carries_the_three_numbers_next_to_the_words():
+    profile = TrackProfile(path=Path("/x/a.mp3"),
+                           moods=[("Dark", 0.62), ("Deep", 0.41)],
+                           mood_numbers=mood_numbers([0.60, 0.20, 0.90],
+                                                     LABELS, SETTINGS))
+    row = profile.to_row()
+    assert row["moods"] == "Dark; Deep"
+    assert row["valence"] == -0.5
+    assert row["mood_conf"].startswith("Energetic:0.900")
+
+
+def test_a_row_from_before_the_numbers_existed_writes_them_empty():
+    row = TrackProfile(path=Path("/x/a.mp3"), moods=[("Dark", 0.6)]).to_row()
+    assert all(row[name] is None for name in MOOD_FIELDS)
+
+
+def test_the_numbers_are_read_from_the_vector_that_goes_on_disk():
+    """È la scelta da cui dipende che i brani vecchi e i nuovi stiano sulla
+    stessa scala: il backfill ha solo l'embedding, quindi anche l'analisi di
+    un brano nuovo deve partire da lì."""
+    seen = []
+
+    def head(vectors):
+        seen.append(np.asarray(vectors))
+        return np.asarray(vectors)[:, :3]
+
+    stored = np.arange(1280, dtype=np.float32)
+    assert pooled_mood(head, stored).tolist() == [0.0, 1.0, 2.0]
+    # Una riga sola, il vettore intero: è quello che sta in `embeddings.f32`.
+    assert seen[0].shape == (1, 1280)
+
+
+def test_the_two_poolings_really_do_disagree():
+    """Media-poi-testa e testa-poi-media non sono la stessa cosa, e questo è
+    il motivo per cui la scelta esiste. Su una testa lineare coinciderebbero
+    e non ci sarebbe niente da decidere; la testa vera ha una sigmoide."""
+    def head(vectors):
+        return 1 / (1 + np.exp(-np.asarray(vectors, dtype=float)))
+
+    # Due fettine molto diverse: una scurissima, una per niente.
+    slices = np.array([[6.0], [-6.0]])
+    mean_of_predictions = head(slices).mean(axis=0)[0]
+    prediction_of_mean = head(slices.mean(axis=0)[None, :])[0][0]
+    assert mean_of_predictions == pytest.approx(0.5, abs=1e-3)
+    assert prediction_of_mean == pytest.approx(0.5, abs=1e-3)
+
+    # Sul caso simmetrico coincidono; basta sbilanciarle e si separano.
+    slices = np.array([[6.0], [0.0]])
+    assert head(slices).mean(axis=0)[0] == pytest.approx(0.7487, abs=1e-3)
+    assert head(slices.mean(axis=0)[None, :])[0][0] == pytest.approx(0.9526,
+                                                                     abs=1e-3)

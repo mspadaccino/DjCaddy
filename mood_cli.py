@@ -42,7 +42,7 @@ import numpy as np
 from analysis import mood_scale
 from analysis.essentia_tags import MODEL_DIR, MOOD_METADATA, MOOD_MODEL, _labels, format_mood_tag
 from analysis.map_job import awake
-from analysis.map_profile import ProfileSettings, select_labels
+from analysis.map_profile import MOOD_FIELDS, ProfileSettings, mood_numbers, select_labels
 from analysis.map_store import MapStore, default_store_dir
 
 # Quante righe per volta entrano nella testa. Il modello lavora a lotti, e
@@ -54,7 +54,7 @@ BATCH = 4096
 # dura minuti e non ore, ma il file è lo stesso e il motivo pure.
 FLUSH_EVERY = 20000
 
-FIELDS = ("valence", "mood_evidence", "mood_conf")
+FIELDS = MOOD_FIELDS
 
 # Qual è il campo che dice "questa riga è fatta". NON `valence`: quello resta
 # `None` sui brani a cui il modello non legge nessun colore — che è una
@@ -96,23 +96,11 @@ def scored(vectors, predict, batch: int = BATCH):
         yield np.asarray(predict(chunk), dtype=float)
 
 
-def written(scores, labels: list[str], settings: ProfileSettings) -> dict:
-    """I tre campi che una riga di attivazioni produce.
-
-    Gli stessi tre che `map_profile.analyze` scrive sui brani nuovi, e
-    calcolati dalle stesse funzioni: se qui si copiasse la formula invece di
-    chiamarla, i brani vecchi e i nuovi finirebbero su due scale diverse
-    senza che nessuno se ne accorga.
-    """
-    whole = dict(zip(labels, (float(s) for s in scores)))
-    valence = mood_scale.valence_of(whole)
-    return {
-        "valence": round(valence, 4) if valence is not None else None,
-        "mood_evidence": round(mood_scale.evidence(whole), 3),
-        "mood_conf": mood_scale.spell_weights(
-            select_labels(scores, labels, settings.weight_threshold,
-                          settings.max_weights)),
-    }
+# I tre campi che una riga di attivazioni produce: la stessa funzione che
+# `map_profile.analyze` chiama sui brani nuovi. E le riceve dallo stesso
+# posto — la testa applicata alla media dei vettori — quindi il numero non
+# dipende da quando un brano è stato analizzato.
+written = mood_numbers
 
 
 def agreement(scores, labels: list[str], stored: str,
@@ -133,7 +121,26 @@ def agreement(scores, labels: list[str], stored: str,
 
 
 def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
-    """Riprevede un campione e conta quanto tiene, senza scrivere niente."""
+    """Riprevede un campione e conta quanto tiene, senza scrivere niente.
+
+    **Cosa risponde davvero.** La domanda aperta è una sola: la testa
+    applicata alla media dei vettori legge lo stesso brano che leggeva la
+    media delle previsioni fettina per fettina? Delle attivazioni di allora
+    non è rimasto niente su disco — solo le PAROLE che ne erano uscite — e
+    quelle parole sono quindi l'unico paragone possibile.
+
+    Per questo il numero da guardare è `top label kept`: da tutte e due le
+    parti si applica la stessa soglia e la stessa regola di scelta, quindi
+    l'unica cosa che cambia fra le due è il pooling, ed è proprio quello che
+    si vuole misurare.
+
+    `agrees with the old reading` NON risponde a quella domanda e non va
+    letto come se lo facesse: confronta la valence nuova con quella vecchia
+    per rango, quindi dentro ci sono DUE cambiamenti insieme — il pooling e
+    il passaggio dai ranghi ai pesi veri. Il secondo è il miglioramento che
+    si sta cercando, quindi un numero minore di 1 lì dentro è atteso e non
+    vuol dire niente di male.
+    """
     rows = store.rows
     total = min(sample, len(store.embeddings), len(rows))
     if not total:
@@ -141,29 +148,33 @@ def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
     predict, labels = _head()
     step = max(1, len(rows) // total)
     picked = list(range(0, len(rows), step))[:total]
-    vectors = store.embeddings[picked]
 
-    first = 0
-    overlap = []
-    colours = []
+    first = fresh_colour = 0
+    overlap, colours = [], []
     for offset, scores in enumerate(
-            row for chunk in scored(vectors, predict) for row in chunk):
-        same, share = agreement(scores, labels, rows[picked[offset]].get("moods", ""),
-                                settings)
+            row for chunk in scored(store.embeddings[picked], predict)
+            for row in chunk):
+        stored = rows[picked[offset]].get("moods", "")
+        same, share = agreement(scores, labels, stored, settings)
         first += bool(same)
         overlap.append(share)
-        whole = dict(zip(labels, (float(s) for s in scores)))
-        old = mood_scale.valence(rows[picked[offset]].get("moods", ""))
-        new = mood_scale.valence_of(whole)
-        if old is not None and new is not None:
+        old = mood_scale.valence(stored)
+        new = mood_scale.valence_of(dict(zip(labels, map(float, scores))))
+        if new is not None and old is None:
+            fresh_colour += 1
+        elif old is not None and new is not None:
             colours.append((old, new))
+
     out = {"tracks": len(overlap),
            "top label kept": first / len(overlap),
-           "labels overlap": float(np.mean(overlap))}
+           "labels overlap": float(np.mean(overlap)),
+           # Brani che una freccia non ce l'avevano: nessuna etichetta
+           # passava la soglia, e le prove di colore sotto di essa non le
+           # guardava nessuno.
+           "newly measured": fresh_colour / len(overlap)}
     if len(colours) > 1:
         old, new = np.array(colours).T
-        out["valence correlation"] = float(np.corrcoef(old, new)[0, 1])
-        out["valence now measured on"] = len(colours) / len(overlap)
+        out["agrees with the old reading"] = float(np.corrcoef(old, new)[0, 1])
     return out
 
 

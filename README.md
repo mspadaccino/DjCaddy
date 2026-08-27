@@ -460,13 +460,33 @@ its own number.
 (`Dark:0.620; Deep:0.410; …`), the same way genre confidences are written.
 It is there to be read, and to check the number against.
 
-> The mood head reads the **embedding**, not the audio — so the whole library
-> can be re-scored from `embeddings.f32` in minutes rather than the hours the
-> energy backfill needs. One caveat: the stored embedding is the mean of the
-> windows, while the labels saved at analysis time were the mean of the
-> per-window *predictions*. The head is not linear, so the two differ.
-> `mood_cli --check N` re-predicts a sample and reports how often the top
-> label survives, before anything gets rewritten.
+**Which pooling the number uses, and why it matters.** The model does not
+read a track in one go: it cuts it into ~2 s slices and reads each one. There
+are then two ways to get one answer out of many slices, and they do not agree
+because the head is not linear:
+
+| | how | what it preserves |
+|---|---|---|
+| mean of predictions | read every slice, average the 56 answers | a dark breakdown inside a bright track stays visible |
+| prediction of the mean | average the slice vectors, read once | only what the track is *on average* |
+
+The **words** (`moods`) come from the first — that is how all 87k rows were
+already written, and it is the better reading. The three **numbers**
+(`valence`, `mood_evidence`, `mood_conf`) come from the second, for one
+reason: the mean of predictions was never saved, so tracks already on the map
+cannot have it without re-reading every file. Using the better reading for
+new tracks and the only available one for old tracks would leave the library
+with two scales mixed and an invisible step in the middle of every
+comparison. One scale is worth more than a slightly better one. `analyze()`
+and `mood_cli` therefore call the same function on the same input, and the
+number of any track can be rebuilt from `embeddings.f32` alone.
+
+> `mood_cli --check N` measures how much that choice costs, before anything
+> gets rewritten. **`top label kept`** is the number to read: both sides use
+> the same threshold and the same selection rule, so the only difference
+> between them is the pooling. `agrees with the old reading` is *not* that
+> measurement — it also contains the switch from ranks to real weights, which
+> is the improvement being sought, so a value below 1 there is expected.
 
 ### The quadrant chart
 

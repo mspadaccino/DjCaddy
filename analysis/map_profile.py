@@ -135,11 +135,14 @@ class TrackProfile:
     energy: dict = field(default_factory=dict)
     genres: list[tuple[str, float]] = field(default_factory=list)
     moods: list[tuple[str, float]] = field(default_factory=list)
-    # Il mood come numero, non come parole: da -1 (buio) a +1 (chiaro), e
-    # quanto colore c'e' in tutto. Vedi `analysis.mood_scale`.
-    valence: float | None = None
-    mood_evidence: float | None = None
-    mood_weights: list[tuple[str, float]] = field(default_factory=list)
+    # Il mood come numero, non come parole: `valence` da -1 (buio) a +1
+    # (chiaro), `mood_evidence` quanto colore c'e' in tutto, `mood_conf` le
+    # attivazioni che spiegano i primi due. Gia' pronti per la riga, e non
+    # crudi come quelli dell'energia: li scrive `mood_numbers`, che e' la
+    # stessa funzione che usa il backfill — se qui si tenessero i pezzi e la
+    # riga li componesse per conto suo, i brani vecchi e i nuovi finirebbero
+    # su due scale diverse senza che nessuno se ne accorga.
+    mood_numbers: dict = field(default_factory=dict)
     embedding: np.ndarray | None = None
     error: str | None = None
 
@@ -167,11 +170,7 @@ class TrackProfile:
             "genres": "; ".join(g for g, _ in self.genres),
             "top_genre": self.top_genre,
             "moods": "; ".join(m for m, _ in self.moods),
-            "valence": round(self.valence, 4)
-            if self.valence is not None else None,
-            "mood_evidence": round(self.mood_evidence, 3)
-            if self.mood_evidence is not None else None,
-            "mood_conf": mood_scale.spell_weights(self.mood_weights),
+            **{name: self.mood_numbers.get(name) for name in MOOD_FIELDS},
             "confidence": "; ".join(f"{g}:{c:.2f}" for g, c in self.genres),
         }
 
@@ -239,6 +238,43 @@ def select_labels(activations, labels: list[str], threshold: float,
         best = int(order[0])
         chosen = [(labels[best], float(activations[best]))]
     return chosen
+
+
+# I tre campi numerici del mood, nell'ordine in cui si leggono.
+MOOD_FIELDS = ("valence", "mood_evidence", "mood_conf")
+
+
+def pooled_mood(head, embedding):
+    """Le attivazioni del mood lette dal vettore che finisce su disco.
+
+    Una riga sola, ma con un nome: è LA scelta di pooling da cui dipende che
+    i brani vecchi e i nuovi stiano sulla stessa scala, e una riga senza nome
+    in mezzo a `analyze` è una riga che qualcuno riscrive senza sapere cosa
+    sta decidendo. È già successo una volta.
+    """
+    vector = np.asarray(embedding, dtype=np.float32)[None, :]
+    return np.asarray(head(vector), dtype=float)[0]
+
+
+def mood_numbers(activations, labels: list[str],
+                 settings: ProfileSettings) -> dict:
+    """I tre campi numerici del mood, da un vettore di 56 attivazioni.
+
+    Una funzione sola perché i posti che li scrivono sono due — l'analisi di
+    un brano nuovo e il backfill sui vecchi — e devono scriverli allo stesso
+    modo. Copiata in due punti, la formula diverge alla prima modifica e la
+    libreria si ritrova con due scale mescolate, che è il genere di errore
+    che non si vede mai finché non si guarda un brano preciso e non torna.
+    """
+    whole = dict(zip(labels, (float(a) for a in activations)))
+    valence = mood_scale.valence_of(whole)
+    return {
+        "valence": round(valence, 4) if valence is not None else None,
+        "mood_evidence": round(mood_scale.evidence(whole), 3),
+        "mood_conf": mood_scale.spell_weights(
+            select_labels(activations, labels, settings.weight_threshold,
+                          settings.max_weights)),
+    }
 
 
 def onset_regularity(onsets) -> float | None:
@@ -443,21 +479,33 @@ class ProfileAnalyzer:
             np.mean(self._genre(frames), axis=0),
             [format_genre_tag(g, "parent_child") for g in self.genre_labels],
             settings.genre_threshold, settings.max_genres)
-        # Le attivazioni del mood si leggono TRE volte e si calcolano una:
-        # le etichette forti per la tabella, i pesi da scrivere sulla riga,
-        # e la valence, che e' l'unica delle tre a guardarle tutte e 56 —
-        # anche le cinquanta che non passano nessuna soglia, perche' tre
-        # prove di buio da 0,04 l'una sono comunque tre prove di buio.
-        scores = np.mean(self._mood(frames), axis=0)
+        # Il mood si legge DUE volte, e non è uno spreco: le due letture
+        # rispondono a due domande diverse e nessuna delle due può fare il
+        # lavoro dell'altra.
+        #
+        # Le PAROLE dalla media delle previsioni fettina per fettina. È come
+        # sono state lette tutte le ottantasettemila righe che la libreria ha
+        # già, ed è la lettura migliore: un breakdown buio dentro un brano
+        # chiaro resta visibile, perché la sua fettina ha detto "Dark" e la
+        # media non lo cancella.
         labels = [format_mood_tag(m) for m in self.mood_labels]
-        profile.moods = select_labels(scores, labels,
-                                      settings.mood_threshold, settings.max_moods)
-        profile.mood_weights = select_labels(scores, labels,
-                                             settings.weight_threshold,
-                                             settings.max_weights)
-        whole = dict(zip(labels, (float(s) for s in scores)))
-        profile.valence = mood_scale.valence_of(whole)
-        profile.mood_evidence = mood_scale.evidence(whole)
+        profile.moods = select_labels(
+            np.mean(self._mood(frames), axis=0), labels,
+            settings.mood_threshold, settings.max_moods)
+        # Il NUMERO invece dalla media dei VETTORI — cioè da `profile.
+        # embedding`, quello che finisce su disco. Il modello non è lineare,
+        # quindi media-poi-testa e testa-poi-media non danno lo stesso
+        # numero, e questa è la sola delle due che i brani già sulla mappa
+        # possano avere: la loro media delle previsioni non è stata salvata
+        # da nessuna parte e per riaverla bisognerebbe riaprire ogni file.
+        #
+        # Preferire qui la lettura migliore darebbe una libreria con due
+        # scale mescolate — i vecchi in un modo, i nuovi in un altro — e uno
+        # scalino invisibile in mezzo a ogni confronto. Meglio una scala
+        # sola, che per giunta si può ricontrollare: la valence di qualunque
+        # brano si rifà da `embeddings.f32` senza toccare l'audio.
+        profile.mood_numbers = mood_numbers(
+            pooled_mood(self._mood, profile.embedding), labels, settings)
         return profile
 
 

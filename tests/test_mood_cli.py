@@ -3,7 +3,6 @@
 import numpy as np
 
 import mood_cli
-from analysis import mood_scale
 from analysis.map_profile import EMBEDDING_DIM, ProfileSettings, TrackProfile
 from analysis.map_store import MapStore
 
@@ -121,18 +120,19 @@ def test_a_track_with_no_colour_is_not_backfilled_forever(tmp_path, monkeypatch)
     assert mood_cli.backfill(store, SETTINGS) == 0
 
 
-def test_the_written_fields_are_the_same_the_analyzer_writes():
-    # Se qui si ricopiasse la formula invece di chiamarla, i brani vecchi e i
-    # nuovi finirebbero su due scale diverse senza che nessuno se ne accorga.
-    scores = [0.60, 0.20, 0.90]
-    whole = dict(zip(LABELS, scores))
-    fresh = TrackProfile(path=__import__("pathlib").Path("/x.mp3"),
-                         valence=mood_scale.valence_of(whole),
-                         mood_evidence=mood_scale.evidence(whole),
-                         mood_weights=[("Energetic", 0.9), ("Dark", 0.6),
-                                       ("Happy", 0.2)]).to_row()
-    backfilled = mood_cli.written(scores, LABELS, SETTINGS)
-    assert all(fresh[name] == backfilled[name] for name in mood_cli.FIELDS)
+def test_the_backfill_and_the_analyzer_are_the_same_function():
+    """Non "danno lo stesso risultato": SONO la stessa funzione.
+
+    Il test di prima confrontava il risultato, e passava mentre le due strade
+    calcolavano il numero da due pooling diversi — i brani vecchi dalla media
+    dei vettori, i nuovi dalla media delle previsioni. Confrontare i risultati
+    su un vettore di attivazioni non poteva vederlo, perche' il vettore gliela
+    passavo io identico a tutte e due.
+    """
+    from analysis.map_profile import mood_numbers
+
+    assert mood_cli.written is mood_numbers
+    assert mood_cli.FIELDS == ("valence", "mood_evidence", "mood_conf")
 
 
 def test_the_check_reports_without_writing_anything(tmp_path, monkeypatch):
@@ -156,3 +156,20 @@ def test_the_check_on_an_empty_map_says_nothing_instead_of_dividing_by_zero(
     store = MapStore.load(tmp_path / "map")
     monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
     assert mood_cli.check(store, 10, SETTINGS) == {"tracks": 0}
+
+
+def test_the_check_counts_the_tracks_that_had_no_arrow_before(tmp_path,
+                                                              monkeypatch):
+    """Il secondo guadagno, e va contato a parte: brani a cui nessuna
+    etichetta passava la soglia e che quindi in tabella non avevano nessuna
+    freccia, mentre di prove di colore ne avevano."""
+    store = _store(tmp_path, (0.04, 0.0, 0.0), (0.60, 0.20, 0.90))
+    store.rows[0]["moods"] = ""                  # sotto soglia: niente parole
+    store.rows[1]["moods"] = "Energetic; Dark"
+    monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
+
+    report = mood_cli.check(store, 10, SETTINGS)
+    assert report["newly measured"] == 0.5
+    # Un brano solo con tutte e due le letture: la correlazione non si fa su
+    # uno, e la voce non compare invece di uscire `nan`.
+    assert "agrees with the old reading" not in report
