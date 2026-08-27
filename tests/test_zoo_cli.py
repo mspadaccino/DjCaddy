@@ -140,3 +140,51 @@ def test_nothing_is_written_anywhere(tmp_path):
     import inspect
     source = inspect.getsource(zoo_cli)
     assert "rewrite" not in source and "write_tags" not in source
+
+
+# --- scaricare le teste che mancano ---------------------------------------
+
+def test_the_address_of_a_head_comes_from_its_file_name():
+    """Il model zoo tiene ogni testa in una cartella che porta il suo nome,
+    senza il suffisso dell'embedding."""
+    assert zoo_cli.source_of("mood_party-discogs-effnet-1.pb") == (
+        f"{zoo_cli.ZOO}/mood_party/mood_party-discogs-effnet-1.pb")
+    assert zoo_cli.source_of("danceability-discogs-effnet-1.json") == (
+        f"{zoo_cli.ZOO}/danceability/danceability-discogs-effnet-1.json")
+
+
+def test_a_download_that_dies_halfway_leaves_nothing_behind(tmp_path,
+                                                            monkeypatch):
+    """Un `.pb` troncato con il nome giusto darebbe, al caricamento, un
+    errore su cui nessuno pensa di ridare un occhio alla rete."""
+    class _Broken:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            raise OSError("connessione caduta")
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Broken())
+    assert zoo_cli.fetch("mood_party-discogs-effnet-1.pb", tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_download_that_works_lands_under_its_own_name(tmp_path, monkeypatch):
+    class _Fine:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b"grafo finto"
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Fine())
+    assert zoo_cli.fetch("mood_party-discogs-effnet-1.pb", tmp_path) is None
+    assert (tmp_path / "mood_party-discogs-effnet-1.pb").read_bytes() == b"grafo finto"
+    # E niente residui del file temporaneo.
+    assert len(list(tmp_path.iterdir())) == 1

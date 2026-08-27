@@ -60,6 +60,13 @@ KNOWN = ("energy", "valence", "groove", "BPM")
 BATCH = 4096
 SAMPLE = 2000
 
+# Da dove si scaricano. Il model zoo tiene ogni testa in una cartella che
+# porta il suo nome, senza il suffisso dell'embedding: `mood_party-discogs-
+# effnet-1.pb` sta sotto `mood_party/`. Se un giorno cambia, l'errore dice
+# quale indirizzo ha provato e la pagina da cui prendere quello giusto.
+ZOO = "https://essentia.upf.edu/models/classification-heads"
+ZOO_PAGE = "https://essentia.upf.edu/models.html"
+
 # Da dove leggere i nomi dei nodi, se il JSON del modello li porta. Non è
 # scontato che li porti, e indovinarli a mano è il modo classico di
 # scoprire alla terza riga che il grafo si chiamava in un altro modo.
@@ -88,6 +95,34 @@ def nodes(metadata: dict) -> tuple[str, str]:
     outs = schema.get("outputs") or []
     return (ins[0].get("name", FALLBACK_IN) if ins else FALLBACK_IN,
             outs[0].get("name", FALLBACK_OUT) if outs else FALLBACK_OUT)
+
+
+def source_of(filename: str) -> str:
+    """Da dove si scarica un file di modello, dal suo nome."""
+    return f"{ZOO}/{filename.split('-discogs-effnet')[0]}/{filename}"
+
+
+def fetch(filename: str, model_dir: Path) -> str | None:
+    """Scarica un file nella cartella dei modelli. Torna l'errore, o `None`.
+
+    Prima in un file temporaneo e poi al suo posto: una connessione che cade
+    a metà lascerebbe altrimenti un `.pb` troncato con il nome giusto, che
+    al caricamento dà un errore su cui nessuno pensa di ridare un occhio
+    alla rete.
+    """
+    import urllib.error
+    import urllib.request
+
+    target = model_dir / filename
+    partial = target.with_suffix(target.suffix + ".part")
+    try:
+        with urllib.request.urlopen(source_of(filename), timeout=120) as fh:
+            partial.write_bytes(fh.read())
+    except (urllib.error.URLError, OSError) as error:
+        partial.unlink(missing_ok=True)
+        return str(error)
+    partial.replace(target)
+    return None
 
 
 def missing(model_dir: Path = MODEL_DIR) -> list[str]:
@@ -225,16 +260,30 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("zoo_sample.csv"))
     parser.add_argument("--store", default=None)
     parser.add_argument("--models", type=Path, default=MODEL_DIR)
+    parser.add_argument("--download", action="store_true",
+                        help="scarica le quattro teste che mancano")
     args = parser.parse_args()
 
     absent = missing(args.models)
-    if absent:
+    if absent and not args.download:
         print(f"Mancano {len(absent)} file in {args.models}:")
         for name in absent:
             print(f"  {name}")
-        print("\nSi scaricano da https://essentia.upf.edu/models.html — "
-              "cerca i quattro classificatori 'discogs-effnet'.")
+        print("\nScaricali con  --download  (sono piccoli, meno di un mega "
+              f"l'uno), oppure a mano da {ZOO_PAGE}")
         return
+    if absent:
+        args.models.mkdir(parents=True, exist_ok=True)
+        for name in absent:
+            print(f"  scarico {name}…", flush=True)
+            error = fetch(name, args.models)
+            if error:
+                print(f"    non ci sono riuscito: {error}")
+                print(f"    provato: {source_of(name)}")
+                print(f"    se l'indirizzo è cambiato, il file sta in "
+                      f"{ZOO_PAGE} e va messo in {args.models}")
+                return
+        print(f"  fatto: {len(absent)} file in {args.models}\n")
 
     store = MapStore.load(args.store or default_store_dir())
     print(f"Mappa: {len(store):,} brani, {len(store.embeddings):,} vettori")
