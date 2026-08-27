@@ -41,7 +41,7 @@ from pathlib import Path
 
 import numpy as np
 
-from analysis import mood_scale
+from analysis import energy, mood_scale
 from analysis.essentia_tags import MODEL_DIR, MOOD_METADATA, MOOD_MODEL, _labels, format_mood_tag
 from analysis.map_job import awake
 from analysis.map_profile import MOOD_FIELDS, ProfileSettings, mood_numbers, select_labels
@@ -339,6 +339,34 @@ def faint_sample(store: MapStore, count: int,
             for value, i in found[::step][:count]]
 
 
+def spread_sample(store: MapStore, count: int) -> list[dict]:
+    """Un campione lungo TUTTA la scala della valence, dal buio al chiaro.
+
+    Niente modello e niente audio: a backfill fatto il numero sta già sulla
+    riga. Si prende a passo costante sul RANGO e non sul valore, perché è il
+    rango che si legge sugli assi — un passo costante sul numero grezzo
+    prenderebbe venti brani ammassati dove la libreria è fitta.
+
+    Serve alla stessa cosa a cui è servito il campione dell'energia: non a
+    chiedere "questo brano è giusto", che su una scala relativa non vuol dire
+    niente, ma a chiedere se scendendo la lista i brani si SCHIARISCONO.
+    """
+    ranked = energy.ranks(mood_scale.from_rows(store.rows))
+    known = [(float(r), i) for i, r in enumerate(ranked) if np.isfinite(r)]
+    known.sort()
+    if not known:
+        return []
+    step = max(1, len(known) // count)
+    return [{"rank": round(rank, 3),
+             "valence": store.rows[i].get("valence"),
+             "evidence": store.rows[i].get("mood_evidence"),
+             "name": store.rows[i].get("name", ""),
+             "moods": store.rows[i].get("moods", ""),
+             "bpm": store.rows[i].get("bpm"),
+             "path": store.rows[i]["path"]}
+            for rank, i in known[::step][:count]]
+
+
 def progress_line(done: int, total: int, started: float, now: float) -> str:
     """La riga che si riscrive sopra sé stessa mentre il lavoro va avanti."""
     share = done / total if total else 1.0
@@ -364,6 +392,9 @@ def main() -> None:
                              "senza scrivere niente")
     parser.add_argument("--backfill", action="store_true",
                         help="scrive valence, mood_evidence e mood_conf")
+    parser.add_argument("--sample", type=int, metavar="N",
+                        help="N brani lungo tutta la scala della valence, "
+                             "dal piu' buio al piu' chiaro, da ascoltare")
     parser.add_argument("--faint-sample", type=int, metavar="N",
                         help="N brani il cui colore sta tutto sotto soglia, "
                              "dal piu' buio al piu' chiaro, da ascoltare")
@@ -386,10 +417,11 @@ def main() -> None:
                 print(f"  {name}: {value:,}")
         return
 
-    if args.faint_sample:
-        table = faint_sample(store, args.faint_sample, settings)
+    if args.sample or args.faint_sample:
+        table = (spread_sample(store, args.sample) if args.sample
+                 else faint_sample(store, args.faint_sample, settings))
         if not table:
-            print("  nessun brano prende il colore solo da prove deboli")
+            print("  nessun brano da campionare")
             return
         with args.out.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(table[0]))

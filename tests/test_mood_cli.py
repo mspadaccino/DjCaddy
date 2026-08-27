@@ -282,3 +282,27 @@ def test_a_library_where_nobody_needs_the_faint_evidence_gives_no_sample(
     store = _store(tmp_path, (0.60, 0.0, 0.90), (0.0, 0.70, 0.90))
     monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
     assert mood_cli.faint_sample(store, 10, SETTINGS) == []
+
+
+def test_the_spread_sample_walks_the_whole_scale(tmp_path):
+    """A backfill fatto il numero sta sulla riga: niente modello, niente
+    audio. Si prende a passo costante sul RANGO, o venti brani finirebbero
+    ammassati dove la libreria e' fitta."""
+    store = _store(tmp_path, *[(0.0, 0.0, 0.0)] * 9)
+    # Una valence ammassata in basso e una sola in cima: sul valore grezzo
+    # il passo costante non se ne accorgerebbe.
+    for row, value in zip(store.rows, [0.01, 0.02, 0.03, 0.04, 0.05,
+                                       0.06, 0.07, 0.08, 0.99]):
+        row["valence"] = value
+
+    picked = mood_cli.spread_sample(store, 3)
+    assert [row["valence"] for row in picked] == [0.01, 0.04, 0.07]
+    assert [row["rank"] for row in picked] == [0.0, 0.375, 0.75]
+
+
+def test_the_spread_sample_skips_what_has_no_reading(tmp_path):
+    store = _store(tmp_path, *[(0.0, 0.0, 0.0)] * 3)
+    store.rows[0]["valence"] = -0.5
+    store.rows[1]["valence"] = 0.5
+    store.rows[2]["moods"] = ""          # ne' numero ne' parole
+    assert len(mood_cli.spread_sample(store, 10)) == 2
