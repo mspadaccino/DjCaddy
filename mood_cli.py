@@ -34,8 +34,10 @@ guardare quel numero.
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -210,23 +212,43 @@ def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
         out["old vs new, both changes"] = float(
             np.corrcoef(old_way, new_way)[0, 1])
     # Le prove deboli dicono la stessa cosa di quelle forti, o sono rumore?
-    # Si chiede ai brani che hanno tutte e due: si legge la valence sulle
-    # sole attivazioni sopra la soglia delle parole, poi sulle sole
-    # attivazioni sotto, e si guarda se vanno d'accordo. Se vanno d'accordo
-    # sono un segnale debole e vale la pena tenerle — sono quel 12% di brani
-    # che una direzione altrimenti non ce l'hanno. Se non vanno d'accordo
-    # stiamo mediando rumore su tutta la libreria.
-    strong, faint = [], []
+    # Si chiede ai brani che hanno tutte e due: la valence sulle sole
+    # attivazioni sopra la soglia delle parole contro quella sulle sole
+    # attivazioni sotto.
+    #
+    # **E il numero da solo non si legge.** La separazione si porta dietro un
+    # bias meccanico: l'etichetta che vince viene promossa sopra soglia, e
+    # quello che resta sotto e' fatto soprattutto del lato che ha perso.
+    # Misurata su attivazioni completamente casuali questa correlazione esce
+    # attorno a -0,5 — senza nessuna musica dentro. Un -0,4 sui dati veri
+    # non vuol dire quindi "le prove deboli sbagliano": vuol dire che vanno
+    # d'accordo con le forti PIU' di quanto il caso spiegherebbe.
+    #
+    # Il paragone si costruisce rimescolando: le stesse 56 attivazioni dello
+    # stesso brano, riassegnate a caso alle 56 etichette. La distribuzione
+    # dei numeri resta identica, il legame fra numeri e parole sparisce, e
+    # quello che ne esce e' esattamente il bias meccanico da solo.
+    shuffle = np.random.default_rng(0)
+    pairs, control = [], []
     for whole in coloured:
-        above = mood_scale.valence_of(whole, floor=settings.mood_threshold)
-        below = mood_scale.valence_of(whole, ceiling=settings.mood_threshold)
-        if above is not None and below is not None:
-            strong.append(above)
-            faint.append(below)
-    if len(strong) > 1:
-        out["faint evidence agrees with strong"] = float(
-            np.corrcoef(strong, faint)[0, 1])
-        out["...measured on"] = len(strong) / len(coloured)
+        for target, activations in (
+                (pairs, whole),
+                (control, dict(zip(whole, shuffle.permutation(
+                    np.fromiter(whole.values(), dtype=float)))))):
+            above = mood_scale.valence_of(activations,
+                                          floor=settings.mood_threshold)
+            below = mood_scale.valence_of(activations,
+                                          ceiling=settings.mood_threshold)
+            if above is not None and below is not None:
+                target.append((above, below))
+    if len(pairs) > 1:
+        real = float(np.corrcoef(*np.array(pairs).T)[0, 1])
+        out["faint vs strong"] = real
+        out["...measured on"] = len(pairs) / len(coloured)
+        if len(control) > 1:
+            chance = float(np.corrcoef(*np.array(control).T)[0, 1])
+            out["...on shuffled labels"] = chance
+            out["...so the faint evidence is worth"] = real - chance
 
     for name, floor, balanced in CANDIDATES:
         read = [mood_scale.valence_of(whole, floor=floor, balanced=balanced)
@@ -273,6 +295,50 @@ def backfill(store: MapStore, settings: ProfileSettings,
     return done
 
 
+def faint_only(whole, settings: ProfileSettings) -> bool:
+    """Se il colore di questo brano viene SOLO da prove sotto soglia.
+
+    Sono i brani su cui si sta discutendo: nessuna delle parole che il
+    modello ha scritto sulla riga è buia o chiara, e la direzione gliela dà
+    unicamente quello che sta sotto la soglia. Se quelle attivazioni sono
+    segnale, questi brani sono un guadagno; se sono rumore, a questi brani
+    stiamo dando un verso inventato — ed è l'unico gruppo su cui nessuna
+    misura interna può decidere, perché di forte non hanno niente con cui
+    confrontarsi. Restano le orecchie.
+    """
+    return (mood_scale.valence_of(whole, floor=settings.mood_threshold) is None
+            and mood_scale.valence_of(whole) is not None)
+
+
+def faint_sample(store: MapStore, count: int,
+                 settings: ProfileSettings) -> list[dict]:
+    """Un campione dei brani il cui colore sta tutto sotto soglia, dal più
+    buio al più chiaro, per poterli ascoltare in fila.
+
+    Presi a passo costante lungo la scala e non a caso: quello che si vuole
+    sentire non è "sono giusti" ma "è un ORDINE" — se scendendo la lista i
+    brani si scuriscono, le prove deboli sono segnale, e se sembrano
+    mescolati sono rumore.
+    """
+    predict, labels = _head()
+    found = []
+    for offset, scores in enumerate(
+            row for chunk in scored(store.embeddings, predict) for row in chunk):
+        whole = dict(zip(labels, map(float, scores)))
+        if faint_only(whole, settings):
+            found.append((mood_scale.valence_of(whole), offset))
+    found.sort()
+    if not found:
+        return []
+    step = max(1, len(found) // count)
+    return [{"valence": round(value, 4),
+             "name": store.rows[i].get("name", ""),
+             "moods": store.rows[i].get("moods", ""),
+             "bpm": store.rows[i].get("bpm"),
+             "path": store.rows[i]["path"]}
+            for value, i in found[::step][:count]]
+
+
 def progress_line(done: int, total: int, started: float, now: float) -> str:
     """La riga che si riscrive sopra sé stessa mentre il lavoro va avanti."""
     share = done / total if total else 1.0
@@ -298,6 +364,10 @@ def main() -> None:
                              "senza scrivere niente")
     parser.add_argument("--backfill", action="store_true",
                         help="scrive valence, mood_evidence e mood_conf")
+    parser.add_argument("--faint-sample", type=int, metavar="N",
+                        help="N brani il cui colore sta tutto sotto soglia, "
+                             "dal piu' buio al piu' chiaro, da ascoltare")
+    parser.add_argument("--out", type=Path, default=Path("mood_faint.csv"))
     parser.add_argument("--store", default=None,
                         help="la cartella della mappa (default: quella solita)")
     args = parser.parse_args()
@@ -314,6 +384,18 @@ def main() -> None:
                 print(f"  {name}: {' '.join(f'{v:+.2f}' for v in value)}")
             else:
                 print(f"  {name}: {value:,}")
+        return
+
+    if args.faint_sample:
+        table = faint_sample(store, args.faint_sample, settings)
+        if not table:
+            print("  nessun brano prende il colore solo da prove deboli")
+            return
+        with args.out.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=list(table[0]))
+            writer.writeheader()
+            writer.writerows(table)
+        print(f"  {len(table)} brani in {args.out}, dal piu' buio al piu' chiaro")
         return
 
     if not args.backfill:

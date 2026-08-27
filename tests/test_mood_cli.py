@@ -218,20 +218,34 @@ def test_the_diluted_reading_is_the_old_one_with_the_new_weights():
 def test_the_check_asks_whether_the_faint_evidence_says_the_same_thing(
         tmp_path, monkeypatch):
     """La domanda che decide se le attivazioni sotto soglia sono un segnale
-    debole o rumore: si legge la valence sulle sole forti, poi sulle sole
-    deboli, e si guarda se vanno d'accordo."""
-    # Due brani in cui forte e debole tirano dalla stessa parte, e due in cui
-    # tirano al contrario: la correlazione deve accorgersene.
+    debole o rumore: la valence sulle sole forti contro quella sulle sole
+    deboli, sui brani che hanno tutte e due."""
     store = _store(tmp_path, (0.60, 0.02, 0.0), (0.02, 0.60, 0.0),
                    (0.60, 0.0, 0.0), (0.0, 0.60, 0.0))
-    store.rows[0]["moods"] = store.rows[2]["moods"] = "Dark"
-    store.rows[1]["moods"] = store.rows[3]["moods"] = "Happy"
     monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
 
     report = mood_cli.check(store, 10, SETTINGS)
     # Solo i primi due hanno prove da tutte e due le parti.
     assert report["...measured on"] == 0.5
-    assert report["faint evidence agrees with strong"] < 0
+    assert "faint vs strong" in report
+
+
+def test_the_faint_reading_is_anti_correlated_even_on_pure_noise():
+    """Il motivo per cui quel numero da solo non si legge: l'etichetta che
+    VINCE viene promossa sopra soglia, quindi quello che resta sotto e' fatto
+    soprattutto del lato che ha perso. Su attivazioni completamente casuali,
+    senza nessuna musica dentro, la correlazione esce comunque nettamente
+    negativa — ed e' contro QUELLA che va confrontato il dato vero."""
+    rng = np.random.default_rng(0)
+    words = sorted(mood_scale.DARK | mood_scale.BRIGHT)
+    pairs = []
+    for _ in range(800):
+        whole = {w: float(rng.beta(1.2, 12)) for w in words}
+        above = mood_scale.valence_of(whole, floor=0.05)
+        below = mood_scale.valence_of(whole, ceiling=0.05)
+        if above is not None and below is not None:
+            pairs.append((above, below))
+    assert np.corrcoef(*np.array(pairs).T)[0, 1] < -0.2
 
 
 def test_the_check_says_what_a_threshold_costs(tmp_path, monkeypatch):
@@ -243,3 +257,28 @@ def test_the_check_says_what_a_threshold_costs(tmp_path, monkeypatch):
     report = mood_cli.check(store, 10, SETTINGS)
     assert report["balanced · no reading"] == 0.0
     assert report["floor 0.05 · no reading"] == 0.5
+
+
+def test_the_faint_sample_picks_only_the_tracks_under_discussion(tmp_path,
+                                                                 monkeypatch):
+    """Brani il cui colore viene SOLO da prove sotto soglia: sono gli unici
+    su cui nessuna misura interna puo' decidere, perche' di forte non hanno
+    niente con cui confrontarsi."""
+    store = _store(tmp_path,
+                   (0.03, 0.0, 0.90),      # solo debole: e' dei nostri
+                   (0.60, 0.0, 0.90),      # forte: no
+                   (0.0, 0.02, 0.90),      # solo debole: e' dei nostri
+                   (0.0, 0.0, 0.90))       # nessun colore: no
+    monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
+
+    picked = mood_cli.faint_sample(store, 10, SETTINGS)
+    assert [row["name"] for row in picked] == ["0.mp3", "2.mp3"]
+    # Dal piu' buio al piu' chiaro: e' un ordine da ascoltare in fila.
+    assert picked[0]["valence"] < picked[1]["valence"]
+
+
+def test_a_library_where_nobody_needs_the_faint_evidence_gives_no_sample(
+        tmp_path, monkeypatch):
+    store = _store(tmp_path, (0.60, 0.0, 0.90), (0.0, 0.70, 0.90))
+    monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
+    assert mood_cli.faint_sample(store, 10, SETTINGS) == []
