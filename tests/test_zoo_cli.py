@@ -96,6 +96,19 @@ def test_a_head_that_answers_the_same_thing_every_time_has_no_spread():
     assert moving["deciles"][0] < 0.2 < 0.8 < moving["deciles"][-1]
 
 
+def test_the_deciles_alone_cannot_tell_a_constant_from_a_tight_spread():
+    """I decili a due cifre uscivano identici nei due casi, e la differenza
+    decide tutto: ovunque leggiamo queste misure le leggiamo come RANGO, e
+    il rango salva il secondo caso e non il primo."""
+    same = zoo_cli.spread(np.full(2000, 1.0))
+    close = zoo_cli.spread(1.0 - np.linspace(0, 0.0004, 2000))
+    # Quante cifre si scrivano, prima o poi i due casi si confondono: e' il
+    # conto dei valori distinti a separarli, non la precisione della stampa.
+    assert same["deciles"] == close["deciles"]
+    assert same["distinct"] < 0.01                 # un valore solo
+    assert close["distinct"] > 0.9                 # duemila valori diversi
+
+
 def test_a_head_that_repeats_something_we_have_says_so():
     values = np.linspace(0.0, 1.0, 50)
     others = {"energy": values.copy(),             # lo stesso numero

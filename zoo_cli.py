@@ -182,12 +182,26 @@ def already_known(rows) -> dict[str, np.ndarray]:
 
 
 def spread(values: np.ndarray) -> dict:
-    """Se una testa si muove o risponde sempre la stessa cosa."""
+    """Se una testa si muove o risponde sempre la stessa cosa.
+
+    `distinct` è la parte che serve davvero, e mancava. I decili scritti a
+    due cifre non distinguono "tutti a 1,00" da "tutti fra 0,996 e 1,000":
+    escono identici. E la differenza decide tutto, perché ovunque leggiamo
+    queste misure le leggiamo come RANGO — e il rango salva il secondo caso
+    e non il primo. Un decimo di libreria appiattito su un valore solo resta
+    appiattito comunque lo si normalizzi; un decimo distribuito su valori
+    vicini si apre da sé.
+
+    Vale letto INSIEME alle correlazioni: valori tutti diversi possono
+    esserlo per rumore della softmax, e il rumore non si correla con
+    niente. Distinti e correlati vuol dire ordine vero.
+    """
     known = values[np.isfinite(values)]
     if not len(known):
         return {}
     return {"above 0.5": float(np.mean(known >= 0.5)),
-            "deciles": [round(float(v), 2)
+            "distinct": len(np.unique(np.round(known, 6))) / len(known),
+            "deciles": [round(float(v), 3)
                         for v in np.quantile(known, np.arange(0.1, 1.0, 0.1))]}
 
 
@@ -300,8 +314,9 @@ def main() -> None:
 
     for name, facts in report(store, args.sample, heads).items():
         print(f"\n{name}")
-        print(f"  sopra 0,5: {facts['above 0.5']:.1%}")
-        print("  decili:   " + " ".join(f"{v:.2f}" for v in facts["deciles"]))
+        print(f"  sopra 0,5: {facts['above 0.5']:.1%}"
+              f"   valori distinti: {facts['distinct']:.1%}")
+        print("  decili:   " + " ".join(f"{v:.3f}" for v in facts["deciles"]))
         ripete = sorted(facts["repeats"].items(), key=lambda kv: -abs(kv[1]))
         print("  ripete:   " + "  ".join(f"{k} {v:+.2f}" for k, v in ripete))
 
