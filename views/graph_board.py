@@ -675,8 +675,12 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
         signature = "|".join(walk)
         chain_key = f"graph_chain_editor::{signature}"
         play_table("graph_chain", table,
-                   ["#", "BPM", "key", "energy", "groove", "emotion",
-                    "Δbpm", "Δkey", "Δenergy", "Δgroove", "file", "mood",
+                   # Il nome subito dopo il numero d'ordine: e' quello che
+                   # si cerca per primo, e in fondo alla fila di misure
+                   # costringeva a scorrere per sapere di che brano si sta
+                   # leggendo il BPM.
+                   ["#", "file", "BPM", "key", "energy", "groove", "emotion",
+                    "Δbpm", "Δkey", "Δenergy", "Δgroove", "mood",
                     "genres", "folder"],
                    {"#": st.column_config.NumberColumn(
                        "#", min_value=1, max_value=max(len(walk), 1), step=1,
@@ -758,8 +762,8 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
 
     edited = play_table(
         "graph_roster", table,
-        ["Add", "cost", "BPM", "key", "energy", "groove", "emotion",
-         "Δbpm", "Δkey", "Δenergy", "Δgroove", "file", "copies", "mood",
+        ["Add", "file", "cost", "BPM", "key", "energy", "groove", "emotion",
+         "Δbpm", "Δkey", "Δenergy", "Δgroove", "copies", "mood",
          "genres", "folder"],
         {"Add": st.column_config.CheckboxColumn(
             "Add", help="Tick what you want next, then the button below."),

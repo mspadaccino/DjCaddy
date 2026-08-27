@@ -608,3 +608,47 @@ def test_every_axis_says_what_it_means():
     # E le due che sono ranghi lo dicono, perche' e' l'equivoco possibile.
     for name in ("energy", "valence (mood)"):
         assert "rank" in AXIS_HELP[name]
+
+
+# --- le due liste del seme non si aprono da sole --------------------------
+
+def test_the_list_waits_to_be_asked_for_this_very_seed():
+    """In sessione si tiene il PERCORSO del seme, non un si'/no: cosi'
+    cambiando brano la scheda torna chiusa da se', senza che chi cambia il
+    seme debba ricordarsi di spegnerla."""
+    from views.map_analysis import ASKED_MIXES, asked_for
+
+    st.session_state[ASKED_MIXES] = "/DJSet/a.mp3"
+    try:
+        assert asked_for(ASKED_MIXES, "/DJSet/a.mp3", "x", "y")
+        # Un altro seme: la lista di prima non vale per questo.
+        assert not asked_for(ASKED_MIXES, "/DJSet/b.mp3", "x", "y")
+    finally:
+        del st.session_state[ASKED_MIXES]
+
+
+def test_the_two_tabs_ask_separately():
+    """Due chiavi e non una: si puo' volere le proposte di mix senza volere
+    anche i simili, che sono due domande diverse sullo stesso brano."""
+    from views.map_analysis import ASKED_ALIKE, ASKED_MIXES, asked_for
+
+    st.session_state[ASKED_MIXES] = "/DJSet/a.mp3"
+    try:
+        assert ASKED_MIXES != ASKED_ALIKE
+        assert asked_for(ASKED_MIXES, "/DJSet/a.mp3", "x", "y")
+        assert not asked_for(ASKED_ALIKE, "/DJSet/a.mp3", "x", "y")
+    finally:
+        del st.session_state[ASKED_MIXES]
+
+
+def test_the_file_name_comes_right_after_the_column_you_act_on():
+    """Nelle due tabelle del Chain Maker il nome era in fondo alla fila di
+    misure, e costringeva a scorrere per sapere di che brano si sta leggendo
+    il BPM."""
+    import inspect
+
+    from views import graph_board
+
+    source = inspect.getsource(graph_board)
+    assert '["#", "file", "BPM"' in source          # la catena
+    assert '["Add", "file", "cost"' in source       # la rosa

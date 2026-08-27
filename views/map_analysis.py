@@ -272,6 +272,18 @@ SEED_MATCHES_MAX = 50
 # righe si disegnano in un lampo — ma il punto oltre il quale una lista smette
 # di essere una rosa e torna a essere la libreria, che è ciò da cui si stava
 # scappando.
+# Le due schede delle proposte non si aprono da sole: ognuna aspetta il suo
+# bottone. In sessione si tiene il PERCORSO del seme per cui la lista e'
+# stata chiesta, non un si/no — cosi' cambiando brano la scheda torna
+# chiusa da se', senza che chi cambia il seme debba ricordarsi di spegnerla.
+# E' la stessa ragione per cui la playlist tiene percorsi e non posizioni.
+ASKED_MIXES = "map::asked_mixes"
+ASKED_ALIKE = "map::asked_alike"
+WAITING_FOR_THE_BUTTON = ("Nothing built yet — press the button above. The "
+                          "list does not open by itself: most clicks on the "
+                          "map are looking around, not choosing what comes "
+                          "next.")
+
 SUGGESTION_DEFAULT = 20
 SUGGESTION_MAX = 100
 SUGGESTION_STEP = 5
@@ -1494,6 +1506,36 @@ def render_playlist_section(store: MapStore) -> None:
     render_playlist(frame, cost, playlist, at_path)
 
 
+def asked_for(key: str, path: str, label: str, why: str) -> bool:
+    """Se la lista di questa scheda e' stata chiesta per QUESTO seme.
+
+    Il bottone sparisce una volta premuto, ed e' voluto: quello che chiedeva
+    e' li' sotto, e un bottone che resta acceso davanti a cio' che ha appena
+    prodotto invita a premerlo di nuovo per niente. Torna da se' al seme
+    dopo.
+
+    La lista, una volta aperta, resta VIVA: si ricalcola a ogni giro insieme
+    ai pesi e a quanti brani elencare. Congelarla al momento del clic
+    avrebbe voluto dire mostrare le proposte di pesi che non sono piu'
+    quelli sugli slider — una lista vecchia scritta con sicurezza, che e'
+    peggio di una lista che non c'e'.
+    """
+    if st.session_state.get(key) == path:
+        return True
+    # Dentro un contenitore vuotabile, e non sciolto: premuto, la lista si
+    # disegna nello STESSO giro, e il bottone resterebbe li' sopra a
+    # chiedere di fare una cosa già fatta finché qualcuno non tocca
+    # dell'altro. Svuotare il contenitore lo toglie subito e costa niente —
+    # l'alternativa era una ripartenza, cioè ridisegnare ottantamila punti
+    # per far sparire un bottone.
+    holder = st.empty()
+    if holder.button(label, key=f"{key}::ask", type="primary", help=why):
+        st.session_state[key] = path
+        holder.empty()
+        return True
+    return False
+
+
 def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore,
                 seed: int, playlist: list[int]) -> None:
     """Il brano scelto e cosa ci va dietro."""
@@ -1539,54 +1581,58 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                    "the filters are considered. **The first row is the seed "
                    "itself**: where a set starts belongs in it like anything "
                    "else, and from here it goes in with one tick.")
-        # In testa e a costo zero, che è la verità: da sé a sé non c'è
-        # transizione. Prima il seme non compariva in nessuna delle due liste
-        # e la playlist si popolava solo dei suoi simili — si partiva da un
-        # brano che poi nel set non c'era.
-        suggestions = [(seed, 0.0)] + nearest(cost, seed, k=shown, pool=pool)
-        table = pd.DataFrame([{
-            "Add": False,
-            "cost": round(value, 3),
-            **reading(frame.loc[i], common),
-            # Le tre parti del costo, non tre scarti: dicono QUANTO due brani
-            # sono lontani su ciascun asse, da 0 a 1, non da che parte. Il
-            # nome "Δ" prometteva un segno che qui non c'è — e da quando la
-            # Chain Maker mostra scarti veri, prometterlo confondeva le due cose.
-            "sound": round(cost.parts(seed, i)["map"], 3),
-            "bpm cost": round(cost.parts(seed, i)["bpm"], 2),
-            "key cost": round(cost.parts(seed, i)["key"], 2),
-            "_path": frame.at[i, "path"],
-            "_row": i,
-        } for i, value in suggestions])
-        if not len(table):
-            st.info("No candidate passes the filters.")
+        if asked_for(ASKED_MIXES, frame.at[seed, "path"], "✨ Make the list",
+                     "Builds the list of what mixes out of this seed."):
+            # Il seme in testa e a costo zero, che è la verità: da sé a sé
+            # non c'è transizione. Prima non compariva in nessuna delle due
+            # liste e la playlist si popolava solo dei suoi simili — si
+            # partiva da un brano che poi nel set non c'era.
+            suggestions = [(seed, 0.0)] + nearest(cost, seed, k=shown, pool=pool)
+            table = pd.DataFrame([{
+                "Add": False,
+                "cost": round(value, 3),
+                **reading(frame.loc[i], common),
+                # Le tre parti del costo, non tre scarti: dicono QUANTO due brani
+                # sono lontani su ciascun asse, da 0 a 1, non da che parte. Il
+                # nome "Δ" prometteva un segno che qui non c'è — e da quando la
+                # Chain Maker mostra scarti veri, prometterlo confondeva le due cose.
+                "sound": round(cost.parts(seed, i)["map"], 3),
+                "bpm cost": round(cost.parts(seed, i)["bpm"], 2),
+                "key cost": round(cost.parts(seed, i)["key"], 2),
+                "_path": frame.at[i, "path"],
+                "_row": i,
+            } for i, value in suggestions])
+            if not len(table):
+                st.info("No candidate passes the filters.")
+            else:
+                # Spente di default: qui si scelgono pochi brani fra i venti
+                # proposti, non si prende tutto — il contrario di Tag analysis,
+                # dove la coda e' gia' quella su cui si vuole lavorare.
+                add_all, mix_key = tick_all("map_suggestions", default=False)
+                table["Add"] = add_all
+                # Ascoltare e scegliere sulla STESSA riga. Prima erano due
+                # tabelle, una per spuntare e una per sentire: gli stessi venti
+                # brani scritti due volte, e la decisione presa su una riga
+                # mentre l'orecchio stava sull'altra.
+                edited = play_table(
+                    "map_suggestions", table,
+                    ["Add", "cost", "file", "BPM", "key", "energy", "groove",
+                     "emotion", "sound", "bpm cost", "key cost", "mood", "genres",
+                     "folder"],
+                    {"Add": st.column_config.CheckboxColumn(
+                        "Add", help="Tick what you want in the playlist, then "
+                                    "the button below."),
+                     **reading_config(frame, table),
+                     **read_only("cost", "sound", "bpm cost", "key cost")},
+                    editor_key=mix_key)
+                wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
+                if st.button(f"➕ Add {len(wanted)} to the playlist",
+                             disabled=not wanted, type="primary"):
+                    remember_playlist(frame, playlist + [i for i in wanted
+                                                         if i not in playlist])
+                    st.rerun()
         else:
-            # Spente di default: qui si scelgono pochi brani fra i venti
-            # proposti, non si prende tutto — il contrario di Tag analysis,
-            # dove la coda e' gia' quella su cui si vuole lavorare.
-            add_all, mix_key = tick_all("map_suggestions", default=False)
-            table["Add"] = add_all
-            # Ascoltare e scegliere sulla STESSA riga. Prima erano due
-            # tabelle, una per spuntare e una per sentire: gli stessi venti
-            # brani scritti due volte, e la decisione presa su una riga
-            # mentre l'orecchio stava sull'altra.
-            edited = play_table(
-                "map_suggestions", table,
-                ["Add", "cost", "file", "BPM", "key", "energy", "groove",
-                 "emotion", "sound", "bpm cost", "key cost", "mood", "genres",
-                 "folder"],
-                {"Add": st.column_config.CheckboxColumn(
-                    "Add", help="Tick what you want in the playlist, then "
-                                "the button below."),
-                 **reading_config(frame, table),
-                 **read_only("cost", "sound", "bpm cost", "key cost")},
-                editor_key=mix_key)
-            wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
-            if st.button(f"➕ Add {len(wanted)} to the playlist",
-                         disabled=not wanted, type="primary"):
-                remember_playlist(frame, playlist + [i for i in wanted
-                                                     if i not in playlist])
-                st.rerun()
+            st.caption(WAITING_FOR_THE_BUTTON)
 
     with sound_tab:
         st.caption(
@@ -1595,40 +1641,44 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             "tempo or key. This is 'what else sounds like this', which is a "
             "different question from 'what mixes out of this'. The first row "
             "is the seed itself, here too.")
-        neighbours = pd.DataFrame([{
-            "Add": False,
-            "similarity": round(score, 3),
-            **reading(frame.loc[i], common),
-            "_path": frame.at[i, "path"],
-            "_row": i,
-        } for i, score in [(seed, 1.0)]
-            + store.similar(seed, k=shown, limit=len(frame))])
-        if not len(neighbours):
-            st.info("Nothing to compare this one with yet.")
+        if asked_for(ASKED_ALIKE, frame.at[seed, "path"], "✨ Make the list",
+                     "Builds the list of what sounds like this seed."):
+            neighbours = pd.DataFrame([{
+                "Add": False,
+                "similarity": round(score, 3),
+                **reading(frame.loc[i], common),
+                "_path": frame.at[i, "path"],
+                "_row": i,
+            } for i, score in [(seed, 1.0)]
+                + store.similar(seed, k=shown, limit=len(frame))])
+            if not len(neighbours):
+                st.info("Nothing to compare this one with yet.")
+            else:
+                # Si sceglie anche da qui, e non solo si ascolta: un brano che
+                # somiglia al seme e' un candidato quanto uno che ci si mixa —
+                # trovarlo e non poterlo prendere voleva dire cercarselo a mano
+                # nell'altra scheda, dove magari non compare nemmeno.
+                near_all, near_key = tick_all("map_neighbours", default=False)
+                neighbours["Add"] = near_all
+                picked_near = play_table(
+                    "map_neighbours", neighbours,
+                    ["Add", "similarity", *READING_ORDER],
+                    {"Add": st.column_config.CheckboxColumn(
+                        "Add", help="Tick what you want in the playlist, then "
+                                    "the button below."),
+                     **reading_config(frame, neighbours),
+                     **read_only("similarity")},
+                    editor_key=near_key)
+                near_wanted = [int(i) for i in
+                               picked_near.loc[picked_near["Add"], "_row"]]
+                if st.button(f"➕ Add {len(near_wanted)} to the playlist",
+                             disabled=not near_wanted, type="primary",
+                             key="map_neighbours_add"):
+                    remember_playlist(frame, playlist + [i for i in near_wanted
+                                                         if i not in playlist])
+                    st.rerun()
         else:
-            # Si sceglie anche da qui, e non solo si ascolta: un brano che
-            # somiglia al seme e' un candidato quanto uno che ci si mixa —
-            # trovarlo e non poterlo prendere voleva dire cercarselo a mano
-            # nell'altra scheda, dove magari non compare nemmeno.
-            near_all, near_key = tick_all("map_neighbours", default=False)
-            neighbours["Add"] = near_all
-            picked_near = play_table(
-                "map_neighbours", neighbours,
-                ["Add", "similarity", *READING_ORDER],
-                {"Add": st.column_config.CheckboxColumn(
-                    "Add", help="Tick what you want in the playlist, then "
-                                "the button below."),
-                 **reading_config(frame, neighbours),
-                 **read_only("similarity")},
-                editor_key=near_key)
-            near_wanted = [int(i) for i in
-                           picked_near.loc[picked_near["Add"], "_row"]]
-            if st.button(f"➕ Add {len(near_wanted)} to the playlist",
-                         disabled=not near_wanted, type="primary",
-                         key="map_neighbours_add"):
-                remember_playlist(frame, playlist + [i for i in near_wanted
-                                                     if i not in playlist])
-                st.rerun()
+            st.caption(WAITING_FOR_THE_BUTTON)
 
 
 def _composed(text: str) -> str:
