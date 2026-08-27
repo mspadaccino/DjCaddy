@@ -127,7 +127,10 @@ SIZE_FIELDS = {
 # si scopre che una deep roller ha piu' basso di una peak-time.
 AXIS_FIELDS = {
     "energy": "energy",
-    "valence (mood)": "valence",
+    # Il RANGO della valence, non il numero firmato: vedi `_valence_rank`.
+    # Il firmato resta disponibile in fondo, per chi vuole vedere la misura
+    # com'e' invece di dov'e'.
+    "valence (mood)": "valence_rank",
     "BPM": "bpm",
     "groove": "danceability",
     "loudness": "lufs",
@@ -137,6 +140,7 @@ AXIS_FIELDS = {
     "energy · bass": "energy_bass",
     "energy · brightness": "energy_bright",
     "energy · pulse": "energy_pulse",
+    "valence · signed": "valence",
 }
 DEFAULT_AXES = ("valence (mood)", "energy")
 
@@ -144,15 +148,13 @@ DEFAULT_AXES = ("valence (mood)", "energy")
 # vero ce l'hanno. Ce n'e' UNA: l'energia e' un rango sulla libreria, quindi
 # il suo mezzo E' la mediana per costruzione e lo sara' sempre.
 #
-# La valence NON c'e', ed e' una correzione. Lo zero di una scala firmata
-# sembra un centro e non lo e': misurata sulla libreria vera (2.000 brani)
-# la valence aveva i nove decili tutti positivi, da +0,31 a +0,76 — con la
-# croce sullo zero i due quadranti bui sarebbero rimasti vuoti e il grafico
-# avrebbe detto che la libreria e' tutta allegra, che e' una proprieta' di
-# come sono fatte le due liste di parole e non della musica. La mediana di
-# quello che i filtri lasciano e' l'unica riga che si guadagna il nome di
-# centro senza chiedere fiducia.
-AXIS_CENTRES = {"energy": 0.5}
+# La valence GREZZA non c'e', e la sua assenza e' una correzione: lo zero di
+# una scala firmata sembra un centro e non lo e'. Misurata sulla libreria
+# vera, la valence ha il 94% dei brani sopra lo zero — con la croce li' i due
+# quadranti bui restavano vuoti, e il grafico diceva che la libreria e' tutta
+# allegra. Il suo RANGO invece un mezzo ce l'ha per costruzione, esattamente
+# come l'energia, ed e' quello che va sugli assi. Vedi `_valence_rank`.
+AXIS_CENTRES = {"energy": 0.5, "valence_rank": 0.5}
 
 FLAT_SIZE = 7.0
 MIN_SIZE, MAX_SIZE = 4.0, 15.0
@@ -298,9 +300,38 @@ def _valence_of(_store: MapStore, stamp: tuple) -> np.ndarray:
     return np.asarray(out, dtype=float)
 
 
+@st.cache_data(show_spinner=False)
+def _valence_rank(_store: MapStore, stamp: tuple) -> np.ndarray:
+    """La valence come RANGO sulla libreria, da 0 (la più buia) a 1.
+
+    Misurata sui pesi veri, la valence grezza non è centrata sullo zero e non
+    lo sarà mai: sulla libreria vera (2.000 brani) sta fra +0,07 e +0,64 per
+    l'80% di mezzo, cioè il 94% dei brani legge "chiaro". Non è la musica —
+    è che il modello ha imparato su un mondo in cui *happy*, *positive* e
+    *upbeat* sono etichette molto più frequenti di *sad* e *melancholic*, e
+    quella frequenza gli è rimasta addosso come prior. Bilanciare le due
+    liste sul numero di parole toglie una parte del difetto (l'1,1% sotto
+    zero diventa il 6,3%) e non lo toglie tutto, perché il resto non è una
+    questione di quante parole ci sono ma di quanto il modello ci creda.
+
+    Il numero grezzo resta quello che sta sulla riga — è la misura, e si
+    rifà da `embeddings.f32` quando si vuole. Ma dove la valence fa da
+    POSIZIONE — l'asse dei quadranti, l'altezza sulla lavagna, la freccia in
+    tabella — si legge il rango, per lo stesso motivo per cui l'energia si
+    legge in decili: "più buio del 70% di quello che hai" è una frase vera,
+    "valence +0,31" non lo è.
+    """
+    return energy.ranks(_valence_of(_store, stamp))
+
+
 def mood_valence(store: MapStore, placed: int) -> np.ndarray:
     """La valence dei brani piazzati, allineata alle righe del frame."""
     return _valence_of(store, _stamp(store.directory))[:placed]
+
+
+def valence_ranks(store: MapStore, placed: int) -> np.ndarray:
+    """Il rango della valence, allineato alle righe del frame."""
+    return _valence_rank(store, _stamp(store.directory))[:placed]
 
 
 def axis_guide(values, column: str) -> float | None:
@@ -1030,6 +1061,7 @@ def render_map(store: MapStore) -> tuple | None:
     frame["index"] = np.arange(len(frame))
     frame["energy"] = energy_ranks(store, placed)
     frame["valence"] = mood_valence(store, placed)
+    frame["valence_rank"] = valence_ranks(store, placed)
     frame["genre_list"] = frame["genres"].fillna("").str.split("; ")
     # Una mappa fatta prima che il mood si registrasse non ha la colonna:
     # meglio un filtro che non propone niente di un errore a metà pagina.
@@ -1968,6 +2000,7 @@ def render_chain_section(store: MapStore, pool) -> None:
     frame = pd.DataFrame(store.rows[:placed])
     frame["index"] = np.arange(len(frame))
     frame["energy"] = energy_ranks(store, placed)
+    frame["valence_rank"] = valence_ranks(store, placed)
     cost = TransitionCost(store.coords[:placed], frame["bpm"].tolist(),
                           frame["camelot"].tolist())
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}

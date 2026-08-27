@@ -455,19 +455,39 @@ push every track towards zero by nearly the same amount — losing range
 without adding reading. How little colour a track carries is said instead by
 `mood_evidence`, which is kept as its own number.
 
-**Each side is the mean of its words, not their sum**, and that detail is not
-cosmetic. The two hand-written lists are not the same size — 13 bright words
-against 8 dark ones — and a multi-label head gives every one of the 56 labels
-a small baseline activation even on a track that is not that thing. Summing
-therefore lets the sigmoid's noise floor in 13 times on one side and 8 on the
-other, which makes every track read brighter for a reason that has nothing to
-do with the music. Measured on 2,000 real tracks, the sums version put all
-nine deciles above zero (+0.31 to +0.76): the zero was the middle of nothing.
+**Each side is the mean of its words, not their sum.** The two hand-written
+lists are not the same size — 13 bright words against 8 dark ones — and a
+multi-label head gives every one of the 56 labels a small baseline activation
+even on a track that is not that thing. Summing therefore lets the sigmoid's
+noise floor in 13 times on one side and 8 on the other. Taking the mean of
+each side cancels it.
 
-Because of that, the quadrant chart does **not** treat valence's zero as a
-centre. Energy's half is a real middle — it is a rank, so half the library is
-below it by construction — but a signed scale's zero only looks like one. The
-cross falls on the median of what the filters leave, and the caption says so.
+**And the number is read as a rank, never as an absolute.** This is the part
+that measurement settled, after two guesses did not. On 2,000 real tracks:
+
+| reading | share below zero | deciles |
+|---|---|---|
+| sums | 1.1% | +0.31 … +0.76 |
+| means (shipped) | 6.3% | +0.07 … +0.64 |
+| means, floor 0.02 | 8.9% | +0.03 … +1.00, saturating |
+
+Balancing the lists helped and did not fix it: 94% of the library still reads
+bright. The remaining skew is not the lists and not the music — it is the
+model's prior. MTG-Jamendo learned on a corpus where `happy`, `positive` and
+`upbeat` are far commoner tags than `sad` and `melancholic`, and that
+frequency stayed in its head. No hand adjustment to the two word lists can
+undo a bias that lives in the weights.
+
+So the signed number stays on the row — it is the measurement, and it can be
+rebuilt from `embeddings.f32` whenever — but everywhere valence acts as a
+**position** (the quadrant axis, the board's height, the `emotion` arrow) it
+is the **percentile rank across your library**, for the same reason energy is
+read in deciles: *"darker than 70% of what you own"* is a true sentence,
+*"valence +0.31"* is not. The rank has a real middle by construction, which
+the raw number never had.
+
+The arrow's dead zone is ±0.15 around that middle: the middle 30% of the
+library gets no arrow, 35% points up, 35% points down.
 
 `mood_conf` on the row is the top few activations written out
 (`Dark:0.620; Deep:0.410; …`), the same way genre confidences are written.

@@ -119,7 +119,7 @@ def _some(row, column: str):
 # dall'ordine della scaletta, che non è negoziabile; l'altezza invece è libera
 # e può portare la misura che in quel momento racconta il set.
 HEIGHT_FIELDS = {"BPM": "bpm", "energy": "energy", "key": "camelot",
-                 "groove": "danceability", "mood": "moods"}
+                 "groove": "danceability", "mood": "valence_rank"}
 # Quella che si apre da sé è il groove, non il BPM: un set si costruisce fra
 # brani di tempo vicino — è il senso del costo di transizione — quindi la
 # linea dei BPM nasce quasi piatta e non ha molto da dire, mentre la
@@ -145,9 +145,11 @@ HEIGHT_MEANING = {
     "groove": "How regular the beat is: at the top a straight kick, towards "
               "the bottom a syncopated rhythm — breakbeat, funk, anything "
               "not linear. Read on the deciles of your library.",
-    "mood": "How dark or bright the track reads. At the bottom Dark, Deep, "
-            "Heavy and Sad; at the top Happy, Party, Summer and Love. From "
-            "the mood tags, on the deciles of your library.",
+    "mood": "How dark or bright the track reads COMPARED WITH THE REST of "
+            "your library: at the bottom its darkest tenth, at the top its "
+            "brightest. Relative because absolute does not work here — the "
+            "model reads almost everything as bright, having learned on a "
+            "world where 'happy' is a far more common tag than 'sad'.",
 }
 
 
@@ -161,13 +163,7 @@ def _measured(frame: pd.DataFrame, at_path: dict[str, int],
                       column)
         if value is None:
             continue
-        if column == "moods":
-            # Delle parole non si sa quanto sono alte: glielo dice
-            # `mood_scale`, da −1 (buio) a +1 (chiaro).
-            colour = mood_scale.valence(value)
-            if colour is not None:
-                out[path] = colour
-        elif column == "camelot":
+        if column == "camelot":
             # Il numero della ruota, non la lettera: è quello che dice di
             # quanto ci si sposta armonicamente.
             code = str(value).strip().upper()[:-1]
@@ -192,16 +188,17 @@ def _span_of(axis: str, values: dict[str, float],
     Ogni misura ha invece una scala sua, e sempre la stessa: così due catene
     si confrontano, e piatto vuol dire davvero "non si muove".
     """
-    if axis == "energy":
-        # Gia' un rango sulla libreria: i decili SONO la scala, e tenderla
-        # una seconda volta vorrebbe dire prendere il rango di un rango.
+    if axis in ("energy", "mood"):
+        # Gia' ranghi sulla libreria tutti e due: i decili SONO la scala, e
+        # tenderla una seconda volta vorrebbe dire prendere il rango di un
+        # rango. Per il mood e' un cambio — prima si tendeva sui decili qui,
+        # che era lo stesso conto fatto in un altro posto e su un altro
+        # numero (la valence dalle parole invece che dai pesi).
         return (0.0, 1.0)
     if axis == "key":
         return (1.0, 12.0)                      # la ruota, tutta
     if axis == "groove":
         return _drive_span(frame)               # i decili della libreria
-    if axis == "mood":
-        return _mood_span(frame)                # i decili anche qui
     # Il tempo attorno a dove sta la catena, largo quanto il pitch fader:
     # oltre il ±6% la transizione costa comunque troppo per capitare.
     middle = sorted(values.values())[len(values) // 2] if values else 120.0
@@ -305,36 +302,28 @@ def _mood_stamp(frame: pd.DataFrame) -> tuple:
 
 
 @st.cache_data(show_spinner=False)
-def _mood_facts(_frame: pd.DataFrame, stamp: tuple) -> tuple[dict, float, float]:
-    """Quanto è comune ogni mood, e fra quali valori tendere la sua scala.
+def _mood_popularity(_frame: pd.DataFrame, stamp: tuple) -> dict:
+    """Quanto è comune ogni mood. Tenuto da parte perché costa una scorsa —
+    quarantatré millisecondi su ottantasettemila righe — e perché scade
+    quando la mappa cresce, non quando si clicca una scheda: senza, si
+    rifarebbe cinque volte per giro di pagina, una per ogni tabella che
+    porta la colonna del mood.
 
-    Le due cose insieme perché costano la stessa scorsa — quarantatré
-    millisecondi su ottantasettemila righe — e perché scadono insieme:
-    cambiano quando la mappa cresce, non quando si clicca una scheda. Senza
-    tenerle da parte si rifarebbero cinque volte per giro di pagina, una per
-    ogni tabella che porta la colonna del mood.
-
-    La scala non si tende fra −1 e +1: il 90% della libreria sta fra −0,12 e
-    +0,60, e sulla scala piena la curva sarebbe una riga piatta poco sopra il
-    mezzo. I decili di QUESTA libreria, come per il groove.
+    Qui c'erano anche i due estremi fra cui tendere l'altezza del mood sulla
+    lavagna, ed erano i decili della valence letta DALLE PAROLE. Non ci sono
+    più: l'altezza ora legge `valence_rank`, che è già un rango sulla
+    libreria e quindi porta la sua scala con sé — e soprattutto è lo stesso
+    numero che leggono la freccia in tabella e l'asse dei quadranti, invece
+    di essere lo stesso conto rifatto in un altro posto su un altro numero.
     """
     moods = list(_frame["moods"]) if "moods" in _frame else []
-    values = pd.Series([mood_scale.valence(m) for m in moods]).dropna()
-    low, high = (float(values.quantile(0.1)), float(values.quantile(0.9))) \
-        if len(values) >= 20 else (-1.0, 1.0)
-    if high <= low:
-        low, high = -1.0, 1.0
-    return mood_scale.popularity(moods), low, high
+    return mood_scale.popularity(moods)
 
 
 def mood_popularity(frame: pd.DataFrame) -> dict[str, int]:
     """Quante volte ogni mood compare nella libreria. Pubblica perché la
     stessa colonna la scrivono anche le tabelle di `views.map_analysis`."""
-    return _mood_facts(frame, _mood_stamp(frame))[0]
-
-
-def _mood_span(frame: pd.DataFrame) -> tuple[float, float]:
-    return _mood_facts(frame, _mood_stamp(frame))[1:]
+    return _mood_popularity(frame, _mood_stamp(frame))
 
 
 def _way(value) -> int:

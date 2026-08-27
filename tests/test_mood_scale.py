@@ -55,10 +55,13 @@ def test_a_single_mood_needs_no_dot():
 # --- la lavagna ------------------------------------------------------------
 
 def _board():
+    # La lavagna appende le schede al RANGO della valence sulla libreria, non
+    # al numero firmato: `views.map_analysis` lo mette sul frame accanto alle
+    # parole, che restano quelle che si leggono in tabella.
     return pd.DataFrame([
-        {"path": "/a.mp3", "moods": "Dark; Deep"},
-        {"path": "/b.mp3", "moods": "Energetic; Melodic"},
-        {"path": "/c.mp3", "moods": "Happy; Party"},
+        {"path": "/a.mp3", "moods": "Dark; Deep", "valence_rank": 0.0},
+        {"path": "/b.mp3", "moods": "Energetic; Melodic", "valence_rank": 0.5},
+        {"path": "/c.mp3", "moods": "Happy; Party", "valence_rank": 1.0},
     ])
 
 
@@ -67,7 +70,7 @@ def test_the_board_can_measure_the_mood():
 
     frame = _board()
     at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
-    assert "mood" in HEIGHT_FIELDS
+    assert HEIGHT_FIELDS["mood"] == "valence_rank"
     measured = _measured(frame, at_path, list(at_path), "mood")
     assert measured["/a.mp3"] < measured["/b.mp3"] < measured["/c.mp3"]
 

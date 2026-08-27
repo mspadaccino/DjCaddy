@@ -148,10 +148,16 @@ ENERGY_COLORS = _ramp(0, LEVELS)
 EMOTION_OPTIONS = ["↑", "↓"]
 EMOTION_COLORS = ["#e0a260", "#6f8fd6"]
 
-# Sotto questo scarto dal centro la freccia non si disegna. Senza una zona
-# morta ogni brano ne avrebbe una, comprese le migliaia che portano un solo
-# mood neutro e che di verso non ne hanno nessuno.
-EMOTION_DEADZONE = 0.10
+# Quanto un brano deve stare lontano dal mezzo perché la freccia si
+# disegni. Senza una zona morta ogni brano ne avrebbe una, comprese le
+# migliaia che stanno esattamente in mezzo al mucchio.
+#
+# Si misura sul RANGO, dove 0,5 è la mediana della libreria: 0,15 lascia
+# senza freccia il 30% di mezzo e ne dà una al 35% per parte. Sul numero
+# firmato non si poteva fare — misurata sui pesi veri, la valence ha il 94%
+# della libreria sopra lo zero, e una zona morta attorno allo zero avrebbe
+# dato la freccia in su a quasi tutti.
+EMOTION_DEADZONE = 0.15
 
 
 # Cosa dice ogni colonna, per il punto interrogativo sull'intestazione.
@@ -267,10 +273,13 @@ def emotion_column(label: str = "emotion"):
     return st.column_config.MultiselectColumn(
         label, disabled=True, width="small",
         options=EMOTION_OPTIONS, color=EMOTION_COLORS,
-        help="Which way the track looks: up is bright, down is dark, nothing "
-             "means it says neither. It is the same dark→bright reading of "
-             "the moods that the board uses for height. Which moods those "
-             "are is in the next column.")
+        help="Which way the track looks compared with the rest of YOUR "
+             "library: up is among the brighter third, down among the "
+             "darker third, nothing means it sits in the middle. Relative "
+             "and not absolute on purpose — the model reads almost "
+             "everything as bright in absolute terms, because it learned on "
+             "a world where 'happy' is a far more common tag than 'sad'. "
+             "Which moods put it there is in the next column.")
 
 
 def mood_column(label: str = "mood"):
@@ -358,14 +367,18 @@ def energy_level(value) -> str | None:
     return str(step) if step is not None else None
 
 
-def emotion_arrow(moods) -> str | None:
-    """Il verso del mood, o niente se il brano non ne ha uno."""
-    value = mood_scale.valence(moods)
-    if value is None:
+def emotion_arrow(rank) -> str | None:
+    """Il verso del mood, o niente se il brano non si sbilancia.
+
+    Vuole il RANGO della valence sulla libreria, non il numero firmato: "più
+    chiaro del 70% di quello che hai" è una frase vera, "valence +0,31" no.
+    Vedi `views.map_analysis._valence_rank`.
+    """
+    if rank is None or pd.isna(rank):
         return None
-    if value > EMOTION_DEADZONE:
+    if rank > 0.5 + EMOTION_DEADZONE:
         return "↑"
-    return "↓" if value < -EMOTION_DEADZONE else None
+    return "↓" if rank < 0.5 - EMOTION_DEADZONE else None
 
 
 def reading(row, common: dict[str, int]) -> dict:
@@ -382,7 +395,7 @@ def reading(row, common: dict[str, int]) -> dict:
         "key": _pill(_value(row, "camelot")),
         "energy": _pill(energy_level(_value(row, "energy"))),
         "groove": _pill(groove_pill(_value(row, "danceability"))),
-        "emotion": _pill(emotion_arrow(row["moods"] if "moods" in row else "")),
+        "emotion": _pill(emotion_arrow(_value(row, "valence_rank"))),
         "mood": mood_scale.summary(row["moods"] if "moods" in row else "",
                                    common),
         "genres": [g for g in str(_value(row, "genres") or "").split("; ") if g],

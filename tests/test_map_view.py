@@ -570,5 +570,29 @@ def test_the_default_axes_are_the_two_that_answer_the_question():
     from views.map_analysis import AXIS_FIELDS, DEFAULT_AXES
 
     assert all(name in AXIS_FIELDS for name in DEFAULT_AXES)
-    assert AXIS_FIELDS[DEFAULT_AXES[0]] == "valence"
+    # Il RANGO della valence: il numero firmato non e' centrato sullo zero e
+    # non lo sara' mai, e su un asse conta dove sta un brano rispetto agli
+    # altri, non un valore assoluto che il modello non sa dare.
+    assert AXIS_FIELDS[DEFAULT_AXES[0]] == "valence_rank"
     assert AXIS_FIELDS[DEFAULT_AXES[1]] == "energy"
+
+
+def test_the_valence_goes_on_the_axis_as_a_rank_not_as_a_signed_number():
+    """Misurata sui pesi veri, la valence grezza ha il 94% della libreria
+    sopra lo zero, e nessun rimedio sulle due liste di parole la centra: il
+    modello ha imparato su un mondo dove 'happy' e' un'etichetta molto piu'
+    frequente di 'sad'. Il rango un mezzo ce l'ha per costruzione."""
+    from analysis import energy
+    from views.map_analysis import AXIS_CENTRES, AXIS_FIELDS, axis_guide
+
+    skewed = [0.07, 0.18, 0.26, 0.33, 0.39, 0.45, 0.51, 0.57, 0.64]
+    assert min(skewed) > 0                       # nessuno sotto lo zero
+    ranked = energy.ranks(skewed)
+    assert float(np.median(ranked)) == 0.5       # il rango invece si centra
+
+    assert AXIS_CENTRES["valence_rank"] == 0.5
+    assert "valence" not in AXIS_CENTRES
+    assert axis_guide(skewed, "valence_rank") == 0.5
+    # Il numero firmato resta disponibile, per vedere la misura com'e'
+    # invece di dov'e': ma non e' quello che si apre da se'.
+    assert AXIS_FIELDS["valence · signed"] == "valence"

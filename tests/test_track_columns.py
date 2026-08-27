@@ -43,18 +43,21 @@ def test_a_track_without_a_groove_has_no_pill():
     assert groove_pill(float("nan")) is None
 
 
-def test_the_emotion_is_an_arrow_only_when_the_track_has_a_way_to_look():
-    assert emotion_arrow("Happy") == "↑"
-    assert emotion_arrow("Dark") == "↓"
-    # Un mood che di colore non dice niente non muove nessuna freccia, e
-    # nemmeno l'assenza di mood.
-    assert emotion_arrow("Energetic") is None
-    assert emotion_arrow("") is None
+def test_the_emotion_is_an_arrow_only_when_the_track_leaves_the_middle():
+    # Sul RANGO, dove 0,5 e' la mediana della libreria: sul numero firmato
+    # non si poteva, perche' il 94% dei brani sta sopra lo zero e la freccia
+    # sarebbe stata in su per quasi tutti.
+    assert emotion_arrow(0.9) == "↑"
+    assert emotion_arrow(0.1) == "↓"
+    # Chi sta in mezzo al mucchio non guarda da nessuna parte, e chi la
+    # misura non ce l'ha nemmeno.
+    assert emotion_arrow(0.5) is None
     assert emotion_arrow(None) is None
+    assert emotion_arrow(float("nan")) is None
 
 
 def test_a_track_reads_as_pills_and_what_is_missing_stays_empty():
-    got = reading(_track(), {"Deep": 3, "Energetic": 900})
+    got = reading(_track(valence_rank=0.12), {"Deep": 3, "Energetic": 900})
     assert got["key"] == ["8A"]
     assert got["groove"] == ["0.83"]
     assert got["emotion"] == ["↓"]
@@ -63,8 +66,8 @@ def test_a_track_reads_as_pills_and_what_is_missing_stays_empty():
     # Il mood distintivo davanti: Energetic sta quasi su tutti e non separa.
     assert got["mood"] == "Deep · Energetic"
 
-    bare = reading(_track(camelot="", danceability=None, moods="", genres=""),
-                   {})
+    bare = reading(_track(camelot="", danceability=None, moods="", genres="",
+                          valence_rank=None), {})
     # Nessuna pastiglia, e non una pastiglia vuota: una lista vuota non si
     # disegna, una lista con dentro il nulla scriverebbe "None" o "nan".
     assert bare["key"] == bare["groove"] == bare["emotion"] == []
