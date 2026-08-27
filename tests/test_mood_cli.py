@@ -1,8 +1,10 @@
 """Il backfill del mood: quello che rifà i numeri senza riaprire i file."""
 
 import numpy as np
+import pytest
 
 import mood_cli
+from analysis import mood_scale
 from analysis.map_profile import EMBEDDING_DIM, ProfileSettings, TrackProfile
 from analysis.map_store import MapStore
 
@@ -173,3 +175,44 @@ def test_the_check_counts_the_tracks_that_had_no_arrow_before(tmp_path,
     # Un brano solo con tutte e due le letture: la correlazione non si fa su
     # uno, e la voce non compare invece di uscire `nan`.
     assert "agrees with the old reading" not in report
+
+
+def test_a_track_whose_words_were_all_neutral_counts_as_newly_measured(
+        tmp_path, monkeypatch):
+    """Il caso che la prima versione di questo conto non vedeva: le parole
+    c'erano, ma erano tutte neutre, quindi la valence vecchia leggeva 0,00 —
+    che sembra un numero e non lo e'. Le prove sotto soglia un verso ce
+    l'hanno, e questo e' il brano a cui la lettura nuova serve davvero."""
+    store = _store(tmp_path, (0.03, 0.0, 0.95))
+    store.rows[0]["moods"] = "Energetic"         # neutra, e sola
+    monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
+
+    assert mood_scale.valence("Energetic") == 0.0
+    assert mood_cli.check(store, 10, SETTINGS)["newly measured"] == 1.0
+
+
+def test_the_check_separates_the_three_changes(tmp_path, monkeypatch):
+    """Fra la valence vecchia e la nuova ci sono tre cambiamenti
+    sovrapposti, e guardarli insieme non dice quale ha mosso cosa."""
+    store = _store(tmp_path, (0.60, 0.20, 0.90), (0.10, 0.70, 0.30),
+                   (0.40, 0.40, 0.10))
+    for row, words in zip(store.rows, ("Dark; Energetic", "Happy", "Dark; Happy")):
+        row["moods"] = words
+    monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
+
+    report = mood_cli.check(store, 10, SETTINGS)
+    assert {"weights vs ranks", "dropping the neutrals",
+            "old vs new, both changes"} <= set(report)
+    assert len(report["deciles"]) == 9
+    assert 0.0 <= report["saturated at ±1.00"] <= 1.0
+
+
+def test_the_diluted_reading_is_the_old_one_with_the_new_weights():
+    """E' il gradino di mezzo: pesi veri, ma neutre ancora nel
+    denominatore. Serve solo a separare i due cambiamenti."""
+    whole = {"Dark": 0.5, "Energetic": 0.9}
+    assert mood_scale.valence_of(whole) == -1.0
+    assert mood_scale.valence_of(whole, dilute=True) == pytest.approx(-0.357,
+                                                                     abs=1e-3)
+    # Senza colore non risponde in nessuno dei due modi.
+    assert mood_scale.valence_of({"Energetic": 0.9}, dilute=True) is None

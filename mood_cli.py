@@ -123,23 +123,33 @@ def agreement(scores, labels: list[str], stored: str,
 def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
     """Riprevede un campione e conta quanto tiene, senza scrivere niente.
 
-    **Cosa risponde davvero.** La domanda aperta è una sola: la testa
-    applicata alla media dei vettori legge lo stesso brano che leggeva la
-    media delle previsioni fettina per fettina? Delle attivazioni di allora
-    non è rimasto niente su disco — solo le PAROLE che ne erano uscite — e
-    quelle parole sono quindi l'unico paragone possibile.
+    **La domanda del pooling.** La testa applicata alla media dei vettori
+    legge lo stesso brano che leggeva la media delle previsioni fettina per
+    fettina? Delle attivazioni di allora non è rimasto niente su disco —
+    solo le PAROLE che ne erano uscite — e quelle parole sono quindi l'unico
+    paragone possibile. `top label kept` è il numero che risponde: da tutte
+    e due le parti si applica la stessa soglia e la stessa regola di scelta,
+    quindi l'unica cosa che cambia fra le due è il pooling.
 
-    Per questo il numero da guardare è `top label kept`: da tutte e due le
-    parti si applica la stessa soglia e la stessa regola di scelta, quindi
-    l'unica cosa che cambia fra le due è il pooling, ed è proprio quello che
-    si vuole misurare.
+    **Le altre due domande.** Fra la valence vecchia e la nuova ci sono in
+    realtà TRE cambiamenti sovrapposti, e guardarli insieme non dice quale
+    ha mosso cosa. Si separano così, misurando una cosa alla volta:
 
-    `agrees with the old reading` NON risponde a quella domanda e non va
-    letto come se lo facesse: confronta la valence nuova con quella vecchia
-    per rango, quindi dentro ci sono DUE cambiamenti insieme — il pooling e
-    il passaggio dai ranghi ai pesi veri. Il secondo è il miglioramento che
-    si sta cercando, quindi un numero minore di 1 lì dentro è atteso e non
-    vuol dire niente di male.
+        vecchia  = ranghi (1, ½, ⅓), neutre nel denominatore
+        di mezzo = pesi veri,        neutre nel denominatore
+        nuova    = pesi veri,        neutre fuori
+
+    `weights vs ranks` è il primo passo, `dropping the neutrals` il secondo.
+    Un valore basso non è di per sé un errore — sono i miglioramenti che si
+    stavano cercando — ma dice DOVE la libreria si è riordinata, e quello va
+    saputo prima di riscrivere ottantasettemila righe.
+
+    **E come si distribuisce.** `saturated` è la frazione di brani che
+    finiscono a ±1,00 tondi. Togliere le neutre dal denominatore lascia
+    all'asse solo il rapporto fra le colorate, e un brano che porta prove di
+    buio e nessuna di chiaro esce a −1,00 comunque poche siano: se questa
+    frazione è alta, l'asse orizzontale dei quadranti diventa tre mucchi
+    invece di una distribuzione, ed è meglio saperlo prima di guardarlo.
     """
     rows = store.rows
     total = min(sample, len(store.embeddings), len(rows))
@@ -150,7 +160,7 @@ def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
     picked = list(range(0, len(rows), step))[:total]
 
     first = fresh_colour = 0
-    overlap, colours = [], []
+    overlap, old_way, middle, new_way, shipped = [], [], [], [], []
     for offset, scores in enumerate(
             row for chunk in scored(store.embeddings[picked], predict)
             for row in chunk):
@@ -158,23 +168,37 @@ def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
         same, share = agreement(scores, labels, stored, settings)
         first += bool(same)
         overlap.append(share)
+
+        whole = dict(zip(labels, map(float, scores)))
         old = mood_scale.valence(stored)
-        new = mood_scale.valence_of(dict(zip(labels, map(float, scores))))
-        if new is not None and old is None:
-            fresh_colour += 1
-        elif old is not None and new is not None:
-            colours.append((old, new))
+        both = mood_scale.valence_of(whole, dilute=True)
+        new = mood_scale.valence_of(whole)
+        if new is not None:
+            shipped.append(new)
+            # Le parole non davano nessun verso — o perché non ce n'erano, o
+            # perché erano tutte neutre — e le prove sotto soglia uno ce
+            # l'hanno dato.
+            if not old:
+                fresh_colour += 1
+        if None not in (old, both, new):
+            old_way.append(old)
+            middle.append(both)
+            new_way.append(new)
 
     out = {"tracks": len(overlap),
            "top label kept": first / len(overlap),
            "labels overlap": float(np.mean(overlap)),
-           # Brani che una freccia non ce l'avevano: nessuna etichetta
-           # passava la soglia, e le prove di colore sotto di essa non le
-           # guardava nessuno.
            "newly measured": fresh_colour / len(overlap)}
-    if len(colours) > 1:
-        old, new = np.array(colours).T
-        out["agrees with the old reading"] = float(np.corrcoef(old, new)[0, 1])
+    if len(old_way) > 1:
+        out["weights vs ranks"] = float(np.corrcoef(old_way, middle)[0, 1])
+        out["dropping the neutrals"] = float(np.corrcoef(middle, new_way)[0, 1])
+        out["old vs new, both changes"] = float(
+            np.corrcoef(old_way, new_way)[0, 1])
+    if shipped:
+        values = np.asarray(shipped)
+        out["saturated at ±1.00"] = float(np.mean(np.abs(values) >= 0.999))
+        out["deciles"] = [round(float(v), 2) for v in
+                          np.quantile(values, np.arange(0.1, 1.0, 0.1))]
     return out
 
 
@@ -244,8 +268,12 @@ def main() -> None:
 
     if args.check:
         for name, value in check(store, args.check, settings).items():
-            print(f"  {name}: {value:.3f}" if isinstance(value, float)
-                  else f"  {name}: {value:,}")
+            if isinstance(value, float):
+                print(f"  {name}: {value:.3f}")
+            elif isinstance(value, list):
+                print(f"  {name}: {' '.join(f'{v:+.2f}' for v in value)}")
+            else:
+                print(f"  {name}: {value:,}")
         return
 
     if not args.backfill:

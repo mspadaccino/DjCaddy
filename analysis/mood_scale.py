@@ -154,7 +154,7 @@ def spell_weights(pairs) -> str:
     return "; ".join(f"{label}:{value:.3f}" for label, value in ordered)
 
 
-def valence_of(activations) -> float | None:
+def valence_of(activations, dilute: bool = False) -> float | None:
     """Da −1 (buio) a +1 (chiaro), sui pesi veri. `None` se non c'è colore.
 
     È lo stesso asse di `valence` — la valence in senso proprio, l'arco
@@ -175,8 +175,15 @@ def valence_of(activations) -> float | None:
 
     `None` quando di prove non ce n'è nessuna: uno zero direbbe "in mezzo
     fra buio e chiaro", che è un'altra cosa da "di questo non si sa".
+
+    `dilute` rimette le neutre nel denominatore, cioè fa quello che fa
+    `valence` per rango. NON è un'opzione da usare: serve a `mood_cli
+    --check` per separare due cambiamenti che altrimenti si guardano
+    insieme e non si capisce quale dei due ha mosso cosa. Passare dai
+    ranghi ai pesi veri e togliere le neutre dal denominatore sono due
+    decisioni diverse, e vanno misurate una alla volta.
     """
-    dark = bright = 0.0
+    dark = bright = plain = 0.0
     for label, value in weights(activations).items():
         if not value > 0:
             continue
@@ -184,8 +191,12 @@ def valence_of(activations) -> float | None:
             dark += value
         elif label in BRIGHT:
             bright += value
-    total = dark + bright
-    return (bright - dark) / total if total > 0 else None
+        else:
+            plain += value
+    coloured = dark + bright
+    if not coloured > 0:
+        return None
+    return (bright - dark) / (coloured + plain if dilute else coloured)
 
 
 def evidence(activations) -> float:
