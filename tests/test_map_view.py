@@ -596,3 +596,15 @@ def test_the_valence_goes_on_the_axis_as_a_rank_not_as_a_signed_number():
     # Il numero firmato resta disponibile, per vedere la misura com'e'
     # invece di dov'e': ma non e' quello che si apre da se'.
     assert AXIS_FIELDS["valence · signed"] == "valence"
+
+
+def test_every_axis_says_what_it_means():
+    """Un asse che si chiama "valence" e va da 0 a 1 non si spiega da se':
+    non dice in che unita' sia, ne' — che e' quello che conta — che i due
+    estremi sono la TUA libreria e non una scala assoluta."""
+    from views.map_analysis import AXIS_FIELDS, AXIS_HELP
+
+    assert not [name for name in AXIS_FIELDS if name not in AXIS_HELP]
+    # E le due che sono ranghi lo dicono, perche' e' l'equivoco possibile.
+    for name in ("energy", "valence (mood)"):
+        assert "rank" in AXIS_HELP[name]

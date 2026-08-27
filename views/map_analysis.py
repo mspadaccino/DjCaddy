@@ -144,6 +144,50 @@ AXIS_FIELDS = {
 }
 DEFAULT_AXES = ("valence (mood)", "energy")
 
+# Cosa vuol dire ogni asse, scritto sotto al disegno. Serve perche' un asse
+# che si chiama "valence" e va da 0 a 1 non si spiega da se': non dice ne'
+# in che unita' sia, ne' — che e' quello che conta — che i due estremi sono
+# la TUA libreria e non una scala assoluta.
+AXIS_HELP = {
+    "energy": "How hard the track pushes, as a rank across your library: "
+              "0 is the calmest tenth you own, 1 the hardest. Four measures "
+              "in one — attacks per beat, power under 200 Hz, spectral "
+              "centre, and how much of the bass lands on the beat. Loudness "
+              "is deliberately not in it.",
+    "valence (mood)": "How BRIGHT the track reads, as a rank across your "
+                      "library: 0 is its darkest tenth — Dark, Deep, Heavy, "
+                      "Sad — and 1 its brightest — Happy, Party, Summer, "
+                      "Love. A rank and not an absolute value because the "
+                      "model has no absolute to give: it learned on a world "
+                      "where 'happy' is a far commoner tag than 'sad', so "
+                      "it reads 94% of any library as bright. What survives "
+                      "that bias is the ORDER, and the rank is the order.",
+    "BPM": "Tempo, from the file's tags where it has them.",
+    "groove": "How UNIFORM the spacing between attacks is, 0 to 1 — a "
+              "metronome reads 1.00, a syncopated figure reads low. Not "
+              "groove in the musical sense.",
+    "loudness": "Integrated loudness in LUFS: how hard the master was "
+                "pushed. It is the control, not a measure of the track — "
+                "the pipeline normalises it away before anything else.",
+    "length": "Track length in seconds.",
+    "mood evidence": "How much colour the model reads at all, whichever way "
+                     "it points. Two tracks can both sit at the bright end "
+                     "with one shouting it and the other barely whispering "
+                     "it: this is what tells them apart.",
+    "energy · density": "Attacks per beat — how thick the rhythmic weave "
+                        "is. Raw, not ranked.",
+    "energy · bass": "What share of the power sits below 200 Hz. Raw.",
+    "energy · brightness": "Where the spectral centroid sits, in Hz: closed "
+                           "and dark, or open with hats on top. Raw.",
+    "energy · pulse": "How deeply the low end pulses ON the beat — a "
+                      "straight kick against a syncopated 808. Raw.",
+    "valence · signed": "The same dark→bright reading as 'valence (mood)' "
+                        "but as the raw signed number, −1 to +1. Useful to "
+                        "see the measure as it is; misleading as an axis, "
+                        "because its zero is not a middle — 94% of any "
+                        "library sits above it.",
+}
+
 # Dove passa la croce che divide i quadranti, per le misure che un centro
 # vero ce l'hanno. Ce n'e' UNA: l'energia e' un rango sulla libreria, quindi
 # il suo mezzo E' la mediana per costruzione e lo sara' sempre.
@@ -988,10 +1032,14 @@ def render_quadrants(frame: pd.DataFrame, drawn: pd.DataFrame,
     names = list(AXIS_FIELDS)
     x_name = by_x.selectbox(
         "Across", names, index=names.index(DEFAULT_AXES[0]), key="quad::x",
-        help="What the horizontal axis measures.")
+        help="What the horizontal axis measures. Most of these are RANKS "
+             "across your library, not absolute values: what they say is "
+             "where a track sits among the ones you own. The line under the "
+             "chart spells out the two you pick.")
     y_name = by_y.selectbox(
         "Up", names, index=names.index(DEFAULT_AXES[1]), key="quad::y",
-        help="What the vertical axis measures.")
+        help="What the vertical axis measures. Same reading as the other "
+             "axis: mostly a rank across your library.")
     xcol, ycol = AXIS_FIELDS[x_name], AXIS_FIELDS[y_name]
 
     for column, name in ((xcol, x_name), (ycol, y_name)):
@@ -1018,6 +1066,11 @@ def render_quadrants(frame: pd.DataFrame, drawn: pd.DataFrame,
         selection_mode=("points", "box", "lasso"),
         config={"displaylogo": False, "scrollZoom": True})
 
+    # Prima cosa vogliono dire i due assi, poi dove passa la croce: si legge
+    # nell'ordine in cui servono, e senza il primo il secondo non ha senso.
+    for name in (x_name, y_name):
+        if name in AXIS_HELP:
+            st.caption(f"**{name}** — {AXIS_HELP[name]}")
     told = guide_caption(guides, (xcol, ycol), (x_name, y_name))
     if told:
         st.caption(told)
