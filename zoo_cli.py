@@ -192,6 +192,11 @@ def spread(values: np.ndarray) -> dict:
     appiattito comunque lo si normalizzi; un decimo distribuito su valori
     vicini si apre da sé.
 
+    Si contano i valori ESATTI, senza arrotondare: qualunque soglia si
+    scegliesse sarebbe arbitraria, e sotto di essa avrebbe cancellato
+    proprio le differenze che il rango sa usare. Un pari merito nel float è
+    un pari merito davvero.
+
     Vale letto INSIEME alle correlazioni: valori tutti diversi possono
     esserlo per rumore della softmax, e il rumore non si correla con
     niente. Distinti e correlati vuol dire ordine vero.
@@ -200,7 +205,7 @@ def spread(values: np.ndarray) -> dict:
     if not len(known):
         return {}
     return {"above 0.5": float(np.mean(known >= 0.5)),
-            "distinct": len(np.unique(np.round(known, 6))) / len(known),
+            "distinct": len(np.unique(known)) / len(known),
             "deciles": [round(float(v), 3)
                         for v in np.quantile(known, np.arange(0.1, 1.0, 0.1))]}
 
