@@ -37,6 +37,7 @@ the batch CLI and the Streamlit app — no duplicated logic.
 | `analysis/mood_scale.py` | the words of the mood onto one dark→bright axis (valence), by rank or by the model's real weights |
 | `energy_cli.py` | measure the four energy fields on tracks already on the map — re-reads the audio, resumable |
 | `mood_cli.py` | re-score valence from the stored embeddings — no audio, minutes instead of hours |
+| `zoo_cli.py` | try the model zoo's other four Discogs-EffNet heads (aggressive, relaxed, party, danceability) on the stored embeddings. Reports only — writes nothing, to no file and no tag |
 | `analysis/map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
 | `analysis/mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
 | `analysis/mood_scale.py` | the mood labels read as one scale, dark to bright: the height a playlist takes on the board, and which of a track's moods tells it apart |
