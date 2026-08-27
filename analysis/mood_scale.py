@@ -177,11 +177,18 @@ BALANCED = True
 FLOOR = 0.0
 
 
-def _sides(activations, floor: float, balanced: bool) -> tuple[float, float, float]:
-    """Quanto pesa il buio, quanto il chiaro, quanto il resto."""
+def _sides(activations, floor: float, balanced: bool,
+           ceiling: float | None = None) -> tuple[float, float, float]:
+    """Quanto pesa il buio, quanto il chiaro, quanto il resto.
+
+    `ceiling` tiene solo le attivazioni SOTTO un valore, cioè l'esatto
+    contrario di `floor`. Non serve a nessuna lettura: serve a domandare se
+    le prove deboli — quelle che non diventano mai parole — dicano la stessa
+    cosa di quelle forti o siano rumore. Vedi `mood_cli.check`.
+    """
     dark = bright = plain = 0.0
     for label, value in weights(activations).items():
-        if value <= floor:
+        if value <= floor or (ceiling is not None and value > ceiling):
             continue
         if label in DARK:
             dark += value
@@ -196,7 +203,8 @@ def _sides(activations, floor: float, balanced: bool) -> tuple[float, float, flo
 
 def valence_of(activations, dilute: bool = False,
                floor: float | None = None,
-               balanced: bool | None = None) -> float | None:
+               balanced: bool | None = None,
+               ceiling: float | None = None) -> float | None:
     """Da −1 (buio) a +1 (chiaro), sui pesi veri. `None` se non c'è colore.
 
     È lo stesso asse di `valence` — la valence in senso proprio, l'arco
@@ -227,7 +235,8 @@ def valence_of(activations, dilute: bool = False,
     dark, bright, plain = _sides(
         activations,
         FLOOR if floor is None else floor,
-        BALANCED if balanced is None else balanced)
+        BALANCED if balanced is None else balanced,
+        ceiling)
     coloured = dark + bright
     if not coloured > 0:
         return None

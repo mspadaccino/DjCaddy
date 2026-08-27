@@ -213,3 +213,33 @@ def test_the_diluted_reading_is_the_old_one_with_the_new_weights():
         -dark / (dark + 0.9), abs=1e-4)
     # Senza colore non risponde in nessuno dei due modi.
     assert mood_scale.valence_of({"Energetic": 0.9}, dilute=True) is None
+
+
+def test_the_check_asks_whether_the_faint_evidence_says_the_same_thing(
+        tmp_path, monkeypatch):
+    """La domanda che decide se le attivazioni sotto soglia sono un segnale
+    debole o rumore: si legge la valence sulle sole forti, poi sulle sole
+    deboli, e si guarda se vanno d'accordo."""
+    # Due brani in cui forte e debole tirano dalla stessa parte, e due in cui
+    # tirano al contrario: la correlazione deve accorgersene.
+    store = _store(tmp_path, (0.60, 0.02, 0.0), (0.02, 0.60, 0.0),
+                   (0.60, 0.0, 0.0), (0.0, 0.60, 0.0))
+    store.rows[0]["moods"] = store.rows[2]["moods"] = "Dark"
+    store.rows[1]["moods"] = store.rows[3]["moods"] = "Happy"
+    monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
+
+    report = mood_cli.check(store, 10, SETTINGS)
+    # Solo i primi due hanno prove da tutte e due le parti.
+    assert report["...measured on"] == 0.5
+    assert report["faint evidence agrees with strong"] < 0
+
+
+def test_the_check_says_what_a_threshold_costs(tmp_path, monkeypatch):
+    """Alzare la soglia non e' gratis: i brani le cui uniche prove di colore
+    stanno sotto restano senza nessuna lettura."""
+    store = _store(tmp_path, (0.03, 0.0, 0.90), (0.60, 0.20, 0.90))
+    monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
+
+    report = mood_cli.check(store, 10, SETTINGS)
+    assert report["balanced · no reading"] == 0.0
+    assert report["floor 0.05 · no reading"] == 0.5

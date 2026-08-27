@@ -60,7 +60,9 @@ FIELDS = MOOD_FIELDS
 # i due lati sul numero di etichette che hanno. Vedi `mood_scale.SIDES`.
 CANDIDATES = (("sums", 0.0, False),
               ("balanced", 0.0, True),
-              ("balanced + floor", 0.02, True))
+              ("floor 0.01", 0.01, True),
+              ("floor 0.02", 0.02, True),
+              ("floor 0.05", 0.05, True))
 
 # Qual è il campo che dice "questa riga è fatta". NON `valence`: quello resta
 # `None` sui brani a cui il modello non legge nessun colore — che è una
@@ -207,13 +209,34 @@ def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
         out["dropping the neutrals"] = float(np.corrcoef(middle, new_way)[0, 1])
         out["old vs new, both changes"] = float(
             np.corrcoef(old_way, new_way)[0, 1])
+    # Le prove deboli dicono la stessa cosa di quelle forti, o sono rumore?
+    # Si chiede ai brani che hanno tutte e due: si legge la valence sulle
+    # sole attivazioni sopra la soglia delle parole, poi sulle sole
+    # attivazioni sotto, e si guarda se vanno d'accordo. Se vanno d'accordo
+    # sono un segnale debole e vale la pena tenerle — sono quel 12% di brani
+    # che una direzione altrimenti non ce l'hanno. Se non vanno d'accordo
+    # stiamo mediando rumore su tutta la libreria.
+    strong, faint = [], []
+    for whole in coloured:
+        above = mood_scale.valence_of(whole, floor=settings.mood_threshold)
+        below = mood_scale.valence_of(whole, ceiling=settings.mood_threshold)
+        if above is not None and below is not None:
+            strong.append(above)
+            faint.append(below)
+    if len(strong) > 1:
+        out["faint evidence agrees with strong"] = float(
+            np.corrcoef(strong, faint)[0, 1])
+        out["...measured on"] = len(strong) / len(coloured)
+
     for name, floor, balanced in CANDIDATES:
-        values = np.asarray([v for v in (
-            mood_scale.valence_of(whole, floor=floor, balanced=balanced)
-            for whole in coloured) if v is not None])
+        read = [mood_scale.valence_of(whole, floor=floor, balanced=balanced)
+                for whole in coloured]
+        values = np.asarray([v for v in read if v is not None])
         if not len(values):
             continue
         out[f"{name} · below zero"] = float(np.mean(values < 0))
+        # Quanto costa la soglia: i brani che restano senza nessuna lettura.
+        out[f"{name} · no reading"] = 1 - len(values) / len(read)
         out[f"{name} · deciles"] = [round(float(v), 2) for v in
                                     np.quantile(values, np.arange(0.1, 1.0, 0.1))]
     return out
