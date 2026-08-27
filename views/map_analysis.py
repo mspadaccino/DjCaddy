@@ -284,20 +284,12 @@ def _energy_of(_store: MapStore, stamp: tuple) -> np.ndarray:
 def _valence_of(_store: MapStore, stamp: tuple) -> np.ndarray:
     """Il mood come numero per ogni brano, da −1 (buio) a +1 (chiaro).
 
-    Due sorgenti, e la seconda è quella che tiene la pagina in piedi finché
-    il backfill non è passato: se la riga porta `valence` — scritta sui pesi
-    veri di tutte e 56 le etichette — si legge quella; altrimenti si ricava
-    dalle parole, che è la vecchia lettura per rango. La prima è migliore, la
-    seconda c'è su tutta la libreria da sempre, e sono lo stesso asse: un
-    grafico che aspettasse la prima resterebbe vuoto per giorni.
+    La regola — il numero scritto se c'è, le parole se manca — sta in
+    `mood_scale.from_rows`: la chiede anche il rapporto sullo stato della
+    libreria, e due copie della stessa regola di ripiego un giorno direbbero
+    due cose diverse.
     """
-    out = []
-    for row in _store.rows:
-        value = row.get("valence")
-        if value is None:
-            value = mood_scale.valence(row.get("moods", ""))
-        out.append(np.nan if value is None else float(value))
-    return np.asarray(out, dtype=float)
+    return np.asarray(mood_scale.from_rows(_store.rows), dtype=float)
 
 
 @st.cache_data(show_spinner=False)

@@ -27,6 +27,9 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+
+from analysis import energy, mood_scale
 from analysis.essentia_tags import available, missing_models
 from analysis.map_job import DEFAULT_MAP_STATE_FILE, run_job
 from analysis.map_profile import ProfileSettings, default_workers
@@ -65,6 +68,47 @@ def reproject(store_dir: Path, settings: ProjectionSettings) -> None:
     print(f"Fatto in {_human(time.time() - t0)}.")
 
 
+def fields(store: MapStore) -> None:
+    """Cosa la mappa ha davvero addosso, campo per campo.
+
+    Nessun modello, nessun audio: legge `tracks.jsonl` e conta. Serve a
+    sapere se un backfill è arrivato in fondo, e a guardare l'unica cosa che
+    dice se il grafico a quadranti ha senso — se energia e valence dicono
+    due cose diverse o la stessa cosa detta due volte. Se fossero la stessa,
+    i brani starebbero su una diagonale e due quadranti su quattro sarebbero
+    vuoti: un asse solo travestito da due.
+    """
+    rows = store.rows
+    total = len(rows)
+    print(f"Righe: {total:,}  ·  piazzate sulla mappa: {store.placed:,}")
+
+    print("\nCampi:")
+    for name in (*energy.INGREDIENTS, "valence", "mood_evidence", "mood_conf"):
+        have = sum(1 for row in rows if row.get(name) is not None)
+        short = total - have
+        print(f"  {name:<16} {have:>8,} / {total:,}"
+              + (f"   ← ne mancano {short:,}" if short else ""))
+
+    drive = energy.from_rows(rows)
+    colour = np.asarray(mood_scale.from_rows(rows), dtype=float)
+    both = np.isfinite(drive) & np.isfinite(colour)
+    if both.sum() < 100:
+        print("\nTroppo pochi brani con tutte e due le misure per dire altro.")
+        return
+
+    # Sui RANGHI e non sui numeri grezzi: è come si leggono sugli assi, ed è
+    # l'unico modo di mettere a confronto un rapporto di bande e una valence.
+    across = energy.ranks(np.where(both, colour, np.nan))[both]
+    up = energy.ranks(np.where(both, drive, np.nan))[both]
+    print(f"\nEnergia e valence, su {int(both.sum()):,} brani:")
+    print(f"  correlazione fra i due ranghi: {np.corrcoef(across, up)[0, 1]:+.3f}")
+    print("  i quattro quadranti:")
+    for pushing, name in ((True, "spinti"), (False, "calmi")):
+        half = (up >= 0.5) == pushing
+        print(f"    {name:<7} {int((half & (across < 0.5)).sum()):>8,} bui"
+              f"  {int((half & (across >= 0.5)).sum()):>8,} chiari")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Costruisce la mappa acustica della libreria.")
@@ -89,7 +133,14 @@ def main() -> None:
     parser.add_argument("--mood-threshold", type=float,
                         default=ProfileSettings.mood_threshold)
     parser.add_argument("--state-file", type=Path, default=DEFAULT_MAP_STATE_FILE)
+    parser.add_argument("--fields", action="store_true",
+                        help="cosa la mappa ha addosso campo per campo, e se "
+                             "energia e valence dicono due cose diverse")
     args = parser.parse_args()
+
+    if args.fields:
+        fields(MapStore.load(args.store))
+        return
 
     projection = ProjectionSettings(n_neighbors=args.neighbors,
                                     min_dist=args.min_dist)

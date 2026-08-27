@@ -489,6 +489,18 @@ the raw number never had.
 The arrow's dead zone is ±0.15 around that middle: the middle 30% of the
 library gets no arrow, 35% points up, 35% points down.
 
+**Sub-threshold activations are kept**, and that decision was settled by ear
+rather than by statistics. 12% of the library takes its direction only from
+activations below the 0.05 label threshold — words like `Dark` never appear
+on those rows, yet the evidence for dark does. Three different internal
+measures suggested that evidence was noise, and all three turned out to be
+confounded: any way of isolating the faint activations alters them, because
+the winning label is the one promoted above the threshold, so what remains
+below is mostly the losing side. What answered the question was 20 of those
+tracks laid out darkest-to-brightest (`mood_cli --faint-sample`): hardstyle,
+50 Cent and a 1992 techno remix at one end, Abba, Tiffany and Baltimora at
+the other. Nothing out of place. The faint evidence is signal.
+
 `mood_conf` on the row is the top few activations written out
 (`Dark:0.620; Deep:0.410; …`), the same way genre confidences are written.
 It is there to be read, and to check the number against.

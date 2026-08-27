@@ -184,18 +184,27 @@ SIDES = (len(DARK), len(BRIGHT))
 # enorme e il guadagno sul centraggio è di pochi punti che il rango dà
 # gratis.
 #
-# Resta aperta una domanda che nessuna misura interna può chiudere: il 12%
-# di brani il cui colore viene SOLO da attivazioni sotto la soglia delle
-# parole. Confrontare la lettura forte con la debole dà -0,387, contro
-# -0,273 rimescolando a caso le etichette dello stesso brano: peggio del
-# caso, il che non depone a favore. Ma quella separazione è viziata per
-# costruzione (il vincitore viene promosso sopra soglia, sotto resta il
-# perdente) e il rimescolamento non riproduce il prior per etichetta, quindi
-# nemmeno il paragone è pulito. Per quei brani c'è `mood_cli
-# --faint-sample`, che li mette in fila dal più buio al più chiaro da
-# ascoltare. Se l'ordine non tiene, il rimedio NON è alzare `floor` — è
-# lasciare senza valence quei brani soltanto, che costa il 12% invece di
-# rovinare la scala per tutti.
+# C'era una domanda aperta sul 12% di brani il cui colore viene SOLO da
+# attivazioni sotto la soglia delle parole, ed è chiusa — ma non dai numeri.
+#
+# Le statistiche ci hanno provato tre volte e hanno sbagliato tre volte. La
+# lettura forte contro la debole dà -0,387, e sembrava una condanna; è
+# invece viziata per costruzione, perché l'etichetta che vince viene
+# promossa sopra soglia e sotto resta il perdente. Il controllo per togliere
+# quel vizio — rimescolare le etichette dello stesso brano — dà -0,273, e
+# sembrava una condanna peggiore; ma il rimescolamento distrugge anche il
+# prior per etichetta, che è proprio il meccanismo che nel dato vero produce
+# l'anticorrelazione in più. Ogni modo di isolare le attivazioni deboli le
+# altera.
+#
+# A rispondere sono stati venti brani messi in fila dal più buio al più
+# chiaro (`mood_cli --faint-sample`) e guardati da chi la libreria ce l'ha:
+# in fondo Abba, Tiffany, Taylor Dayne, Baltimora; in cima hardstyle, 50
+# Cent, Lil Scrappy, un Master Beat del '92. Nessuno fuori posto su venti,
+# compresi i due che a me sembravano sbagliati leggendo i titoli — un remix
+# techno pesante e un reggaeton in minore, tutti e due bui davvero.
+#
+# Le prove deboli sono segnale. `floor` resta a zero.
 BALANCED = True
 FLOOR = 0.0
 
@@ -277,3 +286,25 @@ def evidence(activations) -> float:
     """
     dark, bright, _ = _sides(activations, FLOOR, BALANCED)
     return dark + bright
+
+
+def from_rows(rows) -> list[float]:
+    """La valence di ogni riga della mappa, `nan` dove non si sa.
+
+    Due sorgenti, e la seconda è quella che tiene in piedi tutto finché il
+    backfill non è passato: se la riga porta `valence` — scritta sui pesi
+    veri di tutte e 56 le etichette — si legge quella; altrimenti si ricava
+    dalle parole, che è la vecchia lettura per rango. La prima è migliore, la
+    seconda c'è su tutta la libreria da sempre, e sono lo stesso asse.
+
+    Qui e non nella pagina che la disegna perché a chiederla sono in due —
+    la mappa e il rapporto sullo stato della libreria — e due copie della
+    stessa regola di ripiego un giorno direbbero due cose diverse.
+    """
+    out = []
+    for row in rows:
+        value = row.get("valence")
+        if value is None:
+            value = valence(row.get("moods", ""))
+        out.append(float("nan") if value is None else float(value))
+    return out
