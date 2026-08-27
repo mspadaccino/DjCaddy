@@ -348,10 +348,17 @@ def test_no_size_option_promises_a_measure_it_does_not_show():
     from views.map_analysis import SIZE_FIELDS
 
     assert SIZE_FIELDS.get("loudness") == "lufs"
-    # L'energia vera ha quattro campi suoi, e finche' non sono su tutta la
-    # libreria questa voce non deve esistere: mezza libreria senza valore
-    # starebbe tutta al diametro minimo, che e' peggio di non offrirla.
-    assert "energy" not in SIZE_FIELDS
+    # Ora l'energia c'e', ed e' la sua: quattro misure sue, non la loudness.
+    assert SIZE_FIELDS.get("energy") == "energy"
+
+
+def test_the_energy_of_a_library_nobody_has_measured_is_no_size_at_all():
+    """Finche' il backfill non e' passato la colonna e' vuota, e i punti
+    devono restare tutti uguali invece di ammassarsi al diametro minimo."""
+    from views.map_analysis import FLAT_SIZE, marker_sizes
+
+    frame = pd.DataFrame({"energy": [np.nan, np.nan, np.nan]})
+    assert marker_sizes(frame, "energy") == FLAT_SIZE
 
 
 def test_the_two_suggestion_lists_get_their_own_rings():

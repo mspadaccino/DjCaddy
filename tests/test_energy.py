@@ -275,3 +275,60 @@ def test_a_window_that_could_not_be_measured_is_not_queued_forever():
     import energy_cli
     silent = {"path": "/c.flac", **dict.fromkeys(energy.INGREDIENTS)}
     assert energy_cli.missing([silent]) == []
+
+
+# --- dalle righe della mappa alla colonna ---------------------------------
+
+def test_the_energy_of_the_whole_library_comes_out_of_the_rows():
+    rows = [{"energy_density": 1.0, "energy_bass": 1.0,
+             "energy_bright": 1.0, "energy_pulse": 1.0},
+            {"energy_density": 2.0, "energy_bass": 2.0,
+             "energy_bright": 2.0, "energy_pulse": 2.0},
+            {"energy_density": 3.0, "energy_bass": 3.0,
+             "energy_bright": 3.0, "energy_pulse": 3.0}]
+    assert energy.from_rows(rows).tolist() == [0.0, 0.5, 1.0]
+
+
+def test_a_row_the_backfill_has_not_reached_yet_stays_empty():
+    # Non uno zero, e nemmeno un mezzo: un brano senza misure non e' in
+    # fondo alla scala, e' fuori dalla scala.
+    rows = [{"energy_density": 1.0, "energy_bass": 1.0,
+             "energy_bright": 1.0, "energy_pulse": 1.0},
+            {}, {}]
+    values = energy.from_rows(rows)
+    assert np.isnan(values[1]) and np.isnan(values[2])
+
+
+def test_an_untouched_library_gives_a_column_of_nothing():
+    assert np.isnan(energy.from_rows([{}, {}, {}])).all()
+
+
+# --- l'energia come altezza sulla lavagna ---------------------------------
+
+def _board():
+    import pandas as pd
+    return pd.DataFrame([{"path": "/a.mp3", "energy": 0.0},
+                         {"path": "/b.mp3", "energy": 0.4},
+                         {"path": "/c.mp3", "energy": 1.0}])
+
+
+def test_the_board_can_hang_the_cards_by_energy():
+    from views.graph_board import HEIGHT_FIELDS, _heights
+
+    frame = _board()
+    at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
+    assert HEIGHT_FIELDS["energy"] == "energy"
+    heights = _heights(frame, at_path, list(at_path), "energy")
+    assert heights["/a.mp3"] == 0.0 and heights["/c.mp3"] == 1.0
+
+
+def test_the_energy_axis_is_not_stretched_a_second_time():
+    """E' gia' un rango sulla libreria: tenderlo sui decili vorrebbe dire
+    prendere il rango di un rango, e una catena tutta di brani calmi
+    sembrerebbe salire da zero a uno."""
+    from views.graph_board import _heights
+
+    frame = _board()
+    at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
+    calm = _heights(frame, at_path, ["/a.mp3", "/b.mp3"], "energy")
+    assert calm["/b.mp3"] == 0.4          # non 1.0

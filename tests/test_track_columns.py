@@ -1,8 +1,9 @@
 import pandas as pd
 
-from views.track_columns import (GROOVE_OPTIONS, PALETTE, camelot_color,
-                                 emotion_arrow, genre_colors, groove_pill,
-                                 reading)
+from views.track_columns import (ENERGY_COLORS, GROOVE_OPTIONS, LEVEL_OPTIONS,
+                                 PALETTE, READING_ORDER, camelot_color,
+                                 emotion_arrow, energy_level, genre_colors,
+                                 groove_pill, reading)
 
 
 def _track(**changes) -> pd.Series:
@@ -112,3 +113,40 @@ def test_the_columns_the_tables_actually_ask_for_are_all_covered():
     asked = {"#", "file", "BPM", "folder", "cost", "sound", "bpm cost",
              "key cost", "similarity", "copies", "Δbpm", "Δkey", "Δgroove"}
     assert asked <= set(COLUMN_HELP)
+
+
+# --- l'energia -------------------------------------------------------------
+
+def test_the_energy_pill_is_a_decile_not_a_decimal():
+    # Arriva come rango 0..1 e esce da 1 a 10: sono i decili della libreria,
+    # e due decimali fingerebbero una precisione che il rango non ha.
+    assert energy_level(0.0) == "1"
+    assert energy_level(0.55) == "6"
+    assert energy_level(1.0) == "10"
+
+
+def test_a_track_the_backfill_has_not_reached_has_no_energy_pill():
+    assert energy_level(None) is None
+    assert energy_level(float("nan")) is None
+
+
+def test_every_energy_pill_falls_on_an_option_of_its_column():
+    # Una stringa fuori elenco non e' un errore: e' una pastiglia che non si
+    # colora e nessuno capisce perche'.
+    written = {energy_level(n / 100) for n in range(101)}
+    assert written <= set(LEVEL_OPTIONS)
+    assert len(ENERGY_COLORS) == len(LEVEL_OPTIONS)
+
+
+def test_the_energy_sits_next_to_the_bpm_and_before_the_groove():
+    # Quanto va veloce, quanto spinge, quanto e' dritto: si leggono insieme.
+    order = READING_ORDER
+    assert order.index("BPM") < order.index("energy") < order.index("groove")
+
+
+def test_the_reading_carries_the_energy_when_the_row_has_it():
+    assert reading(_track(energy=0.72), {})["energy"] == ["8"]
+
+
+def test_a_map_made_before_the_energy_existed_does_not_break_the_reading():
+    assert reading(_track(), {})["energy"] == []

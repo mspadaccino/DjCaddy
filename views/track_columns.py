@@ -40,7 +40,7 @@ import colorsys
 import pandas as pd
 import streamlit as st
 
-from analysis import mood_scale
+from analysis import energy, mood_scale
 
 # I colori dei generi sulla mappa e sulle schede della lavagna. Diciotto:
 # con le etichette foglia — che sono 258, di cui le prime dodici coprono il
@@ -132,6 +132,16 @@ def _ramp(hue: float, steps: int = LEVELS) -> list[str]:
 # passaggio da un brano all'altro è continuo e non a scalini.
 GROOVE_COLORS = _ramp(145, len(GROOVE_OPTIONS))
 
+# L'energia in dieci gradini, che e' la scala su cui e' definita: `levels`
+# ritorna un intero da 1 a 10 perche' sono i DECILI della libreria, e
+# scriverne due decimali fingerebbe una precisione che il rango non ha.
+#
+# Il rosso e non l'ambra della freccia dell'emotion: sono due colonne
+# vicine, e due scale calde a mezzo passo di tinta l'una dall'altra si
+# leggono come la stessa cosa misurata due volte. Il rosso dice caldo per
+# conto suo, e con il verde del groove di fianco non si confonde.
+ENERGY_COLORS = _ramp(0, LEVELS)
+
 # Il verso dell'emotion, non la sua misura: la freccia dice da che parte
 # guarda il brano, e la colonna del mood di fianco dice quali parole ce lo
 # mandano. L'ambra è quella con cui la lavagna segna ciò che sale.
@@ -188,6 +198,8 @@ COLUMN_HELP = {
             "track.",
     "Δgroove": "How much the onset uniformity changes from the previous "
                "track. See the groove column for what that measures.",
+    "Δenergy": "How much the energy changes from the previous track, sign "
+               "included: it says whether the set is lifting or letting go.",
     "from previous": "The transition cost from the track above. It is the "
                      "same number the Chain Maker uses to propose what "
                      "comes next.",
@@ -232,6 +244,22 @@ def groove_column(label: str = "groove"):
              "track with a real groove tends to read LOW. Measured on one "
              "30-second window at the middle of the track. Same number as "
              "on the card and the board.")
+
+
+def energy_column(label: str = "energy"):
+    """L'energia come la scrive DJoid: un intero da 1 a 10, in rosso."""
+    return st.column_config.MultiselectColumn(
+        label, disabled=True, width="small",
+        options=LEVEL_OPTIONS, color=ENERGY_COLORS,
+        help="How hard the track pushes, 1 to 10. Four things measured at "
+             "once — how many attacks per beat, how much power sits under "
+             "200 Hz, where the spectral centre lies, and how much of the "
+             "bass lands ON the beat — each turned into its rank across "
+             "your library, then averaged. Loudness is NOT in it: that says "
+             "how hard the master was pushed, not the track. The scale is "
+             "deciles of YOUR library, so 10 means the top tenth of what "
+             "you have, not an absolute level. Empty means the track has "
+             "not been measured yet.")
 
 
 def emotion_column(label: str = "emotion"):
@@ -316,6 +344,20 @@ def groove_pill(danceability) -> str | None:
     return f"{min(1.0, max(0.0, float(danceability))):.2f}"
 
 
+def energy_level(value) -> str | None:
+    """L'energia come si scrive nella pastiglia: "7".
+
+    Arriva da 0 a 1 — e' un rango sulla libreria — e esce da 1 a 10, che
+    sono i suoi decili. Deve cadere ESATTAMENTE su una delle opzioni della
+    colonna: una stringa fuori elenco non e' un errore, e' una pastiglia che
+    non si colora e nessuno capisce perche'.
+    """
+    if value is None or pd.isna(value):
+        return None
+    step = energy.decile(value)
+    return str(step) if step is not None else None
+
+
 def emotion_arrow(moods) -> str | None:
     """Il verso del mood, o niente se il brano non ne ha uno."""
     value = mood_scale.valence(moods)
@@ -338,6 +380,7 @@ def reading(row, common: dict[str, int]) -> dict:
         "file": row["name"],
         "BPM": round(bpm) if bpm is not None else None,
         "key": _pill(_value(row, "camelot")),
+        "energy": _pill(energy_level(_value(row, "energy"))),
         "groove": _pill(groove_pill(_value(row, "danceability"))),
         "emotion": _pill(emotion_arrow(row["moods"] if "moods" in row else "")),
         "mood": mood_scale.summary(row["moods"] if "moods" in row else "",
@@ -354,8 +397,8 @@ def reading(row, common: dict[str, int]) -> dict:
 # brano, come suona, da dove viene. Le tabelle che ci aggiungono qualcosa di
 # proprio — un costo, uno scarto, un numero d'ordine — se lo infilano dove
 # serve invece di riscrivere tutta la fila.
-READING_ORDER = ["file", "BPM", "key", "groove", "emotion", "mood", "genres",
-                 "folder"]
+READING_ORDER = ["file", "BPM", "key", "energy", "groove", "emotion", "mood",
+                 "genres", "folder"]
 
 
 def reading_config(frame: pd.DataFrame, table: pd.DataFrame) -> dict:
@@ -364,7 +407,8 @@ def reading_config(frame: pd.DataFrame, table: pd.DataFrame) -> dict:
     Vuole tutte e due le tabelle perché i generi si colorano guardando la
     libreria e si nominano guardando le righe: vedi `genre_colors`.
     """
-    return {"key": key_column(), "groove": groove_column(),
+    return {"key": key_column(), "energy": energy_column(),
+            "groove": groove_column(),
             "emotion": emotion_column(), "mood": mood_column(),
             "genres": genre_column(genre_colors(frame, table["genres"])),
             **read_only("file", "BPM", "folder")}

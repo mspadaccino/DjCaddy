@@ -371,3 +371,40 @@ def levels(*columns, weights=WEIGHTS) -> np.ndarray:
     ok = np.isfinite(value)
     out[ok] = np.clip(1 + np.floor(value[ok] * 10), 1, 10)
     return out
+
+
+def decile(value) -> int | None:
+    """Da rango (0..1) a voto (1..10). `None` se il rango non c'è.
+
+    Sta qui e non nella tabella che lo scrive perché non lo scrive un posto
+    solo: la pastiglia, lo scarto fra un brano e il successivo e `levels`
+    devono cadere tutti sullo stesso gradino, o lo stesso brano leggerebbe 7
+    in un punto e 8 in un altro.
+    """
+    if value is None:
+        return None
+    value = float(value)
+    if not np.isfinite(value):
+        return None
+    return int(min(10, max(1, 1 + int(value * 10))))
+
+
+def from_rows(rows) -> np.ndarray:
+    """L'energia di ogni riga della mappa, da 0 (in basso) a 1 (in cima).
+
+    Prende le righe come stanno — dizionari letti da `tracks.jsonl` — e non
+    un DataFrame, per due motivi. Il primo è che le due sezioni della pagina
+    che ne hanno bisogno costruiscono ognuna il suo frame, e passare per le
+    righe vuol dire che il numero esce lo stesso da tutte e due invece di
+    dipendere da chi ha costruito cosa. Il secondo è che il rango va preso
+    sulla libreria INTERA, brani non ancora proiettati compresi: un brano non
+    diventa più energico perché è stato piazzato sulla mappa.
+
+    Chi i quattro grezzi non ce li ha ancora — tutta la libreria, finché il
+    backfill non è passato — esce `nan`, e a valle vuol dire una pastiglia
+    che non si disegna. È il comportamento giusto: meglio una colonna vuota
+    di una colonna in cui tutti valgono 5.
+    """
+    columns = [[row.get(name) if row.get(name) is not None else np.nan
+                for row in rows] for name in INGREDIENTS]
+    return spread(*columns)

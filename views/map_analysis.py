@@ -36,7 +36,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from analysis import mood_scale
+from analysis import energy, mood_scale
 from analysis.duplicates import folded
 from analysis.dj_export import (build_m3u8, build_rekordbox_xml, read_m3u8,
                                 read_title_artist)
@@ -111,6 +111,10 @@ NUMBERED_UP_TO = 40
 SIZE_FIELDS = {
     "same size": None,
     "BPM": "bpm",
+    # L'energia e' gia' un rango sulla libreria, cioe' proprio la scala che
+    # `marker_sizes` si costruirebbe da se': i suoi percentili 5-95 sono
+    # 0,05 e 0,95, e i diametri escono distribuiti invece che ammassati.
+    "energy": "energy",
     "groove": "danceability",
     "loudness": "lufs",
 }
@@ -217,6 +221,30 @@ def _stamp(directory: Path) -> tuple:
         except OSError:
             out.append(None)
     return tuple(out)
+
+
+@st.cache_data(show_spinner=False)
+def _energy_of(_store: MapStore, stamp: tuple) -> np.ndarray:
+    """L'energia di tutta la libreria, tenuta da parte fra un gesto e l'altro.
+
+    Non e' un numero per brano: e' il RANGO di ogni brano fra tutti gli
+    altri, quindi va rifatto su tutta la libreria ogni volta che la libreria
+    cambia — e mai quando si clicca un punto. `stamp` e' lo stato dei file su
+    disco, lo stesso con cui si decide di rileggere la mappa: cambia quando
+    il job aggiunge brani o quando il backfill scrive le misure, e solo
+    allora i ranghi si rifanno.
+    """
+    return energy.from_rows(_store.rows)
+
+
+def energy_ranks(store: MapStore, placed: int) -> np.ndarray:
+    """L'energia dei brani piazzati, allineata alle righe del frame.
+
+    Le due sezioni della pagina che la mostrano — la mappa e il Chain Maker —
+    costruiscono ognuna il suo frame dalle stesse righe, e devono ricevere lo
+    stesso numero: passa di qui tutte e due le volte.
+    """
+    return _energy_of(store, _stamp(store.directory))[:placed]
 
 
 def remember_playlist(frame: pd.DataFrame, indices) -> None:
@@ -757,6 +785,7 @@ def render_map(store: MapStore) -> tuple | None:
     frame = pd.DataFrame(store.rows[:placed])
     frame["x"], frame["y"] = store.coords[:, 0], store.coords[:, 1]
     frame["index"] = np.arange(len(frame))
+    frame["energy"] = energy_ranks(store, placed)
     frame["genre_list"] = frame["genres"].fillna("").str.split("; ")
     # Una mappa fatta prima che il mood si registrasse non ha la colonna:
     # meglio un filtro che non propone niente di un errore a metà pagina.
@@ -1210,8 +1239,9 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
             # mentre l'orecchio stava sull'altra.
             edited = play_table(
                 "map_suggestions", table,
-                ["Add", "cost", "file", "BPM", "key", "groove", "emotion",
-                 "sound", "bpm cost", "key cost", "mood", "genres", "folder"],
+                ["Add", "cost", "file", "BPM", "key", "energy", "groove",
+                 "emotion", "sound", "bpm cost", "key cost", "mood", "genres",
+                 "folder"],
                 {"Add": st.column_config.CheckboxColumn(
                     "Add", help="Tick what you want in the playlist, then "
                                 "the button below."),
@@ -1475,7 +1505,7 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     table["Drop"] = drop_all
     edited = play_table(
         "map_playlist", table,
-        ["#", "Drop", "file", "BPM", "key", "groove", "emotion",
+        ["#", "Drop", "file", "BPM", "key", "energy", "groove", "emotion",
          "from previous", "mood", "genres", "folder"],
         {"#": st.column_config.NumberColumn(
             "#", min_value=1, max_value=len(playlist), step=1,
@@ -1681,6 +1711,7 @@ def render_chain_section(store: MapStore, pool) -> None:
     placed = store.placed
     frame = pd.DataFrame(store.rows[:placed])
     frame["index"] = np.arange(len(frame))
+    frame["energy"] = energy_ranks(store, placed)
     cost = TransitionCost(store.coords[:placed], frame["bpm"].tolist(),
                           frame["camelot"].tolist())
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}

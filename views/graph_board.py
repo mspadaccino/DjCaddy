@@ -30,7 +30,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from analysis import mood_scale
+from analysis import energy, mood_scale
 from analysis.duplicates import folded, normalized_name, song_key
 from analysis.graph_playlist import GraphPlaylist, suggestions
 from analysis.mixing import (BPM_TOLERANCE, TransitionCost, bpm_shift,
@@ -118,8 +118,8 @@ def _some(row, column: str):
 # Cosa può dire l'ALTEZZA di una scheda sulla lavagna. L'asse x è già preso
 # dall'ordine della scaletta, che non è negoziabile; l'altezza invece è libera
 # e può portare la misura che in quel momento racconta il set.
-HEIGHT_FIELDS = {"BPM": "bpm", "key": "camelot", "groove": "danceability",
-                 "mood": "moods"}
+HEIGHT_FIELDS = {"BPM": "bpm", "energy": "energy", "key": "camelot",
+                 "groove": "danceability", "mood": "moods"}
 # Quella che si apre da sé è il groove, non il BPM: un set si costruisce fra
 # brani di tempo vicino — è il senso del costo di transizione — quindi la
 # linea dei BPM nasce quasi piatta e non ha molto da dire, mentre la
@@ -135,6 +135,10 @@ HEIGHT_MEANING = {
     "BPM": "How fast the track runs. The scale spans ±6% around the middle "
            "of the set — as far as the pitch fader stretches before the "
            "transition costs too much anyway.",
+    "energy": "How hard the track pushes: at the top the tenth of your "
+              "library that pushes hardest, at the bottom the tenth that "
+              "pushes least. It is already a rank, so the scale is the "
+              "whole library and nothing has to be stretched.",
     "key": "Where the track sits on the Camelot wheel, 1 to 12. Major or "
            "minor is not in the height — it is in the colour of the key on "
            "the card.",
@@ -188,6 +192,10 @@ def _span_of(axis: str, values: dict[str, float],
     Ogni misura ha invece una scala sua, e sempre la stessa: così due catene
     si confrontano, e piatto vuol dire davvero "non si muove".
     """
+    if axis == "energy":
+        # Gia' un rango sulla libreria: i decili SONO la scala, e tenderla
+        # una seconda volta vorrebbe dire prendere il rango di un rango.
+        return (0.0, 1.0)
     if axis == "key":
         return (1.0, 12.0)                      # la ruota, tutta
     if axis == "groove":
@@ -360,6 +368,13 @@ def _gaps(source, row) -> dict:
     here, there = _some(source, "danceability"), _some(row, "danceability")
     if here is not None and there is not None:
         out["dance"] = round(there - here, 2)
+    # L'energia si confronta in GRADINI, non in ranghi: "+2" vuol dire due
+    # decili piu' su, che e' come si decide se il set sale. Lo scarto fra
+    # 0,71 e 0,89 non dice niente a nessuno.
+    here, there = (energy.decile(_some(source, "energy")),
+                   energy.decile(_some(row, "energy")))
+    if here is not None and there is not None:
+        out["energy"] = there - here
     return out
 
 
@@ -384,6 +399,8 @@ def _card_shifts(source, row) -> dict[str, tuple[str, int]]:
         steps, mode = gaps["key"]
         out["key"] = ((f"{steps:+d}", _way(steps)) if steps
                       else (("rel", 0) if mode else ("=", 0)))
+    if "energy" in gaps:
+        out["energy"] = (f"{gaps['energy']:+d}", _way(gaps["energy"]))
     if "dance" in gaps:
         # Senza lo zero davanti: sotto una colonna di trentotto pixel "+0.05"
         # e "+.05" dicono la stessa cosa e solo uno dei due ci sta.
@@ -485,6 +502,7 @@ def _spelled(row, source, common: dict[str, int]) -> dict:
     return {
         **reading(row, common),
         "Δbpm": gaps.get("bpm"),
+        "Δenergy": gaps.get("energy"),
         "Δkey": (steps[0] if steps[0] else ("rel" if steps[1] else "="))
         if steps is not None else None,
         "Δgroove": gaps.get("dance"),
@@ -668,15 +686,15 @@ def _render_tables(frame: pd.DataFrame, cost: TransitionCost, pool,
         signature = "|".join(walk)
         chain_key = f"graph_chain_editor::{signature}"
         play_table("graph_chain", table,
-                   ["#", "BPM", "key", "groove", "emotion",
-                    "Δbpm", "Δkey", "Δgroove", "file", "mood", "genres",
-                    "folder"],
+                   ["#", "BPM", "key", "energy", "groove", "emotion",
+                    "Δbpm", "Δkey", "Δenergy", "Δgroove", "file", "mood",
+                    "genres", "folder"],
                    {"#": st.column_config.NumberColumn(
                        "#", min_value=1, max_value=max(len(walk), 1), step=1,
                        help="Write the position you want this track in: the "
                             "row moves there and the others slide."),
                     **reading_config(frame, table),
-                    **read_only("Δbpm", "Δkey", "Δgroove")},
+                    **read_only("Δbpm", "Δkey", "Δenergy", "Δgroove")},
                    editor_key=chain_key)
 
         moves = {int(row): values["#"]
@@ -751,13 +769,13 @@ def _render_roster(frame: pd.DataFrame, cost: TransitionCost, pool,
 
     edited = play_table(
         "graph_roster", table,
-        ["Add", "cost", "BPM", "key", "groove", "emotion",
-         "Δbpm", "Δkey", "Δgroove", "file", "copies", "mood", "genres",
-         "folder"],
+        ["Add", "cost", "BPM", "key", "energy", "groove", "emotion",
+         "Δbpm", "Δkey", "Δenergy", "Δgroove", "file", "copies", "mood",
+         "genres", "folder"],
         {"Add": st.column_config.CheckboxColumn(
             "Add", help="Tick what you want next, then the button below."),
          **reading_config(frame, table),
-         **read_only("cost", "Δbpm", "Δkey", "Δgroove", "copies")},
+         **read_only("cost", "Δbpm", "Δkey", "Δenergy", "Δgroove", "copies")},
         # Come per il menu: cambiata la sorgente o cresciuta la catena, le
         # righe sotto sono altre e le spunte di prima indicherebbero brani
         # che nessuno ha scelto.
