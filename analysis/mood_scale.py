@@ -168,11 +168,34 @@ def spell_weights(pairs) -> str:
 SIDES = (len(DARK), len(BRIGHT))
 
 # Le due scelte da cui dipende la forma della scala, tenute qui e non
-# sparse: `balanced` divide ogni lato per quante etichette ha, e toglie il
-# fondo; `floor` fa contare solo le attivazioni sopra un valore, cioè le
-# prove e non il rumore. Sono la stessa medicina per lo stesso male presa
-# in due modi, e quale delle due (o tutte e due) si tiene lo dice
-# `mood_cli --check`, che le misura una accanto all'altra.
+# sparse. Misurate su 2.000 brani veri, ed è così che sono finite dove sono:
+#
+# `balanced` divide ogni lato per quante etichette ha. Serve, e non basta:
+# porta i brani sotto zero dall'1,1% al 6,3%. Il resto dello sbilanciamento
+# non sono le liste, è il prior del modello, e nessuna correzione qui lo
+# tocca — per quello si legge il RANGO e non il numero (vedi
+# `views.map_analysis._valence_rank`).
+#
+# `floor` resta a zero, e non per pigrizia. Alzarlo non toglie il rumore in
+# modo neutro: toglie per prima l'evidenza del lato PERDENTE, che è la più
+# debole, e quindi toglie la sfumatura lasciando solo il vincitore. A 0,02
+# un decimo della libreria è già inchiodato a +1,00; a 0,05 lo sono quattro
+# decili su nove, più il 14% che resta senza nessuna lettura. Il costo è
+# enorme e il guadagno sul centraggio è di pochi punti che il rango dà
+# gratis.
+#
+# Resta aperta una domanda che nessuna misura interna può chiudere: il 12%
+# di brani il cui colore viene SOLO da attivazioni sotto la soglia delle
+# parole. Confrontare la lettura forte con la debole dà -0,387, contro
+# -0,273 rimescolando a caso le etichette dello stesso brano: peggio del
+# caso, il che non depone a favore. Ma quella separazione è viziata per
+# costruzione (il vincitore viene promosso sopra soglia, sotto resta il
+# perdente) e il rimescolamento non riproduce il prior per etichetta, quindi
+# nemmeno il paragone è pulito. Per quei brani c'è `mood_cli
+# --faint-sample`, che li mette in fila dal più buio al più chiaro da
+# ascoltare. Se l'ordine non tiene, il rimedio NON è alzare `floor` — è
+# lasciare senza valence quei brani soltanto, che costa il 12% invece di
+# rovinare la scala per tutti.
 BALANCED = True
 FLOOR = 0.0
 
