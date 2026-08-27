@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -652,3 +654,39 @@ def test_the_file_name_comes_right_after_the_column_you_act_on():
     source = inspect.getsource(graph_board)
     assert '["#", "file", "BPM"' in source          # la catena
     assert '["Add", "file", "cost"' in source       # la rosa
+
+
+# --- una libreria sola per tutte le sezioni -------------------------------
+
+def test_the_library_frame_carries_the_measures_that_are_not_on_disk():
+    """Energia e valence sono ranghi sulla LIBRERIA, non numeri per brano:
+    non stanno sulla riga, si calcolano aprendo la mappa. Chi costruisce il
+    frame deve riceverli senza doverseli ricordare."""
+    from analysis.map_store import MapStore
+    from views.map_analysis import library_frame
+
+    rows = [{"path": f"/x/{i}.mp3", "name": f"{i}.mp3", "bpm": 120.0,
+             "camelot": "8A", "moods": "Dark" if i else "Happy",
+             "energy_density": float(i), "energy_bass": float(i),
+             "energy_bright": float(i), "energy_pulse": float(i)}
+            for i in range(4)]
+    store = MapStore(directory=Path("/tmp/none"), rows=rows,
+                     embeddings=np.zeros((0, 1280), dtype=np.float32))
+    frame = library_frame(store, 4)
+    assert list(frame["index"]) == [0, 1, 2, 3]
+    assert frame["energy"].iloc[0] == 0.0 and frame["energy"].iloc[3] == 1.0
+    # E la valence come rango, che e' quella che si legge come posizione.
+    assert frame["valence_rank"].iloc[0] == 1.0      # l'unico Happy
+
+
+def test_no_section_builds_the_library_frame_on_its_own():
+    """La causa vera del KeyError: tre sezioni si costruivano il frame per
+    conto loro, e le colonne calcolate andavano aggiunte in tre posti. Ne ho
+    aggiornati due su tre, e salvare una playlist rompeva la lavagna."""
+    import inspect
+
+    from views import map_analysis
+
+    body = inspect.getsource(map_analysis)
+    built = body.count("pd.DataFrame(store.rows[:placed])")
+    assert built == 1, "solo `library_frame` costruisce la libreria"

@@ -398,6 +398,29 @@ def axis_guide(values, column: str) -> float | None:
     return float(numbers.median()) if len(numbers) else None
 
 
+def library_frame(store: MapStore, placed: int) -> pd.DataFrame:
+    """I brani piazzati come tabella, con addosso le misure derivate.
+
+    Le sezioni della pagina che leggono la libreria sono TRE — la mappa, il
+    Chain Maker e la playlist — e ognuna si costruiva il frame per conto suo.
+    Finché le colonne erano quelle su disco andava bene; da quando ce ne sono
+    di calcolate al momento (l'energia e la valence sono ranghi sulla
+    libreria intera, non numeri per brano) voleva dire ricordarsi di
+    aggiungerle in tre posti. Ne ho aggiornati due su tre, e la terza sezione
+    è andata in errore appena qualcuno ha salvato una playlist.
+
+    Una funzione sola, quindi: chi vuole la libreria la chiede qui e la
+    riceve completa. Le colonne che servono a una sezione sola — le
+    coordinate della mappa, gli elenchi per i filtri — restano a carico di
+    chi le usa.
+    """
+    frame = pd.DataFrame(store.rows[:placed])
+    frame["index"] = np.arange(len(frame))
+    frame["energy"] = energy_ranks(store, placed)
+    frame["valence_rank"] = valence_ranks(store, placed)
+    return frame
+
+
 def energy_ranks(store: MapStore, placed: int) -> np.ndarray:
     """L'energia dei brani piazzati, allineata alle righe del frame.
 
@@ -1113,12 +1136,12 @@ def render_map(store: MapStore) -> tuple | None:
     # arrivati dopo l'ultima proiezione — tipicamente perché un job sta
     # lavorando proprio adesso — e aspettano la prossima: la mappa resta
     # usabile nel frattempo, che è il punto.
-    frame = pd.DataFrame(store.rows[:placed])
+    frame = library_frame(store, placed)
     frame["x"], frame["y"] = store.coords[:, 0], store.coords[:, 1]
-    frame["index"] = np.arange(len(frame))
-    frame["energy"] = energy_ranks(store, placed)
+    # Il numero firmato lo guarda solo la mappa, fra le voci degli assi: le
+    # altre due sezioni leggono il rango, che e' quello che si usa come
+    # posizione.
     frame["valence"] = mood_valence(store, placed)
-    frame["valence_rank"] = valence_ranks(store, placed)
     frame["genre_list"] = frame["genres"].fillna("").str.split("; ")
     # Una mappa fatta prima che il mood si registrasse non ha la colonna:
     # meglio un filtro che non propone niente di un errore a metà pagina.
@@ -1497,7 +1520,7 @@ def render_playlist_section(store: MapStore) -> None:
     if not len(store) or not store.placed:
         return
     placed = store.placed
-    frame = pd.DataFrame(store.rows[:placed])
+    frame = library_frame(store, placed)
     cost = TransitionCost(store.coords[:placed], frame["bpm"].tolist(),
                           frame["camelot"].tolist())
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
@@ -2092,10 +2115,7 @@ def render_chain_section(store: MapStore, pool) -> None:
     if not len(store) or not store.placed:
         return
     placed = store.placed
-    frame = pd.DataFrame(store.rows[:placed])
-    frame["index"] = np.arange(len(frame))
-    frame["energy"] = energy_ranks(store, placed)
-    frame["valence_rank"] = valence_ranks(store, placed)
+    frame = library_frame(store, placed)
     cost = TransitionCost(store.coords[:placed], frame["bpm"].tolist(),
                           frame["camelot"].tolist())
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}

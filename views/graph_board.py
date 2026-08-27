@@ -108,8 +108,16 @@ def _some(row, column: str):
     Serve perché un campo vuoto arriva qui come NaN, e NaN è vero: scritto
     su una scheda con `or` diventa la parola "nan" sotto al titolo, che
     sembra un dato invece che l'assenza di un dato.
+
+    E una colonna che non c'è affatto è anch'essa un dato che manca, non un
+    errore: prima faceva saltare la pagina intera con un `KeyError`, ed è
+    successo davvero — una delle tre sezioni costruiva il frame senza le
+    colonne calcolate, e salvare una playlist rompeva la lavagna. La causa
+    l'ha tolta `map_analysis.library_frame`; questo è il paracadute, perché
+    una colonna in meno vale una scheda senza quel numero, non una pagina
+    bianca.
     """
-    if row is None:
+    if row is None or column not in row:
         return None
     value = row[column]
     return value if pd.notna(value) and value != "" else None

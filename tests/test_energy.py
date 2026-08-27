@@ -332,3 +332,33 @@ def test_the_energy_axis_is_not_stretched_a_second_time():
     at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
     calm = _heights(frame, at_path, ["/a.mp3", "/b.mp3"], "energy")
     assert calm["/b.mp3"] == 0.4          # non 1.0
+
+
+def test_a_frame_without_the_energy_column_does_not_break_the_board():
+    """E' successo davvero: una delle tre sezioni costruiva il frame senza le
+    colonne calcolate, e salvare una playlist rompeva la lavagna con un
+    KeyError. Una colonna in meno vale una scheda senza quel numero, non una
+    pagina bianca."""
+    import pandas as pd
+
+    from views.graph_board import _card_shifts, _gaps, _some
+
+    old = pd.Series({"bpm": 120.0, "camelot": "8A", "danceability": 0.5})
+    new = pd.Series({"bpm": 124.0, "camelot": "9A", "danceability": 0.6})
+    assert _some(old, "energy") is None
+    assert "energy" not in _gaps(old, new)
+    assert "energy" not in _card_shifts(old, new)
+    # E quello che c'e' si legge lo stesso.
+    assert _gaps(old, new)["bpm"] == 4
+
+
+def test_the_delta_energy_is_there_when_the_column_is():
+    import pandas as pd
+
+    from views.graph_board import _gaps
+
+    old = pd.Series({"bpm": 120.0, "camelot": "8A", "danceability": 0.5,
+                     "energy": 0.25})
+    new = pd.Series({"bpm": 120.0, "camelot": "8A", "danceability": 0.5,
+                     "energy": 0.75})
+    assert _gaps(old, new)["energy"] == 5        # dal terzo decile all'ottavo
