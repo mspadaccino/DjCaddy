@@ -56,6 +56,12 @@ FLUSH_EVERY = 20000
 
 FIELDS = MOOD_FIELDS
 
+# Le letture fra cui si sceglie, per `--check`: nome, soglia, se bilanciare
+# i due lati sul numero di etichette che hanno. Vedi `mood_scale.SIDES`.
+CANDIDATES = (("sums", 0.0, False),
+              ("balanced", 0.0, True),
+              ("balanced + floor", 0.02, True))
+
 # Qual è il campo che dice "questa riga è fatta". NON `valence`: quello resta
 # `None` sui brani a cui il modello non legge nessun colore — che è una
 # risposta, non un buco — e chiedere di lui rimetterebbe quei brani nella
@@ -144,12 +150,19 @@ def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
     stavano cercando — ma dice DOVE la libreria si è riordinata, e quello va
     saputo prima di riscrivere ottantasettemila righe.
 
-    **E come si distribuisce.** `saturated` è la frazione di brani che
-    finiscono a ±1,00 tondi. Togliere le neutre dal denominatore lascia
-    all'asse solo il rapporto fra le colorate, e un brano che porta prove di
-    buio e nessuna di chiaro esce a −1,00 comunque poche siano: se questa
-    frazione è alta, l'asse orizzontale dei quadranti diventa tre mucchi
-    invece di una distribuzione, ed è meglio saperlo prima di guardarlo.
+    **E come si distribuisce.** Un asse non serve a niente se la libreria ci
+    sta tutta da una parte. Per ognuna delle letture candidate si scrivono
+    i nove decili e la frazione di brani sotto lo zero: se `below zero` è
+    vicina a 0,50 lo zero è davvero il mezzo, e la croce dei quadranti può
+    starci; se è vicina a 0 o a 1, lo zero non è il mezzo di niente e o si
+    cambia lettura o si centra la croce sulla mediana.
+
+    Le candidate sono tre, e sono lo stesso rimedio per lo stesso male preso
+    in tre dosi: `sums` è la lettura senza rimedio (somme crude), `balanced`
+    divide ogni lato per quante etichette ha, `balanced + floor` in più fa
+    contare solo le attivazioni sopra una soglia. Il male è che le liste non
+    sono grandi uguali — 13 chiare, 8 buie — e il fondo della sigmoide entra
+    13 volte da una parte e 8 dall'altra.
     """
     rows = store.rows
     total = min(sample, len(store.embeddings), len(rows))
@@ -160,7 +173,8 @@ def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
     picked = list(range(0, len(rows), step))[:total]
 
     first = fresh_colour = 0
-    overlap, old_way, middle, new_way, shipped = [], [], [], [], []
+    overlap, old_way, middle, new_way = [], [], [], []
+    coloured = []
     for offset, scores in enumerate(
             row for chunk in scored(store.embeddings[picked], predict)
             for row in chunk):
@@ -170,16 +184,15 @@ def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
         overlap.append(share)
 
         whole = dict(zip(labels, map(float, scores)))
+        coloured.append(whole)
         old = mood_scale.valence(stored)
         both = mood_scale.valence_of(whole, dilute=True)
         new = mood_scale.valence_of(whole)
-        if new is not None:
-            shipped.append(new)
+        if new is not None and not old:
             # Le parole non davano nessun verso — o perché non ce n'erano, o
             # perché erano tutte neutre — e le prove sotto soglia uno ce
             # l'hanno dato.
-            if not old:
-                fresh_colour += 1
+            fresh_colour += 1
         if None not in (old, both, new):
             old_way.append(old)
             middle.append(both)
@@ -194,11 +207,15 @@ def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
         out["dropping the neutrals"] = float(np.corrcoef(middle, new_way)[0, 1])
         out["old vs new, both changes"] = float(
             np.corrcoef(old_way, new_way)[0, 1])
-    if shipped:
-        values = np.asarray(shipped)
-        out["saturated at ±1.00"] = float(np.mean(np.abs(values) >= 0.999))
-        out["deciles"] = [round(float(v), 2) for v in
-                          np.quantile(values, np.arange(0.1, 1.0, 0.1))]
+    for name, floor, balanced in CANDIDATES:
+        values = np.asarray([v for v in (
+            mood_scale.valence_of(whole, floor=floor, balanced=balanced)
+            for whole in coloured) if v is not None])
+        if not len(values):
+            continue
+        out[f"{name} · below zero"] = float(np.mean(values < 0))
+        out[f"{name} · deciles"] = [round(float(v), 2) for v in
+                                    np.quantile(values, np.arange(0.1, 1.0, 0.1))]
     return out
 
 

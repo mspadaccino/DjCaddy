@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from analysis import mood_scale
 from analysis.map_profile import (
     MOOD_FIELDS,
     ProfileSettings,
@@ -157,9 +158,16 @@ LABELS = ["Dark", "Happy", "Energetic"]
 
 
 def test_the_three_numbers_come_out_of_the_activations():
+    # Ogni lato e' la MEDIA delle sue etichette, non la somma: le liste vere
+    # sono da 8 e da 13, e sommarle farebbe entrare il fondo della sigmoide
+    # 13 volte da una parte e 8 dall'altra. Vedi `mood_scale.SIDES`.
+    buie, chiare = mood_scale.SIDES
+    dark, bright = 0.60 / buie, 0.20 / chiare
     numbers = mood_numbers([0.60, 0.20, 0.90], LABELS, SETTINGS)
-    assert numbers["valence"] == -0.5           # (0,20 - 0,60) / 0,80
-    assert numbers["mood_evidence"] == 0.8      # la neutra non conta
+    assert numbers["valence"] == pytest.approx((bright - dark) / (bright + dark),
+                                               abs=1e-4)
+    assert numbers["valence"] < 0                       # il buio vince
+    assert numbers["mood_evidence"] == round(dark + bright, 3)
     # I pesi si scrivono dal piu' forte, come la confidenza dei generi.
     assert numbers["mood_conf"] == "Energetic:0.900; Dark:0.600; Happy:0.200"
 
@@ -180,7 +188,8 @@ def test_the_row_carries_the_three_numbers_next_to_the_words():
                                                      LABELS, SETTINGS))
     row = profile.to_row()
     assert row["moods"] == "Dark; Deep"
-    assert row["valence"] == -0.5
+    assert row["valence"] == mood_numbers([0.60, 0.20, 0.90],
+                                          LABELS, SETTINGS)["valence"]
     assert row["mood_conf"].startswith("Energetic:0.900")
 
 

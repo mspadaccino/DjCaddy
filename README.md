@@ -453,8 +453,21 @@ activation they are left out of both sides, because `Energetic` sits on 89%
 of the library **and sits strongly**, so keeping it in the denominator would
 push every track towards zero by nearly the same amount — losing range
 without adding reading. How little colour a track carries is said instead by
-`mood_evidence`, which is the sum of the coloured activations and is kept as
-its own number.
+`mood_evidence`, which is kept as its own number.
+
+**Each side is the mean of its words, not their sum**, and that detail is not
+cosmetic. The two hand-written lists are not the same size — 13 bright words
+against 8 dark ones — and a multi-label head gives every one of the 56 labels
+a small baseline activation even on a track that is not that thing. Summing
+therefore lets the sigmoid's noise floor in 13 times on one side and 8 on the
+other, which makes every track read brighter for a reason that has nothing to
+do with the music. Measured on 2,000 real tracks, the sums version put all
+nine deciles above zero (+0.31 to +0.76): the zero was the middle of nothing.
+
+Because of that, the quadrant chart does **not** treat valence's zero as a
+centre. Energy's half is a real middle — it is a rank, so half the library is
+below it by construction — but a signed scale's zero only looks like one. The
+cross falls on the median of what the filters leave, and the caption says so.
 
 `mood_conf` on the row is the top few activations written out
 (`Dark:0.620; Deep:0.410; …`), the same way genre confidences are written.

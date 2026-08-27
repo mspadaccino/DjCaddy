@@ -141,12 +141,18 @@ AXIS_FIELDS = {
 DEFAULT_AXES = ("valence (mood)", "energy")
 
 # Dove passa la croce che divide i quadranti, per le misure che un centro
-# vero ce l'hanno. La valence e' firmata e il suo zero vuol dire "ne' buia
-# ne' chiara"; l'energia e' un rango sulla libreria e il suo mezzo E' la
-# mediana per costruzione. Tutte le altre non hanno un centro naturale e la
-# croce si mette dove passa la meta' di quello che si sta guardando — che e'
-# una lettura onesta, purche' si scriva.
-AXIS_CENTRES = {"valence": 0.0, "energy": 0.5}
+# vero ce l'hanno. Ce n'e' UNA: l'energia e' un rango sulla libreria, quindi
+# il suo mezzo E' la mediana per costruzione e lo sara' sempre.
+#
+# La valence NON c'e', ed e' una correzione. Lo zero di una scala firmata
+# sembra un centro e non lo e': misurata sulla libreria vera (2.000 brani)
+# la valence aveva i nove decili tutti positivi, da +0,31 a +0,76 — con la
+# croce sullo zero i due quadranti bui sarebbero rimasti vuoti e il grafico
+# avrebbe detto che la libreria e' tutta allegra, che e' una proprieta' di
+# come sono fatte le due liste di parole e non della musica. La mediana di
+# quello che i filtri lasciano e' l'unica riga che si guadagna il nome di
+# centro senza chiedere fiducia.
+AXIS_CENTRES = {"energy": 0.5}
 
 FLAT_SIZE = 7.0
 MIN_SIZE, MAX_SIZE = 4.0, 15.0

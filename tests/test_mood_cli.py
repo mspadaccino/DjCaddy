@@ -38,18 +38,9 @@ def _store(tmp_path, *tracks):
     return store
 
 
-def test_the_three_fields_come_out_of_the_activations(tmp_path):
-    written = mood_cli.written([0.60, 0.20, 0.90], LABELS, SETTINGS)
-    assert written["valence"] == -0.5           # (0,20 − 0,60) / 0,80
-    assert written["mood_evidence"] == 0.8      # la neutra non conta
-    assert written["mood_conf"] == "Energetic:0.900; Dark:0.600; Happy:0.200"
-
-
-def test_a_colourless_track_gets_no_valence_but_still_gets_the_weights():
-    written = mood_cli.written([0.0, 0.0, 0.90], LABELS, SETTINGS)
-    assert written["valence"] is None
-    assert written["mood_evidence"] == 0.0
-    assert written["mood_conf"] == "Energetic:0.900"
+# I tre campi in sé sono provati in `test_map_profile`, dove sta la funzione
+# che li scrive: qui `written` è la stessa, e riprovarla vorrebbe dire due
+# copie dello stesso test che un giorno diranno due cose diverse.
 
 
 def test_the_vectors_go_through_the_head_in_batches():
@@ -66,7 +57,10 @@ def test_the_backfill_writes_the_numbers_on_every_row(tmp_path, monkeypatch):
     assert mood_cli.backfill(store, SETTINGS) == 2
 
     again = MapStore.load(tmp_path / "map")
-    assert [row["valence"] for row in again.rows] == [-0.5, 0.75]
+    written = [row["valence"] for row in again.rows]
+    assert written[0] < 0 < written[1]                   # buio, poi chiaro
+    assert written == [mood_cli.written(a, LABELS, SETTINGS)["valence"]
+                       for a in ([0.60, 0.20, 0.90], [0.10, 0.70, 0.30])]
     # E i vettori restano quelli, allineati riga per riga: il backfill
     # riscrive le righe, non la mappa.
     assert again.embeddings.shape == (2, EMBEDDING_DIM)
@@ -203,16 +197,19 @@ def test_the_check_separates_the_three_changes(tmp_path, monkeypatch):
     report = mood_cli.check(store, 10, SETTINGS)
     assert {"weights vs ranks", "dropping the neutrals",
             "old vs new, both changes"} <= set(report)
-    assert len(report["deciles"]) == 9
-    assert 0.0 <= report["saturated at ±1.00"] <= 1.0
+    # E ogni lettura candidata porta i suoi decili e da che parte cade.
+    for name, _, _ in mood_cli.CANDIDATES:
+        assert len(report[f"{name} · deciles"]) == 9
+        assert 0.0 <= report[f"{name} · below zero"] <= 1.0
 
 
 def test_the_diluted_reading_is_the_old_one_with_the_new_weights():
     """E' il gradino di mezzo: pesi veri, ma neutre ancora nel
     denominatore. Serve solo a separare i due cambiamenti."""
     whole = {"Dark": 0.5, "Energetic": 0.9}
+    dark = 0.5 / mood_scale.SIDES[0]
     assert mood_scale.valence_of(whole) == -1.0
-    assert mood_scale.valence_of(whole, dilute=True) == pytest.approx(-0.357,
-                                                                     abs=1e-3)
+    assert mood_scale.valence_of(whole, dilute=True) == pytest.approx(
+        -dark / (dark + 0.9), abs=1e-4)
     # Senza colore non risponde in nessuno dei due modi.
     assert mood_scale.valence_of({"Energetic": 0.9}, dilute=True) is None

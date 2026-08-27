@@ -154,7 +154,49 @@ def spell_weights(pairs) -> str:
     return "; ".join(f"{label}:{value:.3f}" for label, value in ordered)
 
 
-def valence_of(activations, dilute: bool = False) -> float | None:
+# Quante etichette per lista, che NON sono lo stesso numero: 13 chiare
+# contro 8 buie. Con una testa multi-label ogni etichetta porta una
+# attivazione di fondo anche su un brano che non è quella cosa — è il rumore
+# della sigmoide, non una prova — e sommando le due liste il fondo entra 13
+# volte da una parte e 8 dall'altra. Il risultato è una somma chiara più
+# grande su OGNI brano, per un motivo che con la musica non c'entra niente.
+#
+# Misurato sulla libreria vera (2.000 brani): con le somme crude i nove
+# decili della valence erano +0,31 +0,40 +0,47 +0,53 +0,58 +0,62 +0,67 +0,71
+# +0,76. Tutti positivi: lo zero non era il mezzo di niente, aveva il 90%
+# della libreria da una parte sola.
+SIDES = (len(DARK), len(BRIGHT))
+
+# Le due scelte da cui dipende la forma della scala, tenute qui e non
+# sparse: `balanced` divide ogni lato per quante etichette ha, e toglie il
+# fondo; `floor` fa contare solo le attivazioni sopra un valore, cioè le
+# prove e non il rumore. Sono la stessa medicina per lo stesso male presa
+# in due modi, e quale delle due (o tutte e due) si tiene lo dice
+# `mood_cli --check`, che le misura una accanto all'altra.
+BALANCED = True
+FLOOR = 0.0
+
+
+def _sides(activations, floor: float, balanced: bool) -> tuple[float, float, float]:
+    """Quanto pesa il buio, quanto il chiaro, quanto il resto."""
+    dark = bright = plain = 0.0
+    for label, value in weights(activations).items():
+        if value <= floor:
+            continue
+        if label in DARK:
+            dark += value
+        elif label in BRIGHT:
+            bright += value
+        else:
+            plain += value
+    if balanced:
+        dark, bright = dark / SIDES[0], bright / SIDES[1]
+    return dark, bright, plain
+
+
+def valence_of(activations, dilute: bool = False,
+               floor: float | None = None,
+               balanced: bool | None = None) -> float | None:
     """Da −1 (buio) a +1 (chiaro), sui pesi veri. `None` se non c'è colore.
 
     È lo stesso asse di `valence` — la valence in senso proprio, l'arco
@@ -163,36 +205,29 @@ def valence_of(activations, dilute: bool = False) -> float | None:
 
     A contare sono SOLO le etichette che un colore ce l'hanno:
 
-        (somma delle chiare − somma delle buie) / (somma di tutte e due)
+        (chiare − buie) / (chiare + buie)
 
-    Le neutre restano fuori anche dal denominatore, ed è un cambio rispetto
-    a `valence`, dove diluivano. Il motivo è che con i pesi veri diluire non
-    è più neutro: *Energetic* sta sull'89% della libreria e ci sta forte, e
-    lasciata nel denominatore schiaccerebbe tutti verso lo zero per una
-    quantità quasi uguale su ogni brano — cioè toglierebbe escursione senza
-    aggiungere lettura. Quanto un brano sia POCO colorato si legge meglio da
-    `evidence`, che è un numero a parte e dice quanto colore c'è in tutto.
+    dove ogni lato è la MEDIA delle sue etichette e non la somma, per il
+    motivo scritto sopra `SIDES`. Le neutre restano fuori anche dal
+    denominatore, ed è un cambio rispetto a `valence`, dove diluivano: con i
+    pesi veri diluire non è più neutro, perché *Energetic* sta sull'89%
+    della libreria e ci sta forte, e nel denominatore schiaccerebbe tutti
+    verso lo zero per una quantità quasi uguale su ogni brano. Quanto un
+    brano sia POCO colorato si legge da `evidence`, che è un numero a parte.
 
     `None` quando di prove non ce n'è nessuna: uno zero direbbe "in mezzo
     fra buio e chiaro", che è un'altra cosa da "di questo non si sa".
 
-    `dilute` rimette le neutre nel denominatore, cioè fa quello che fa
-    `valence` per rango. NON è un'opzione da usare: serve a `mood_cli
-    --check` per separare due cambiamenti che altrimenti si guardano
-    insieme e non si capisce quale dei due ha mosso cosa. Passare dai
-    ranghi ai pesi veri e togliere le neutre dal denominatore sono due
-    decisioni diverse, e vanno misurate una alla volta.
+    I tre parametri non sono opzioni da usare: servono a `mood_cli --check`
+    per misurare una accanto all'altra le letture fra cui si sceglie, e per
+    separare cambiamenti che altrimenti si guardano tutti insieme e non si
+    capisce quale ha mosso cosa. Lasciati a `None` prendono la scelta fatta,
+    che è quella qui sopra.
     """
-    dark = bright = plain = 0.0
-    for label, value in weights(activations).items():
-        if not value > 0:
-            continue
-        if label in DARK:
-            dark += value
-        elif label in BRIGHT:
-            bright += value
-        else:
-            plain += value
+    dark, bright, plain = _sides(
+        activations,
+        FLOOR if floor is None else floor,
+        BALANCED if balanced is None else balanced)
     coloured = dark + bright
     if not coloured > 0:
         return None
@@ -208,5 +243,5 @@ def evidence(activations) -> float:
     di attivazione e il secondo lo grida. Serve a decidere quando la
     freccia in tabella si disegna e quando no.
     """
-    return sum(v for label, v in weights(activations).items()
-               if v > 0 and (label in DARK or label in BRIGHT))
+    dark, bright, _ = _sides(activations, FLOOR, BALANCED)
+    return dark + bright

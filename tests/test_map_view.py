@@ -510,10 +510,20 @@ def test_the_quadrant_axes_are_not_tied_to_each_other():
 def test_the_cross_sits_where_the_measure_has_its_own_middle():
     from views.map_analysis import axis_guide
 
-    # Lo zero della valence vuol dire "ne' buia ne' chiara", e il mezzo
-    # dell'energia E' la mediana perche' l'energia e' un rango.
-    assert axis_guide([-0.8, -0.7, -0.6], "valence") == 0.0
+    # Una misura sola ce l'ha: l'energia e' un rango sulla libreria, quindi
+    # il suo mezzo E' la mediana per costruzione.
     assert axis_guide([0.1, 0.2, 0.3], "energy") == 0.5
+
+
+def test_the_valence_does_not_get_to_call_its_zero_a_centre():
+    """Misurata sulla libreria vera i nove decili erano tutti positivi: con
+    la croce sullo zero i due quadranti bui sarebbero rimasti vuoti, e il
+    grafico avrebbe detto che la libreria e' tutta allegra — che e' una
+    proprieta' di come sono fatte le due liste di parole, non della musica."""
+    from views.map_analysis import AXIS_CENTRES, axis_guide
+
+    assert "valence" not in AXIS_CENTRES
+    assert axis_guide([0.3, 0.5, 0.7], "valence") == 0.5
 
 
 def test_the_cross_falls_back_to_the_median_of_what_is_on_screen():
