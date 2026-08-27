@@ -249,12 +249,24 @@ def report(store: MapStore, sample: int, heads) -> dict:
             for name, values in fresh.items()}
 
 
-def listing(store: MapStore, sample: int, heads, by: str) -> list[dict]:
-    """Un campione ordinato su una delle quattro, da ascoltare in fila."""
+def listing(store: MapStore, sample: int, heads, by: str,
+            top: bool = False) -> list[dict]:
+    """Un campione ordinato su una delle quattro, da ascoltare in fila.
+
+    `top` prende i piu' alti invece di distribuire su tutta la scala, e su
+    una misura che dice sì al 3% dei brani e' l'unico campione che serve:
+    distribuendo, ventiquattro righe su venticinque sarebbero brani che la
+    testa non ha scelto, e la domanda — "quelli che indica sono davvero
+    quelli?" — non riceverebbe risposta.
+    """
     at = picked(store.rows, max(sample * 40, sample))
     fresh = scored(store.embeddings[at], heads)
     order = np.argsort(fresh[by])
-    step = max(1, len(order) // sample)
+    if top:
+        order = order[::-1][:sample]
+        step = 1
+    else:
+        step = max(1, len(order) // sample)
     return [{by: round(float(fresh[by][k]), 3),
              **{name: round(float(values[k]), 3)
                 for name, values in fresh.items() if name != by},
@@ -276,6 +288,9 @@ def main() -> None:
                              "da ascoltare")
     parser.add_argument("--by", default="party", choices=list(HEADS),
                         help="su quale delle quattro ordinare, con --listen")
+    parser.add_argument("--top", action="store_true",
+                        help="con --listen: i piu' alti invece di un campione "
+                             "steso su tutta la scala")
     parser.add_argument("--out", type=Path, default=Path("zoo_sample.csv"))
     parser.add_argument("--store", default=None)
     parser.add_argument("--models", type=Path, default=MODEL_DIR)
@@ -309,7 +324,7 @@ def main() -> None:
     heads = _load(args.models)
 
     if args.listen:
-        table = listing(store, args.listen, heads, args.by)
+        table = listing(store, args.listen, heads, args.by, top=args.top)
         with args.out.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(table[0]))
             writer.writeheader()

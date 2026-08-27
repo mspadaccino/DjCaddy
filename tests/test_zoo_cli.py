@@ -201,3 +201,15 @@ def test_a_download_that_works_lands_under_its_own_name(tmp_path, monkeypatch):
     assert (tmp_path / "mood_party-discogs-effnet-1.pb").read_bytes() == b"grafo finto"
     # E niente residui del file temporaneo.
     assert len(list(tmp_path.iterdir())) == 1
+
+
+def test_the_top_sample_is_the_only_useful_one_for_a_rare_measure(tmp_path):
+    """Su una misura che dice si' al 3% dei brani, distribuire sulla scala
+    darebbe ventiquattro righe su venticinque di brani che la testa non ha
+    scelto — e la domanda "quelli che indica sono davvero quelli?" non
+    riceverebbe risposta."""
+    store = _store(tmp_path, *[(i / 20, 0.5, 0.5, 0.5) for i in range(20)])
+    highest = zoo_cli.listing(store, 3, _heads(), "aggressive", top=True)
+    values = [row["aggressive"] for row in highest]
+    assert values == sorted(values, reverse=True)
+    assert values[0] == pytest.approx(0.95, abs=1e-6)     # il massimo
