@@ -133,3 +133,26 @@ def test_the_written_fields_are_the_same_the_analyzer_writes():
                                        ("Happy", 0.2)]).to_row()
     backfilled = mood_cli.written(scores, LABELS, SETTINGS)
     assert all(fresh[name] == backfilled[name] for name in mood_cli.FIELDS)
+
+
+def test_the_check_reports_without_writing_anything(tmp_path, monkeypatch):
+    """E' il primo comando che si lancia: dice quanto la riprevisione dagli
+    embedding somiglia alle etichette salvate, prima che qualcuno riscriva
+    ottantasettemila righe."""
+    store = _store(tmp_path, (0.60, 0.20, 0.90), (0.10, 0.70, 0.30))
+    store.rows[0]["moods"] = "Energetic; Dark"      # come la riprevede
+    store.rows[1]["moods"] = "Dark"                 # come NON la riprevede
+    monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
+
+    report = mood_cli.check(store, 10, SETTINGS)
+    assert report["tracks"] == 2
+    assert report["top label kept"] == 0.5
+    # E le righe restano come stavano: `--check` non scrive.
+    assert mood_cli.missing(store.rows) == [0, 1]
+
+
+def test_the_check_on_an_empty_map_says_nothing_instead_of_dividing_by_zero(
+        tmp_path, monkeypatch):
+    store = MapStore.load(tmp_path / "map")
+    monkeypatch.setattr(mood_cli, "_head", lambda: (_predict, LABELS))
+    assert mood_cli.check(store, 10, SETTINGS) == {"tracks": 0}

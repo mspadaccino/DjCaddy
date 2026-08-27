@@ -134,11 +134,11 @@ def agreement(scores, labels: list[str], stored: str,
 
 def check(store: MapStore, sample: int, settings: ProfileSettings) -> dict:
     """Riprevede un campione e conta quanto tiene, senza scrivere niente."""
-    predict, labels = _head()
     rows = store.rows
     total = min(sample, len(store.embeddings), len(rows))
     if not total:
-        return {"tracks": 0}
+        return {"tracks": 0}     # e senza caricare mezzo giga di modello
+    predict, labels = _head()
     step = max(1, len(rows) // total)
     picked = list(range(0, len(rows), step))[:total]
     vectors = store.embeddings[picked]
