@@ -2071,6 +2071,27 @@ def _board_chapter_regions(ch_lookup: dict[int, str] | None,
     return regions
 
 
+def _move_between_chapters(frame: pd.DataFrame, track_idx: int,
+                           src_name: str, dst_name: str) -> None:
+    """Move a track from one chapter to another via board drag."""
+    chapters = st.session_state.get(CHAPTER_STATE)
+    if chapters is None:
+        return
+    src_ci = next((i for i, ch in enumerate(CHAPTERS)
+                   if ch["name"] == src_name), None)
+    dst_ci = next((i for i, ch in enumerate(CHAPTERS)
+                   if ch["name"] == dst_name), None)
+    if src_ci is None or dst_ci is None:
+        return
+    if track_idx in chapters[src_ci]:
+        chapters[src_ci].remove(track_idx)
+        chapters[dst_ci].append(track_idx)
+        st.session_state[CHAPTER_STATE] = chapters
+        ordered = sum(chapters, [])
+        remember_playlist(frame, ordered)
+    st.rerun()
+
+
 def render_chapter_builder(frame: pd.DataFrame, cost: TransitionCost,
                            playlist: list[int]) -> None:
     if len(playlist) < 5:
@@ -2259,7 +2280,9 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     render_board(frame, at_path, playlist,
                  drop=lambda i: _drop_from_playlist(frame, playlist, i),
                  move=lambda order: _reorder_playlist(frame, order),
-                 chapters=board_chapters)
+                 chapters=board_chapters,
+                 chapter_move=lambda idx, src, dst:
+                     _move_between_chapters(frame, idx, src, dst))
 
     p1, p2, p3, p4 = st.columns(4)
     if p1.button("✨ Magic sort", width="stretch", disabled=len(playlist) < 3):

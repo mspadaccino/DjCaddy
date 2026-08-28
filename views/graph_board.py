@@ -532,7 +532,8 @@ def _ticks(axis: str, values: dict[str, float],
 @st.fragment
 def render_board(frame: pd.DataFrame, at_path: dict[str, int],
                  playlist: list[int], drop, move,
-                 chapters: list[dict] | None = None) -> None:
+                 chapters: list[dict] | None = None,
+                 chapter_move=None) -> None:
     """La playlist come lavagna: una scheda per brano, in fila come suonerà.
 
     Prima disegnava la sola catena del Chain Maker, ed era troppo poco: un
@@ -573,6 +574,10 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
             # Togliere una scheda toglie il brano dalla PLAYLIST: la lavagna
             # non ha più una copia sua da cui cancellarlo.
             drop(at_path[who])
+            return
+        elif kind == "chapter_move" and who in at_path and chapter_move:
+            chapter_move(at_path[who],
+                         event.get("from_chapter"), event.get("to_chapter"))
             return
         elif kind == "move" and who in paths:
             # Stessa regola della colonna "#" nelle tabelle, e apposta la

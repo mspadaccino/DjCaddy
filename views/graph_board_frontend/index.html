@@ -692,19 +692,33 @@
     if (pending) { accept(pending); pending = null; }
   }
 
-  // Il rilascio dice cosa voleva dire il gesto. Fermo era un click sul brano;
-  // spostato in un'altra corsia è un ordine nuovo, e lo si manda a Python —
-  // che rifà la playlist e ridisegna. Spostato e rimesso dov'era non è
-  // successo niente, e non si disturba nessuno.
+  function chapterAt(slot) {
+    for (var i = 0; i < state.chapters.length; i++) {
+      var ch = state.chapters[i];
+      if (slot >= ch.start && slot <= ch.end) return ch;
+    }
+    return null;
+  }
+
   function endDrag() {
     if (!drag) return;
     var was = drag, moved = drag.moved && drag.index !== drag.from;
     drag = null;
     wrap.classList.remove("dragging");
     render();
-    if (!was.moved) sendValue({ type: "click", id: was.id });
-    else if (moved) sendValue({ type: "move", id: was.id, to: was.index });
-    else if (pending) { accept(pending); pending = null; }
+    if (!was.moved) { sendValue({ type: "click", id: was.id }); return; }
+    if (!moved) { if (pending) { accept(pending); pending = null; } return; }
+    if (state.chapters.length) {
+      var fromCh = chapterAt(was.from);
+      var toCh = chapterAt(was.index);
+      if (fromCh && toCh && fromCh.name !== toCh.name) {
+        sendValue({ type: "chapter_move", id: was.id,
+                    from_chapter: fromCh.name, to_chapter: toCh.name,
+                    to: was.index });
+        return;
+      }
+    }
+    sendValue({ type: "move", id: was.id, to: was.index });
   }
 
   svg.addEventListener("pointerup", function (evt) {
