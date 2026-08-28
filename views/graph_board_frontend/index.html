@@ -101,7 +101,7 @@
   var MAP_W = 170, MAP_H = 54;
   var MAP_X = W - MAP_W - 12, MAP_Y = H - MAP_H - 12;
 
-  var state = { nodes: [], ticks: [], selected: null, dark: false };
+  var state = { nodes: [], ticks: [], selected: null, dark: false, chapters: [] };
   var view = { z: 1, tx: 0, ty: 0 };
   var pan = null;      // trascinamento dello sfondo
   var roaming = false; // trascinamento dentro la mappina
@@ -560,6 +560,27 @@
     scene = el("g", {});
     scene.appendChild(drawScale());
 
+    // Chapter shading: coloured vertical bands behind everything else.
+    state.chapters.forEach(function (ch) {
+      if (ch.start >= state.nodes.length) return;
+      var end = Math.min(ch.end, state.nodes.length - 1);
+      var x0 = GUTTER + ch.start * LANE;
+      var x1 = GUTTER + (end + 1) * LANE;
+      scene.appendChild(el("rect", {
+        x: x0, y: PAD_TOP - 6,
+        width: x1 - x0,
+        height: H - PAD_TOP - PAD_BOTTOM + 12,
+        fill: ch.color, opacity: state.dark ? 0.12 : 0.10,
+        rx: 6
+      }));
+      scene.appendChild(text(ch.name, {
+        x: (x0 + x1) / 2, y: PAD_TOP - 12,
+        "text-anchor": "middle",
+        fill: ch.color, "font-size": 9, "font-weight": 700,
+        opacity: 0.7
+      }));
+    });
+
     // Il nastro passa DIETRO i punti: è il filo che li tiene insieme, non un
     // tratto da leggere.
     if (state.nodes.length > 1) {
@@ -734,6 +755,7 @@
     state.ticks = args.ticks || [];
     state.selected = args.selected || null;
     state.dark = !!args.dark;
+    state.chapters = args.chapters || [];
     render();
     setHeight();
   }

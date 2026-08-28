@@ -531,7 +531,8 @@ def _ticks(axis: str, values: dict[str, float],
 
 @st.fragment
 def render_board(frame: pd.DataFrame, at_path: dict[str, int],
-                 playlist: list[int], drop, move) -> None:
+                 playlist: list[int], drop, move,
+                 chapters: list[dict] | None = None) -> None:
     """La playlist come lavagna: una scheda per brano, in fila come suonerà.
 
     Prima disegnava la sola catena del Chain Maker, ed era troppo poco: un
@@ -632,6 +633,7 @@ def render_board(frame: pd.DataFrame, at_path: dict[str, int],
 
     _graph_board(nodes=nodes, ticks=_ticks(axis, values, frame),
                  selected=st.session_state.get(BOARD_PICKED),
+                 chapters=chapters or [],
                  dark=dark(), key="playlist_board_widget", default=None)
 
     st.caption("Left to right the set plays; how high a track sits is the "

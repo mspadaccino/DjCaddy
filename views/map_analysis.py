@@ -50,7 +50,8 @@ from analysis.map_projection import ProjectionSettings
 from analysis.map_projection import available as umap_available
 from analysis.map_projection import project
 from analysis.map_store import MapStore, default_store_dir
-from analysis.mixing import TransitionCost, magic_sort, nearest
+from analysis.mixing import (TransitionCost, camelot_distance, magic_sort,
+                             nearest)
 from views.components import (NOW_PLAYING, ask_for_file, fill_dock, pick_files,
                               pick_folder, play_table, save_as, tick_all)
 from views.graph_board import (GRAPH_STATE, camelot_picker,
@@ -1487,7 +1488,7 @@ def render_set_builder(store: MapStore, context: tuple | None) -> None:
     # catena è già in piedi, si apre quella. È la stessa regola con cui i due
     # blocchi si aprivano da sé, detta una volta sola.
     chain_tab = "🔗 Chain Maker"
-    magic_tab = "✨ Magic Playlist"
+    magic_tab = "✨ Quick List"
     running_chain = bool(st.session_state.get("map::graph"))
     first = chain_tab if running_chain and not (selected or seed is not None) \
         else magic_tab
@@ -1861,6 +1862,287 @@ def _reorder_playlist(frame: pd.DataFrame, order: list[int]) -> None:
     st.rerun()
 
 
+# ---------------------------------------------------------------------------
+# Chapter Builder
+# ---------------------------------------------------------------------------
+
+CHAPTERS = [
+    {"name": "Intro",   "icon": "🌅", "quota": 0.15,
+     "bpm": (0.00, 0.15), "arousal": (0.00, 0.25),
+     "valence": (0.30, 0.50), "groove": (0.20, 0.40)},
+    {"name": "Buildup", "icon": "🔨", "quota": 0.25,
+     "bpm": (0.15, 0.40), "arousal": (0.25, 0.60),
+     "valence": (0.40, 0.60), "groove": (0.75, 0.95)},
+    {"name": "Tension", "icon": "🌀", "quota": 0.20,
+     "bpm": (0.40, 0.70), "arousal": (0.60, 0.80),
+     "valence": (0.00, 0.20), "groove": (0.80, 1.00)},
+    {"name": "Climax",  "icon": "⚡", "quota": 0.25,
+     "bpm": (0.70, 1.00), "arousal": (0.85, 1.00),
+     "valence": (0.75, 1.00), "groove": (0.00, 0.90)},
+    {"name": "Release", "icon": "🌙", "quota": 0.15,
+     "bpm": (0.30, 0.50), "arousal": (0.30, 0.50),
+     "valence": (0.20, 0.45), "groove": (0.30, 0.60)},
+]
+
+
+def _chapter_score(pct_bpm: float, pct_arousal: float,
+                   pct_valence: float, pct_groove: float,
+                   ch: dict) -> float:
+    """How well a track fits a chapter: 0 (perfect) to 4 (worst)."""
+    def _dist(value: float, lo: float, hi: float) -> float:
+        if lo <= value <= hi:
+            return 0.0
+        return min(abs(value - lo), abs(value - hi))
+    return (_dist(pct_bpm, *ch["bpm"])
+            + _dist(pct_arousal, *ch["arousal"])
+            + _dist(pct_valence, *ch["valence"])
+            + _dist(pct_groove, *ch["groove"]))
+
+
+def _assign_chapters(frame: pd.DataFrame, playlist: list[int],
+                     cost: TransitionCost) -> list[list[int]]:
+    """Assign playlist tracks to five chapters and sort each one.
+
+    Tracks are assigned by percentile affinity to the chapter's emotional
+    profile, then each chapter is sorted with magic_sort (which respects
+    Camelot key progression). Chapters are chained so that the last track
+    of one chapter connects harmonically to the first of the next.
+    """
+    n = len(playlist)
+    if n == 0:
+        return [[] for _ in CHAPTERS]
+
+    bpms = np.array([float(frame.at[i, "bpm"] or 0) for i in playlist])
+    arousals = np.array([float(frame.at[i, "energy"] or 0) for i in playlist])
+    valences = np.array([float(frame.at[i, "valence_rank"] or 0)
+                         for i in playlist])
+    grooves = np.array([float(frame.at[i, "danceability"] or 0)
+                        for i in playlist])
+
+    def _percentile_rank(arr: np.ndarray) -> np.ndarray:
+        order = arr.argsort()
+        ranks = np.empty_like(order, dtype=float)
+        ranks[order] = np.arange(len(arr), dtype=float)
+        return ranks / max(1, len(arr) - 1)
+
+    pct_bpm = _percentile_rank(bpms)
+    pct_arousal = arousals
+    pct_valence = valences
+    pct_groove = _percentile_rank(grooves)
+
+    scores = np.zeros((n, len(CHAPTERS)), dtype=np.float64)
+    for j, ch in enumerate(CHAPTERS):
+        for k in range(n):
+            scores[k, j] = _chapter_score(
+                pct_bpm[k], pct_arousal[k], pct_valence[k], pct_groove[k], ch)
+
+    quotas = [max(1, round(ch["quota"] * n)) for ch in CHAPTERS]
+    overshoot = sum(quotas) - n
+    while overshoot > 0:
+        biggest = max(range(len(quotas)), key=lambda j: quotas[j])
+        quotas[biggest] -= 1
+        overshoot -= 1
+    while overshoot < 0:
+        smallest = min(range(len(quotas)), key=lambda j: quotas[j])
+        quotas[smallest] += 1
+        overshoot += 1
+
+    assigned: list[list[int]] = [[] for _ in CHAPTERS]
+    taken = set()
+    for j in range(len(CHAPTERS)):
+        candidates = [(scores[k, j], k) for k in range(n) if k not in taken]
+        candidates.sort()
+        for _, k in candidates[:quotas[j]]:
+            assigned[j].append(playlist[k])
+            taken.add(k)
+
+    # Sort each chapter: BPM sets the direction (ascending for the
+    # rising arc, descending for Release), then within same-BPM tracks
+    # a greedy Camelot walk picks the smoothest harmonic path.
+    # The last chapter (Release) reverses direction.
+    sorted_chapters: list[list[int]] = []
+    for ci, ch_tracks in enumerate(assigned):
+        if not ch_tracks:
+            sorted_chapters.append(ch_tracks)
+            continue
+        descending = (ci == len(CHAPTERS) - 1)  # Release
+        ordered = _bpm_then_camelot(frame, ch_tracks, descending)
+        # At chapter boundaries, rotate so the first track is
+        # Camelot-compatible with the last of the previous chapter.
+        if sorted_chapters and sorted_chapters[-1] and len(ordered) > 1:
+            tail_key = frame.at[sorted_chapters[-1][-1], "camelot"]
+            best_start = min(range(len(ordered)), key=lambda k: (
+                camelot_distance(tail_key,
+                                 frame.at[ordered[k], "camelot"]),
+                abs(frame.at[ordered[k], "bpm"]
+                    - frame.at[ordered[0], "bpm"])))
+            if best_start > 0:
+                ordered = ordered[best_start:] + ordered[:best_start]
+        sorted_chapters.append(ordered)
+
+    return sorted_chapters
+
+
+def _bpm_then_camelot(frame: pd.DataFrame, tracks: list[int],
+                      descending: bool) -> list[int]:
+    """Sort tracks by BPM direction, then Camelot-walk within same-BPM groups.
+
+    Tracks are bucketed by rounded BPM; within each bucket a greedy
+    nearest-neighbour walk on Camelot distance keeps harmonic flow.
+    """
+    by_bpm: dict[int, list[int]] = {}
+    for i in tracks:
+        bpm = round(float(frame.at[i, "bpm"] or 0))
+        by_bpm.setdefault(bpm, []).append(i)
+
+    bpm_keys = sorted(by_bpm.keys(), reverse=descending)
+    result: list[int] = []
+    for bpm_val in bpm_keys:
+        group = by_bpm[bpm_val]
+        if len(group) <= 1:
+            result.extend(group)
+            continue
+        # Greedy Camelot walk within this BPM bucket
+        if result:
+            prev_key = frame.at[result[-1], "camelot"]
+            start = min(group, key=lambda i:
+                        camelot_distance(prev_key, frame.at[i, "camelot"]))
+        else:
+            start = group[0]
+        walked = [start]
+        remaining = set(group) - {start}
+        while remaining:
+            cur_key = frame.at[walked[-1], "camelot"]
+            nxt = min(remaining, key=lambda i:
+                      camelot_distance(cur_key, frame.at[i, "camelot"]))
+            walked.append(nxt)
+            remaining.discard(nxt)
+        result.extend(walked)
+    return result
+
+
+CHAPTER_STATE = "map::chapters"
+
+CHAPTER_COLORS = {
+    "Intro":   "#8e9aa6",
+    "Buildup": "#f2a33c",
+    "Tension": "#7b4fbf",
+    "Climax":  "#e0503b",
+    "Release": "#3d9be0",
+}
+
+
+def _chapter_of(playlist: list[int]) -> dict[int, str] | None:
+    """Map track index → chapter name from session state, or None."""
+    chapters = st.session_state.get(CHAPTER_STATE)
+    if chapters is None:
+        return None
+    lookup = {}
+    for ch, ch_tracks in zip(CHAPTERS, chapters):
+        for i in ch_tracks:
+            lookup[i] = ch["name"]
+    return lookup if set(sum(chapters, [])) == set(playlist) else None
+
+
+def _board_chapter_regions(ch_lookup: dict[int, str] | None,
+                           playlist: list[int]) -> list[dict]:
+    """Chapter shading regions for the board graph.
+
+    Returns a list of {start, end, color, name} dicts where start/end
+    are 0-based positions in the playlist. Consecutive tracks in the
+    same chapter form one region.
+    """
+    if not ch_lookup:
+        return []
+    regions: list[dict] = []
+    prev_name = None
+    for pos, idx in enumerate(playlist):
+        name = ch_lookup.get(idx)
+        if name != prev_name:
+            if regions:
+                regions[-1]["end"] = pos - 1
+            if name:
+                regions.append({"start": pos, "end": pos,
+                                "color": CHAPTER_COLORS.get(name, "#888"),
+                                "name": name})
+            prev_name = name
+        elif name and regions:
+            regions[-1]["end"] = pos
+    return regions
+
+
+def render_chapter_builder(frame: pd.DataFrame, cost: TransitionCost,
+                           playlist: list[int]) -> None:
+    if len(playlist) < 5:
+        st.caption("Need at least 5 tracks in the playlist to build chapters.")
+        return
+
+    playlist_set = set(playlist)
+    cached = st.session_state.get(CHAPTER_STATE)
+    has_chapters = cached is not None and set(sum(cached, [])) == playlist_set
+
+    if not has_chapters:
+        st.caption("Distribute the playlist across five emotional chapters "
+                   "of a DJ set: Intro, Buildup, Tension, Climax, Release.")
+        if st.button("📖 Create chapters", type="primary",
+                     key="map::chapter_create"):
+            st.session_state[CHAPTER_STATE] = _assign_chapters(frame, playlist, cost)
+            st.rerun()
+        return
+
+    chapters = cached
+    changed = False
+    for ci, (ch, ch_tracks) in enumerate(zip(CHAPTERS, chapters)):
+        label = f"{ch['icon']} {ch['name']} ({len(ch_tracks)})"
+        st.markdown(f"**{label}**")
+        if not ch_tracks:
+            st.caption("No tracks assigned.")
+            continue
+
+        common = mood_popularity(frame)
+        table = pd.DataFrame([{
+            "#": pos + 1,
+            **reading(frame.loc[i], common),
+            "_path": frame.at[i, "path"],
+            "_row": i,
+        } for pos, i in enumerate(ch_tracks)])
+
+        editor_key = f"map_chapter_{ci}::" + "|".join(
+            str(i) for i in ch_tracks)
+        play_table(
+            f"map_chapter_{ci}", table,
+            ["#", "file", "BPM", "key", "energy", "groove", "emotion"],
+            {"#": st.column_config.NumberColumn(
+                "#", min_value=1, max_value=len(ch_tracks), step=1,
+                help="Write the position you want this track in: the row "
+                     "moves there and the others slide."),
+             **reading_config(frame, table)},
+            editor_key=editor_key)
+
+        moves = {int(row): values["#"]
+                 for row, values in st.session_state.get(editor_key, {})
+                 .get("edited_rows", {}).items() if "#" in values}
+        if moves:
+            new_order = reordered(ch_tracks, moves)
+            if new_order != ch_tracks:
+                chapters[ci] = new_order
+                changed = True
+
+    if changed:
+        st.session_state[CHAPTER_STATE] = chapters
+        st.rerun()
+
+    c1, c2 = st.columns(2)
+    if c1.button("📖 Apply chapter order to playlist", type="primary",
+                 key="map::chapter_apply"):
+        ordered = sum(chapters, [])
+        remember_playlist(frame, ordered)
+        st.rerun()
+    if c2.button("🔄 Re-assign chapters", key="map::chapter_reassign"):
+        st.session_state[CHAPTER_STATE] = _assign_chapters(frame, playlist, cost)
+        st.rerun()
+
+
 def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
                     playlist: list[int], at_path: dict[str, int]) -> None:
     """La playlist come sta, come portarsela via e come riprenderne una.
@@ -1888,11 +2170,13 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
 
     costs = [None] + [cost.between(a, b) for a, b in zip(playlist, playlist[1:])]
     common = mood_popularity(frame)
+    ch_lookup = _chapter_of(playlist)
     table = pd.DataFrame([{
         "#": position + 1,
         "Drop": False,
         **reading(frame.loc[i], common),
         "from previous": round(step, 3) if step is not None else None,
+        **({"chapter": ch_lookup[i]} if ch_lookup and i in ch_lookup else {}),
         "_path": frame.at[i, "path"],
         "_row": i,
     } for position, (i, step) in enumerate(zip(playlist, costs))])
@@ -1907,21 +2191,33 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     drop_all, editor_key = tick_all(
         "map_playlist_editor::" + "|".join(table["_path"]), default=False)
     table["Drop"] = drop_all
-    edited = play_table(
-        "map_playlist", table,
-        ["#", "Drop", "file", "BPM", "key", "energy", "groove", "emotion",
-         "from previous", "mood", "genres", "folder"],
-        {"#": st.column_config.NumberColumn(
+    col_order = ["#", "Drop", "file", "BPM", "key", "energy", "groove",
+                  "emotion", "from previous", "mood", "genres", "folder"]
+    col_config: dict = {
+        "#": st.column_config.NumberColumn(
             "#", min_value=1, max_value=len(playlist), step=1,
             help="Write the position you want this track in: the row moves "
                  "there and the others slide."),
-         "Drop": st.column_config.CheckboxColumn(
-             "Drop", help="Tick what you want out, then the button below."),
-         "from previous": st.column_config.NumberColumn(
-             "from previous", disabled=True,
-             help="The transition cost from the track above: 0 is "
-                  "seamless, 1 is as far as this library goes."),
-         **reading_config(frame, table)},
+        "Drop": st.column_config.CheckboxColumn(
+            "Drop", help="Tick what you want out, then the button below."),
+        "from previous": st.column_config.NumberColumn(
+            "from previous", disabled=True,
+            help="The transition cost from the track above: 0 is "
+                 "seamless, 1 is as far as this library goes."),
+        **reading_config(frame, table),
+    }
+    if ch_lookup:
+        col_order.insert(2, "chapter")
+        ch_names = [ch["name"] for ch in CHAPTERS]
+        ch_colors = [CHAPTER_COLORS[n] for n in ch_names]
+        col_config["chapter"] = st.column_config.MultiselectColumn(
+            "chapter", disabled=True, width="small",
+            options=ch_names, color=ch_colors,
+            help="Which chapter of the DJ set this track belongs to.")
+        table["chapter"] = table["chapter"].apply(
+            lambda v: [v] if pd.notna(v) else [])
+    edited = play_table(
+        "map_playlist", table, col_order, col_config,
         editor_key=editor_key)
 
     # Riscrivere un numero sposta la riga. Si legge dallo stato del widget e
@@ -1952,12 +2248,18 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     st.caption(f"Roughest transition: **{worst:.3f}**. Magic sort is what "
                "brings that number down.")
 
+    with st.expander("📖 Chapter Builder — reorganise this playlist into "
+                      "a five-chapter DJ set arc"):
+        render_chapter_builder(frame, cost, playlist)
+
     # La lavagna guarda la playlist intera, da dovunque i brani siano
     # arrivati: è qui che si vede la forma del set, e non nella sezione che
     # ne scrive un pezzo.
+    board_chapters = _board_chapter_regions(ch_lookup, playlist)
     render_board(frame, at_path, playlist,
                  drop=lambda i: _drop_from_playlist(frame, playlist, i),
-                 move=lambda order: _reorder_playlist(frame, order))
+                 move=lambda order: _reorder_playlist(frame, order),
+                 chapters=board_chapters)
 
     p1, p2, p3, p4 = st.columns(4)
     if p1.button("✨ Magic sort", width="stretch", disabled=len(playlist) < 3):
