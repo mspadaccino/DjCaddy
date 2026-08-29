@@ -434,6 +434,7 @@ def energy_ranks(store: MapStore, placed: int) -> np.ndarray:
 
 def remember_playlist(frame: pd.DataFrame, indices) -> None:
     st.session_state[PLAYLIST] = [frame.at[i, "path"] for i in indices]
+    st.session_state.pop(CHAPTER_STATE, None)
 
 
 def append_playlist(frame: pd.DataFrame, indices) -> None:
@@ -497,6 +498,7 @@ def remember_seed(frame: pd.DataFrame, index: int) -> None:
     """
     st.session_state[SEED] = frame.at[index, "path"]
     st.session_state[SEED_FIELD] = int(index)
+    st.session_state["map::livesearch"] = ""
 
 
 def forget_seed() -> None:
@@ -508,6 +510,7 @@ def forget_seed() -> None:
     """
     st.session_state.pop(SEED, None)
     st.session_state[SEED_FIELD] = None
+    st.session_state["map::livesearch"] = ""
 
 
 def _picked_on(key: str) -> list[int]:
@@ -909,6 +912,7 @@ FILTER_KEYS = "map::flt_keys"
 FILTER_KEYS_EVENT = "map::flt_keys_at"
 FILTER_WIDGETS = ("map::flt_genres", "map::flt_moods", "map::flt_bpm",
                   "map::flt_groove")
+FILTER_GEN = "map::flt_gen"
 
 
 def _span(frame: pd.DataFrame, column: str,
@@ -954,7 +958,13 @@ def render_filters(frame: pd.DataFrame) -> pd.DataFrame:
     # volta, anche dopo aver tolto l'ultima tonalità — chi sta filtrando non
     # ha finito solo perché ha svuotato la scelta.
     touched = FILTER_KEYS_EVENT in st.session_state
-    narrowed = any(st.session_state.get(k) for k in FILTER_WIDGETS[:2])
+    # Il contatore nella chiave fa rinascere i widget da capo al reset, come
+    # tick_all fa con le spunte: togliere il valore dalla sessione non basta,
+    # il frontend tiene la sua copia e la rimanda indietro.
+    gen = st.session_state.get(FILTER_GEN, 0)
+    def _fk(base: str) -> str:
+        return f"{base}::{gen}"
+    narrowed = any(st.session_state.get(_fk(k)) for k in FILTER_WIDGETS[:2])
     with st.expander(
             "🔎 Filters — they narrow the map, the suggestions and the roster"
             + (f" · {len(keys)} key(s)" if keys else ""),
@@ -972,22 +982,22 @@ def render_filters(frame: pd.DataFrame) -> pd.DataFrame:
         with rest:
             chosen_genres = st.multiselect(
                 "Genres", [g for g, _ in genre_counts.most_common()],
-                key="map::flt_genres",
+                key=_fk("map::flt_genres"),
                 help="A track carrying any of the chosen genres stays. Tracks "
                      "are multi-label on purpose: 'Minimal' and 'Deep House' "
                      "can both be true of the same track.")
             chosen_moods = st.multiselect(
                 "Moods", [m for m, _ in mood_counts.most_common()],
-                key="map::flt_moods",
+                key=_fk("map::flt_moods"),
                 help="Same rule as the genres: a track carrying any of the "
                      "chosen moods stays. Up to four are recorded per track, "
                      "strongest first.")
             tempo = _span(frame, "bpm", 60.0, 200.0)
             bpm = st.slider("BPM", tempo[0], tempo[1], tempo,
-                            key="map::flt_bpm")
+                            key=_fk("map::flt_bpm"))
             swing = _span(frame, "danceability", 0.0, 1.0)
             groove = st.slider("Groove", swing[0], swing[1], swing, step=0.01,
-                               key="map::flt_groove",
+                               key=_fk("map::flt_groove"),
                                help="The danceability: regularity of the "
                                     "onsets, low is loose and high is a "
                                     "straight kick. It is the same number "
@@ -995,8 +1005,7 @@ def render_filters(frame: pd.DataFrame) -> pd.DataFrame:
             if st.button("↺ Reset the filters", width="stretch",
                          key="map::flt_reset"):
                 st.session_state.pop(FILTER_KEYS, None)
-                for widget in FILTER_WIDGETS:
-                    st.session_state.pop(widget, None)
+                st.session_state[FILTER_GEN] = gen + 1
                 st.rerun()
 
         kept = frame
@@ -1207,19 +1216,6 @@ def render_map(store: MapStore) -> tuple | None:
         else:
             st.session_state[SELECTION] = [frame.at[i, "path"] for i in picked]
             forget_seed()
-    # Il campo si legge QUI e non dove si disegna: la mappa sta piu' in su, e
-    # un seme scelto per nome deve avere il suo cerchio addosso subito invece
-    # che dal gesto dopo.
-    held = st.session_state.get(SEED_FIELD)
-    if isinstance(held, str):
-        st.session_state[SEED_QUERY] = held
-    elif held is not None and int(held) < placed:
-        by_name = int(held)
-        if frame.at[by_name, "path"] != st.session_state.get(PICKED):
-            st.session_state[PICKED] = frame.at[by_name, "path"]
-            st.session_state[SEED_QUERY] = ""      # scelto: la ricerca ha finito
-            remember_seed(frame, by_name)
-            st.session_state[SELECTION] = []
     selected = [at_path[p] for p in st.session_state.get(SELECTION, [])
                 if p in at_path]
     seed = None if selected else at_path.get(st.session_state.get(SEED))
@@ -1282,92 +1278,99 @@ def render_map(store: MapStore) -> tuple | None:
           "the **lasso** and the **box** grab the group they enclose, to be "
           "sorted into a set. Scroll to zoom.")
 
-    # Un campo solo per tre strade. Ci si scrive dentro per cercare — è
-    # `accept_new_options` a mandare al server quello che si digita, e il TIPO
-    # del valore dice quale delle due cose è: una stringa sono parole da
-    # cercare, un indice è un brano scelto — e sotto compaiono i candidati. Lo
-    # stesso campo mostra però anche il seme arrivato da un clic sulla mappa o
-    # dal Finder, così quello che si sta guardando ha sempre un posto dove
-    # leggersi.
-    #
-    # Prima erano tre righe: una casella per cercare, un menu per scegliere
-    # fra i risultati e un campo per il file. Tre modi di dire la stessa cosa,
-    # e il brano scelto che non compariva in nessuno dei tre.
-    query = st.session_state.get(SEED_QUERY, "")
-    words = [word for word in query.casefold().split() if word]
-    found = matching_tracks(frame, pool, words) if words else []
-    if words:
-        options = found[:SEED_MATCHES_MAX]
-    elif len(pool) <= SEED_PICKER_MAX:
-        # Pochi brani: l'elenco intero si apre in fretta e cercare è inutile.
-        options = pool.tolist()
-    else:
-        options = []
-    # Il seme in testa, ma SOLO quando non si sta cercando: è il valore che il
-    # campo deve poter mostrare, e Streamlit non sa disegnare una scelta che
-    # fra le opzioni non c'è.
-    #
-    # Mentre una ricerca è in corso invece va tolto, o resta primo in un
-    # elenco di risultati con cui non c'entra niente — e il campo in quel
-    # momento non porta più lui: porta le parole digitate, che
-    # `accept_new_options` lascia passare comunque.
-    if seed is not None and not words and seed not in options:
-        options = [seed, *options]
-
     def _browse_seed() -> None:
-        """Il file dal Finder, che alimenta lo STESSO campo.
-
-        Il nome che uno ricorda non è quasi mai il nome del file — "Blue
-        Monday" contro "04. Blue Monday - New Order (12'' mix).mp3" — mentre
-        dentro la cartella quel brano lo si riconosce a colpo d'occhio.
-
-        Scrive nel campo e non nel seme: da lì in poi è la stessa strada di
-        una scelta fatta per nome, e il seme si applica dove si applicano
-        tutti gli altri.
-        """
         chosen = ask_for_file("Choose the seed track")
         if chosen is None:
             return
         on_map, _ = playlist_positions([str(chosen)], at_path)
         if on_map:
-            st.session_state[SEED_QUERY] = ""
-            st.session_state[SEED_FIELD] = int(on_map[0])
+            remember_seed(frame, int(on_map[0]))
+            st.session_state["map::livesearch"] = ""
             st.session_state[SEED_TROUBLE] = ""
         else:
             st.session_state[SEED_TROUBLE] = chosen.name
 
-    listening, picking, browsing = st.columns([1, 10, 2],
-                                              vertical_alignment="bottom")
-    # Il ▶ a sinistra del campo: si sceglie un brano per nome senza averlo mai
-    # sentito, e la prova sta nell'ascoltarlo. È lo stesso ▶ delle tabelle — il
-    # brano finisce nel lettore in fondo alla pagina — e per la stessa ragione
-    # passa da un `on_click`: il lettore si disegna prima di questa riga, e un
-    # valore scritto adesso lo troverebbe già disegnato sul brano di prima.
+    def _clear_seed() -> None:
+        st.session_state["map::livesearch"] = ""
+        st.session_state.pop(SEED, None)
+        st.session_state.pop(PICKED, None)
+        st.session_state[SELECTION] = []
+        st.session_state.pop(SEED_TROUBLE, None)
+
+    def _add_seed_to_playlist() -> None:
+        s = st.session_state.get(SEED)
+        if s is not None:
+            current = list(st.session_state.get(PLAYLIST, []))
+            if s not in current:
+                current.append(s)
+                st.session_state[PLAYLIST] = current
+
+    live_q = st.session_state.get("map::livesearch", "")
+    has_input = seed is not None or bool(live_q)
+
+    listening, adding_seed, searching, clearing, browsing = st.columns(
+        [1, 1, 10, 1, 2], vertical_alignment="bottom")
     listening.button(
         "▶", key="map::seedplay", width="stretch", disabled=seed is None,
         on_click=_play,
         args=(frame.at[seed, "path"] if seed is not None else None,),
         help="Hear the seed, in the player at the bottom of the page.")
-    picking.selectbox(
-        "Seed track", options=options, accept_new_options=True, key=SEED_FIELD,
-        format_func=lambda i: (str(i) if isinstance(i, str) else
-                               f"{frame.at[i, 'name']}  ·  "
-                               f"{Path(frame.at[i, 'folder']).name}"),
-        placeholder="type a few words — artist, title, remix — or click a "
-                    "point on the map",
-        help="Type and press Enter to search: every word has to appear, in "
-             "any order, in the file name or the folder. The same field shows "
-             "whichever track is the seed, however it was chosen — by name, "
-             "from the Finder, or by clicking its point.")
+    adding_seed.button(
+        "➕", key="map::seedadd", width="stretch", disabled=seed is None,
+        on_click=_add_seed_to_playlist,
+        help="Add the seed to the playlist.")
+    searching.text_input(
+        "Find a track", key="map::livesearch",
+        placeholder=("🔍 " + frame.at[seed, "name"]
+                     + "  ·  " + Path(frame.at[seed, "folder"]).name
+                     if seed is not None
+                     else "🔍 type a few words — artist, title, remix — "
+                          "and press Enter"),
+        label_visibility="collapsed")
+    clearing.button(
+        "✕", key="map::seedclear", width="stretch", disabled=not has_input,
+        on_click=_clear_seed,
+        help="Clear the seed and the search.")
     browsing.button("🎵 Browse…", on_click=_browse_seed, width="stretch",
                     key="map::seedbrowse",
                     help="Pick the seed's file from the Finder.")
 
-    if words:
-        st.caption(f"**{len(found):,}** match"
-                   + (f" — the first {len(options)} are listed."
-                      if len(found) > SEED_MATCHES_MAX else "."))
-    elif not options:
+    live_words = [w for w in live_q.casefold().split() if w] if live_q else []
+    if live_words:
+        live_found = matching_tracks(frame, pool, live_words)
+        st.caption(f"**{len(live_found):,}** match"
+                   + (f" — showing the first {SEED_MATCHES_MAX}."
+                      if len(live_found) > SEED_MATCHES_MAX else "."))
+        if live_found:
+            common = mood_popularity(frame)
+            live_table = pd.DataFrame([{
+                "Pick": "☞",
+                **reading(frame.loc[i], common),
+                "_path": frame.at[i, "path"],
+                "_row": i,
+            } for i in live_found[:SEED_MATCHES_MAX]])
+
+            def _on_pick_live() -> None:
+                click = st.session_state.get("click::map_livesearch_pick")
+                order = st.session_state.get("order::map_livesearch", [])
+                if click and 0 <= click.get("row", -1) < len(order):
+                    path = order[click["row"]]
+                    idx = at_path.get(path)
+                    if idx is not None:
+                        remember_seed(frame, idx)
+                        st.session_state["map::livesearch"] = ""
+
+            play_table(
+                "map_livesearch", live_table,
+                ["Pick", "file", "BPM", "key", "energy", "groove",
+                 "emotion", "folder"],
+                {"Pick": st.column_config.ButtonColumn(
+                    "☞", on_click=_on_pick_live,
+                    key="click::map_livesearch_pick", width="small",
+                    help="Use this track as the seed."),
+                 **reading_config(frame, live_table)},
+                editable=False, editor_key="map_livesearch_editor")
+    elif not live_q:
         st.caption(f"{len(visible):,} tracks on the map — type a few words "
                    "above to pick one by name, or click its point.")
     missing_file = st.session_state.get(SEED_TROUBLE)
@@ -2086,9 +2089,9 @@ def _move_between_chapters(frame: pd.DataFrame, track_idx: int,
     if track_idx in chapters[src_ci]:
         chapters[src_ci].remove(track_idx)
         chapters[dst_ci].append(track_idx)
-        st.session_state[CHAPTER_STATE] = chapters
         ordered = sum(chapters, [])
         remember_playlist(frame, ordered)
+        st.session_state[CHAPTER_STATE] = chapters
     st.rerun()
 
 
@@ -2209,8 +2212,16 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     # spunte, e porta i due pulsanti sopra la tabella: sfoltire una scaletta
     # lunga vuol dire quasi sempre spuntare tutto e ridare la spunta ai
     # pochi che restano.
+    tick_left, tick_right = st.columns([4, 2])
     drop_all, editor_key = tick_all(
-        "map_playlist_editor::" + "|".join(table["_path"]), default=False)
+        "map_playlist_editor::" + "|".join(table["_path"]), default=False,
+        into=tick_left)
+    if tick_right.button("🗑 Reset playlist", width="stretch",
+                         key="map::playlist_reset",
+                         help="Clear the entire playlist."):
+        st.session_state[PLAYLIST] = []
+        st.session_state.pop(CHAPTER_STATE, None)
+        st.rerun()
     table["Drop"] = drop_all
     col_order = ["#", "Drop", "file", "BPM", "key", "energy", "groove",
                   "emotion", "from previous", "mood", "genres", "folder"]
@@ -2664,8 +2675,17 @@ with st.expander("⚙️ Map settings" + (" — ▶ job running" if running else
 # bianca ("Bad delta path index"). Il contenitore fa sì che tutta quella
 # variabilità stia DENTRO un blocco solo, e la pagina, vista da fuori, abbia
 # sempre la stessa forma.
-with st.container():
-    map_context = render_map(store)
+_has_map = bool(store.placed)
+_has_seed = SEED in st.session_state
+_has_playlist = bool(st.session_state.get(PLAYLIST))
+with st.expander(
+        "🗺️ Map"
+        + (" · seed selected" if _has_seed else "")
+        + (f" · {len(st.session_state.get(PLAYLIST, []))} in playlist"
+           if _has_playlist else ""),
+        expanded=True):
+    with st.container():
+        map_context = render_map(store)
 
 st.divider()
 
