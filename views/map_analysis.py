@@ -254,6 +254,13 @@ PLAYLIST = "map::playlist"
 # selezione sopravvive a qualunque ridisegno.
 SELECTION = "map::selection"
 
+# L'ultimo insieme di spunte sulla colonna Drop della playlist che ha già
+# aggiornato il seme: serve a distinguere "ho appena spuntato una riga
+# nuova" da "questo giro è ripartito per un altro motivo", o ogni ridisegno
+# della pagina rimanderebbe il seme alla playlist invece di lasciarlo a chi
+# lo ha scelto per ultimo (mappa, ricerca o Finder).
+PLAYLIST_DROP_SEEDSYNC = "map::playlist_drop_seedsync"
+
 # Le chiavi dei due grafici. Sono due viste sugli stessi brani — si sceglie
 # da tutte e due, e la scelta è una sola.
 MAP_CHART = "map::chart"
@@ -511,6 +518,19 @@ def forget_seed() -> None:
     st.session_state.pop(SEED, None)
     st.session_state[SEED_FIELD] = None
     st.session_state["map::livesearch"] = ""
+
+
+def shared_weights() -> tuple[float, float, float]:
+    """I tre pesi di transizione scelti nei settaggi di Quick List.
+
+    Comuni a Quick List, Sounds like it e Chain Maker: sono gli stessi
+    slider, letti dalla sessione invece che passati a mano — ogni sezione
+    costruisce il proprio `TransitionCost`, ma tutte partono dagli stessi
+    pesi.
+    """
+    return (st.session_state.get("map::w_sound", 1.0),
+            st.session_state.get("map::w_bpm", 1.0),
+            st.session_state.get("map::w_key", 1.0))
 
 
 def _picked_on(key: str) -> list[int]:
@@ -1188,8 +1208,10 @@ def render_map(store: MapStore) -> tuple | None:
     if sampled:
         drawn = drawn.sample(MAX_POINTS, random_state=0)
 
+    w_map, w_bpm, w_key = shared_weights()
     cost = TransitionCost(store.coords, frame["bpm"].tolist(),
-                          frame["camelot"].tolist())
+                          frame["camelot"].tolist(),
+                          w_map=w_map, w_bpm=w_bpm, w_key=w_key)
     # Da percorso a posizione: i brani spariti dalla mappa (tolti, o non più
     # piazzati) semplicemente non si ritrovano, e cadono fuori da soli.
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
@@ -1413,7 +1435,7 @@ def _selection_table(frame: pd.DataFrame, indices, key: str) -> None:
 
 def render_magic_playlist(frame: pd.DataFrame, cost: TransitionCost, pool,
                           store: MapStore, seed, selected: list[int],
-                          playlist: list[int]) -> None:
+                          playlist: list[int], shown: int) -> None:
     """Dalla selezione sulla mappa a una playlist ordinata.
 
     Un gesto, un significato: lazo e riquadro prendono quello che chiudono
@@ -1459,20 +1481,26 @@ def render_magic_playlist(frame: pd.DataFrame, cost: TransitionCost, pool,
             st.rerun()
 
     elif seed is not None:
-        render_seed(frame, cost, pool, store, seed, playlist)
+        render_mixes_list(frame, cost, pool, seed, playlist, shown)
     else:
         st.info("Nothing selected yet. Click a point on the map to make it "
                 "the seed, or drag the lasso or the box around a group.")
 
 
 def render_set_builder(store: MapStore, context: tuple | None) -> None:
-    """I due modi di costruire un set, in due tab della stessa sezione.
+    """I tre modi di costruire un set, in tre tab della stessa sezione.
 
     Erano due blocchi a scomparsa, uno sotto l'altro: aperti tutti e due
     facevano una colonna in cui né l'uno né l'altro si vedeva per intero,
     chiusi tutti e due non dicevano che erano la stessa domanda — come si
-    passa dalla mappa a una scaletta — con due risposte. In due tab se ne
-    vede uno alla volta e per intero, e restano affiancati.
+    passa dalla mappa a una scaletta — con più risposte. In tab separate se
+    ne vede una alla volta e per intero, e restano affiancate.
+
+    "Sounds like it" era una seconda scheda dentro Quick List: una domanda
+    diversa da "cosa ci mixo sopra" (non guarda tempo né tonalità, solo
+    affinità acustica) merita il suo posto, non un angolo di un'altra
+    modalità. I pesi e "quanti elencare" restano un pannello solo, sopra le
+    tre tab: sono gli stessi filtri di partenza per tutte e tre.
 
     Il Chain Maker c'è comunque, anche quando `context` è `None` — cioè
     quando i filtri non lasciano passare niente — ma con la rosa vuota: una
@@ -1482,32 +1510,45 @@ def render_set_builder(store: MapStore, context: tuple | None) -> None:
     if not len(store) or not store.placed:
         return
     if context is None:
-        pool, seed, selected, playlist = [], None, [], []
+        frame, cost, pool, seed, selected, playlist = None, None, [], None, [], []
     else:
-        _, _, pool, _, seed, selected, playlist = context
+        frame, cost, pool, _, seed, selected, playlist = context
 
-    # Quale dei due si apre per primo: la scelta appena fatta sulla mappa
+    # Quale delle tre si apre per prima: la scelta appena fatta sulla mappa
     # comanda, perché è il gesto più recente; se non ce n'è nessuna e una
     # catena è già in piedi, si apre quella. È la stessa regola con cui i due
     # blocchi si aprivano da sé, detta una volta sola.
+    quicklist_tab = "✨ Quick List"
+    alike_tab = "🎯 Sounds like it"
     chain_tab = "🔗 Chain Maker"
-    magic_tab = "✨ Quick List"
     running_chain = bool(st.session_state.get("map::graph"))
     first = chain_tab if running_chain and not (selected or seed is not None) \
-        else magic_tab
+        else quicklist_tab
 
     with st.expander(
             "🎛️ Build a set — from the map to an ordered playlist"
             + (f" · {len(playlist)} track(s) so far" if playlist else ""),
             expanded=bool(selected or seed is not None or playlist
                           or running_chain)):
-        magic, chain = st.tabs([magic_tab, chain_tab], default=first)
-        with magic:
+        shown = SUGGESTION_DEFAULT
+        if context is not None:
+            shown = render_settings(frame, cost, seed)
+
+        quicklist, alike, chain = st.tabs(
+            [quicklist_tab, alike_tab, chain_tab], default=first)
+        with quicklist:
             if context is None:
                 st.info("No track matches the map filters above — widen them "
                         "to pick a seed or a group to sort.")
             else:
-                render_magic_playlist(*context)
+                render_magic_playlist(frame, cost, pool, store, seed,
+                                      selected, playlist, shown)
+        with alike:
+            if context is None or seed is None:
+                st.info("Pick a single seed on the map — not a group — to "
+                        "see what sounds like it.")
+            else:
+                render_sounds_alike(frame, store, seed, playlist, shown)
         with chain:
             render_chain_section(store, pool)
 
@@ -1561,19 +1602,25 @@ def asked_for(key: str, path: str, label: str, why: str) -> bool:
     return False
 
 
-def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore,
-                seed: int, playlist: list[int]) -> None:
-    """Il brano scelto e cosa ci va dietro."""
-    row = frame.iloc[seed]
-    # La danceability è la regolarità degli attacchi: 1 = cassa dritta,
-    # verso lo 0 il ritmo è sincopato (breakbeat, funk, roba non lineare).
-    groove = f" · groove {row['danceability']:.2f}" \
-        if row["danceability"] is not None and not pd.isna(row["danceability"]) else ""
-    common = mood_popularity(frame)
-    st.markdown(f"**Seed — {row['name']}**  \n"
-                f"{row['bpm'] or '?'} BPM · {row['camelot'] or '?'}{groove} · "
-                f"{row['genres']}  \n"
-                f"{mood_scale.summary(row['moods'], common)}")
+def render_settings(frame: pd.DataFrame, cost: TransitionCost, seed: int | None) -> int:
+    """I pesi di transizione e "quanti elencare" — comuni a Quick List,
+    Sounds like it e Chain Maker.
+
+    Erano dentro al seme, e le tre schede se li costruivano ciascuna per
+    conto proprio: stessi slider, tre posti diversi. Un pannello solo, sopra
+    le tab, e i pesi restano gli stessi filtri di partenza per tutte e tre.
+    """
+    if seed is not None:
+        row = frame.iloc[seed]
+        # La danceability è la regolarità degli attacchi: 1 = cassa dritta,
+        # verso lo 0 il ritmo è sincopato (breakbeat, funk, roba non lineare).
+        groove = f" · groove {row['danceability']:.2f}" \
+            if row["danceability"] is not None and not pd.isna(row["danceability"]) else ""
+        common = mood_popularity(frame)
+        st.markdown(f"**Seed — {row['name']}**  \n"
+                    f"{row['bpm'] or '?'} BPM · {row['camelot'] or '?'}{groove} · "
+                    f"{row['genres']}  \n"
+                    f"{mood_scale.summary(row['moods'], common)}")
 
     w1, w2, w3 = st.columns(3)
     cost.w_map = w1.slider("Weight — sound", 0.0, 2.0, 1.0, 0.1, key="map::w_sound",
@@ -1586,124 +1633,130 @@ def render_seed(frame: pd.DataFrame, cost: TransitionCost, pool, store: MapStore
                            help="How much harmonic distance counts. Adjacent "
                                 "or relative keys (8A→9A, 8A→8B) cost nothing.")
 
-    # Quanti candidati elencare. Uno solo per entrambe le schede: è la stessa
-    # domanda — quanti me ne fai vedere — posta su due criteri diversi, e due
-    # manopole scollegate darebbero due liste lunghe diverse senza motivo.
-    # Il tetto è la libreria stessa, perché su una mappa appena nata chiedere
-    # venti vicini a chi ne ha tre non ha senso.
+    # Quanti candidati elencare. Uno solo per Quick List e Sounds like it: è
+    # la stessa domanda — quanti me ne fai vedere — posta su due criteri
+    # diversi, e due manopole scollegate darebbero due liste lunghe diverse
+    # senza motivo. Il tetto è la libreria stessa, perché su una mappa appena
+    # nata chiedere venti vicini a chi ne ha tre non ha senso.
     room = min(SUGGESTION_MAX, max(1, len(frame) - 1))
-    shown = st.slider("How many to list", SUGGESTION_STEP, room,
-                      min(SUGGESTION_DEFAULT, room), SUGGESTION_STEP,
-                      key="map_suggestion_count",
-                      help="Applies to both tabs below.") \
+    return st.slider("How many to list", SUGGESTION_STEP, room,
+                     min(SUGGESTION_DEFAULT, room), SUGGESTION_STEP,
+                     key="map_suggestion_count",
+                     help="Applies to Quick List and Sounds like it.") \
         if room > SUGGESTION_STEP else room
 
-    mix_tab, sound_tab = st.tabs(["Mixes out of it", "Sounds like it"])
 
-    with mix_tab:
-        st.caption("Ranked by the transition cost — sound, tempo and key "
-                   "together, with the weights above. Only tracks that pass "
-                   "the filters are considered. **The first row is the seed "
-                   "itself**: where a set starts belongs in it like anything "
-                   "else, and from here it goes in with one tick.")
-        if asked_for(ASKED_MIXES, frame.at[seed, "path"], "✨ Make the list",
-                     "Builds the list of what mixes out of this seed."):
-            # Il seme in testa e a costo zero, che è la verità: da sé a sé
-            # non c'è transizione. Prima non compariva in nessuna delle due
-            # liste e la playlist si popolava solo dei suoi simili — si
-            # partiva da un brano che poi nel set non c'era.
-            suggestions = [(seed, 0.0)] + nearest(cost, seed, k=shown, pool=pool)
-            table = pd.DataFrame([{
-                "Add": False,
-                "cost": round(value, 3),
-                **reading(frame.loc[i], common),
-                # Le tre parti del costo, non tre scarti: dicono QUANTO due brani
-                # sono lontani su ciascun asse, da 0 a 1, non da che parte. Il
-                # nome "Δ" prometteva un segno che qui non c'è — e da quando la
-                # Chain Maker mostra scarti veri, prometterlo confondeva le due cose.
-                "sound": round(cost.parts(seed, i)["map"], 3),
-                "bpm cost": round(cost.parts(seed, i)["bpm"], 2),
-                "key cost": round(cost.parts(seed, i)["key"], 2),
-                "_path": frame.at[i, "path"],
-                "_row": i,
-            } for i, value in suggestions])
-            if not len(table):
-                st.info("No candidate passes the filters.")
-            else:
-                # Spente di default: qui si scelgono pochi brani fra i venti
-                # proposti, non si prende tutto — il contrario di Tag analysis,
-                # dove la coda e' gia' quella su cui si vuole lavorare.
-                add_all, mix_key = tick_all("map_suggestions", default=False)
-                table["Add"] = add_all
-                # Ascoltare e scegliere sulla STESSA riga. Prima erano due
-                # tabelle, una per spuntare e una per sentire: gli stessi venti
-                # brani scritti due volte, e la decisione presa su una riga
-                # mentre l'orecchio stava sull'altra.
-                edited = play_table(
-                    "map_suggestions", table,
-                    ["Add", "cost", "file", "BPM", "key", "energy", "groove",
-                     "emotion", "sound", "bpm cost", "key cost", "mood", "genres",
-                     "folder"],
-                    {"Add": st.column_config.CheckboxColumn(
-                        "Add", help="Tick what you want in the playlist, then "
-                                    "the button below."),
-                     **reading_config(frame, table),
-                     **read_only("cost", "sound", "bpm cost", "key cost")},
-                    editor_key=mix_key)
-                wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
-                if st.button(f"➕ Add {len(wanted)} to the playlist",
-                             disabled=not wanted, type="primary"):
-                    remember_playlist(frame, playlist + [i for i in wanted
-                                                         if i not in playlist])
-                    st.rerun()
+def render_mixes_list(frame: pd.DataFrame, cost: TransitionCost, pool,
+                      seed: int, playlist: list[int], shown: int) -> None:
+    """Quick List: cosa ci si mixa sopra questo seme."""
+    common = mood_popularity(frame)
+    st.caption("Ranked by the transition cost — sound, tempo and key "
+               "together, with the weights above. Only tracks that pass "
+               "the filters are considered. **The first row is the seed "
+               "itself**: where a set starts belongs in it like anything "
+               "else, and from here it goes in with one tick.")
+    if asked_for(ASKED_MIXES, frame.at[seed, "path"], "✨ Make the list",
+                 "Builds the list of what mixes out of this seed."):
+        # Il seme in testa e a costo zero, che è la verità: da sé a sé
+        # non c'è transizione. Prima non compariva in nessuna delle due
+        # liste e la playlist si popolava solo dei suoi simili — si
+        # partiva da un brano che poi nel set non c'era.
+        suggestions = [(seed, 0.0)] + nearest(cost, seed, k=shown, pool=pool)
+        table = pd.DataFrame([{
+            "Add": False,
+            "cost": round(value, 3),
+            **reading(frame.loc[i], common),
+            # Le tre parti del costo, non tre scarti: dicono QUANTO due brani
+            # sono lontani su ciascun asse, da 0 a 1, non da che parte. Il
+            # nome "Δ" prometteva un segno che qui non c'è — e da quando la
+            # Chain Maker mostra scarti veri, prometterlo confondeva le due cose.
+            "sound": round(cost.parts(seed, i)["map"], 3),
+            "bpm cost": round(cost.parts(seed, i)["bpm"], 2),
+            "key cost": round(cost.parts(seed, i)["key"], 2),
+            "_path": frame.at[i, "path"],
+            "_row": i,
+        } for i, value in suggestions])
+        if not len(table):
+            st.info("No candidate passes the filters.")
         else:
-            st.caption(WAITING_FOR_THE_BUTTON)
+            # Spente di default: qui si scelgono pochi brani fra i venti
+            # proposti, non si prende tutto — il contrario di Tag analysis,
+            # dove la coda e' gia' quella su cui si vuole lavorare.
+            add_all, mix_key = tick_all("map_suggestions", default=False)
+            table["Add"] = add_all
+            # Ascoltare e scegliere sulla STESSA riga. Prima erano due
+            # tabelle, una per spuntare e una per sentire: gli stessi venti
+            # brani scritti due volte, e la decisione presa su una riga
+            # mentre l'orecchio stava sull'altra.
+            edited = play_table(
+                "map_suggestions", table,
+                ["Add", "cost", "file", "BPM", "key", "energy", "groove",
+                 "emotion", "sound", "bpm cost", "key cost", "mood", "genres",
+                 "folder"],
+                {"Add": st.column_config.CheckboxColumn(
+                    "Add", help="Tick what you want in the playlist, then "
+                                "the button below."),
+                 **reading_config(frame, table),
+                 **read_only("cost", "sound", "bpm cost", "key cost")},
+                editor_key=mix_key)
+            wanted = [int(i) for i in edited.loc[edited["Add"], "_row"]]
+            if st.button(f"➕ Add {len(wanted)} to the playlist",
+                         disabled=not wanted, type="primary"):
+                remember_playlist(frame, playlist + [i for i in wanted
+                                                     if i not in playlist])
+                st.rerun()
+    else:
+        st.caption(WAITING_FOR_THE_BUTTON)
 
-    with sound_tab:
-        st.caption(
-            "Pure acoustic closeness, measured in the 1280 dimensions of the "
-            "embedding — not on the flattened map, and with no regard for "
-            "tempo or key. This is 'what else sounds like this', which is a "
-            "different question from 'what mixes out of this'. The first row "
-            "is the seed itself, here too.")
-        if asked_for(ASKED_ALIKE, frame.at[seed, "path"], "✨ Make the list",
-                     "Builds the list of what sounds like this seed."):
-            neighbours = pd.DataFrame([{
-                "Add": False,
-                "similarity": round(score, 3),
-                **reading(frame.loc[i], common),
-                "_path": frame.at[i, "path"],
-                "_row": i,
-            } for i, score in [(seed, 1.0)]
-                + store.similar(seed, k=shown, limit=len(frame))])
-            if not len(neighbours):
-                st.info("Nothing to compare this one with yet.")
-            else:
-                # Si sceglie anche da qui, e non solo si ascolta: un brano che
-                # somiglia al seme e' un candidato quanto uno che ci si mixa —
-                # trovarlo e non poterlo prendere voleva dire cercarselo a mano
-                # nell'altra scheda, dove magari non compare nemmeno.
-                near_all, near_key = tick_all("map_neighbours", default=False)
-                neighbours["Add"] = near_all
-                picked_near = play_table(
-                    "map_neighbours", neighbours,
-                    ["Add", "similarity", *READING_ORDER],
-                    {"Add": st.column_config.CheckboxColumn(
-                        "Add", help="Tick what you want in the playlist, then "
-                                    "the button below."),
-                     **reading_config(frame, neighbours),
-                     **read_only("similarity")},
-                    editor_key=near_key)
-                near_wanted = [int(i) for i in
-                               picked_near.loc[picked_near["Add"], "_row"]]
-                if st.button(f"➕ Add {len(near_wanted)} to the playlist",
-                             disabled=not near_wanted, type="primary",
-                             key="map_neighbours_add"):
-                    remember_playlist(frame, playlist + [i for i in near_wanted
-                                                         if i not in playlist])
-                    st.rerun()
+
+def render_sounds_alike(frame: pd.DataFrame, store: MapStore, seed: int,
+                        playlist: list[int], shown: int) -> None:
+    """Sounds like it: pura affinità acustica, non mixabilità."""
+    common = mood_popularity(frame)
+    st.caption(
+        "Pure acoustic closeness, measured in the 1280 dimensions of the "
+        "embedding — not on the flattened map, and with no regard for "
+        "tempo or key. This is 'what else sounds like this', which is a "
+        "different question from 'what mixes out of this'. The first row "
+        "is the seed itself, here too.")
+    if asked_for(ASKED_ALIKE, frame.at[seed, "path"], "✨ Make the list",
+                 "Builds the list of what sounds like this seed."):
+        neighbours = pd.DataFrame([{
+            "Add": False,
+            "similarity": round(score, 3),
+            **reading(frame.loc[i], common),
+            "_path": frame.at[i, "path"],
+            "_row": i,
+        } for i, score in [(seed, 1.0)]
+            + store.similar(seed, k=shown, limit=len(frame))])
+        if not len(neighbours):
+            st.info("Nothing to compare this one with yet.")
         else:
-            st.caption(WAITING_FOR_THE_BUTTON)
+            # Si sceglie anche da qui, e non solo si ascolta: un brano che
+            # somiglia al seme e' un candidato quanto uno che ci si mixa —
+            # trovarlo e non poterlo prendere voleva dire cercarselo a mano
+            # nell'altra scheda, dove magari non compare nemmeno.
+            near_all, near_key = tick_all("map_neighbours", default=False)
+            neighbours["Add"] = near_all
+            picked_near = play_table(
+                "map_neighbours", neighbours,
+                ["Add", "similarity", *READING_ORDER],
+                {"Add": st.column_config.CheckboxColumn(
+                    "Add", help="Tick what you want in the playlist, then "
+                                "the button below."),
+                 **reading_config(frame, neighbours),
+                 **read_only("similarity")},
+                editor_key=near_key)
+            near_wanted = [int(i) for i in
+                           picked_near.loc[picked_near["Add"], "_row"]]
+            if st.button(f"➕ Add {len(near_wanted)} to the playlist",
+                         disabled=not near_wanted, type="primary",
+                         key="map_neighbours_add"):
+                remember_playlist(frame, playlist + [i for i in near_wanted
+                                                     if i not in playlist])
+                st.rerun()
+    else:
+        st.caption(WAITING_FOR_THE_BUTTON)
 
 
 def _composed(text: str) -> str:
@@ -2252,6 +2305,25 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
         "map_playlist", table, col_order, col_config,
         editor_key=editor_key)
 
+    # La colonna Drop non serve solo a togliere: quello che ci si spunta
+    # diventa anche il seme (uno spuntato) o il gruppo (più di uno), come la
+    # stessa scelta fatta sulla mappa — un'altra strada per mandare un brano
+    # della playlist al Chain Maker o alla Quick List. Solo sui cambiamenti
+    # veri: rifarlo a ogni giro rimanderebbe indietro il seme scelto nel
+    # frattempo altrove.
+    ticked_paths = tuple(sorted(edited.loc[edited["Drop"], "_path"]))
+    if ticked_paths and ticked_paths != st.session_state.get(PLAYLIST_DROP_SEEDSYNC):
+        st.session_state[PLAYLIST_DROP_SEEDSYNC] = ticked_paths
+        if len(ticked_paths) == 1:
+            remember_seed(frame, at_path[ticked_paths[0]])
+            st.session_state[SELECTION] = []
+        else:
+            st.session_state[SELECTION] = list(ticked_paths)
+            forget_seed()
+        st.rerun()
+    elif not ticked_paths:
+        st.session_state.pop(PLAYLIST_DROP_SEEDSYNC, None)
+
     # Riscrivere un numero sposta la riga. Si legge dallo stato del widget e
     # non dalla tabella restituita: quello che serve è QUALE riga è stata
     # toccata, e il valore da solo non lo dice.
@@ -2465,8 +2537,10 @@ def render_chain_section(store: MapStore, pool) -> None:
         return
     placed = store.placed
     frame = library_frame(store, placed)
+    w_map, w_bpm, w_key = shared_weights()
     cost = TransitionCost(store.coords[:placed], frame["bpm"].tolist(),
-                          frame["camelot"].tolist())
+                          frame["camelot"].tolist(),
+                          w_map=w_map, w_bpm=w_bpm, w_key=w_key)
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:placed])}
     chosen = [i for i in graph_seeds(at_path) if i < placed]
     render_chain_maker(
