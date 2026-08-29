@@ -101,7 +101,7 @@ class TagSettings:
     top_genres: int = 3
     genre_threshold: float = 0.15      # attivazione minima (0-1)
     genre_format: str = "parent_child"
-    mood_threshold: float = 0.005      # attivazione minima (0-1)
+    mood_threshold: float = 0.05       # attivazione minima (0-1)
     max_moods: int = 5                 # quanti mood tenere in tutto
     moods_in_tag: int = 3              # quanti finiscono nel tag/commento
     confidence_tags: bool = True

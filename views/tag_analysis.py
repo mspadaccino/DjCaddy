@@ -372,7 +372,7 @@ with col_m:
     moods_in_tag = st.number_input("How many moods in the comment", 1, 5, 3,
                                    disabled=not do_moods)
     mood_threshold = st.slider(
-        "Mood threshold", 0.0, 1.0, 0.005, 0.005, disabled=not do_moods,
+        "Mood threshold", 0.0, 1.0, 0.05, 0.005, disabled=not do_moods,
         help="Lower than the genre one on purpose: mood activations are much "
              "smaller. Nothing is invented if none clear it.")
     confidence_tags = st.checkbox(
