@@ -2326,12 +2326,21 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
     ticked_paths = tuple(sorted(edited.loc[edited["Drop"], "_path"]))
     if ticked_paths and ticked_paths != st.session_state.get(PLAYLIST_DROP_SEEDSYNC):
         st.session_state[PLAYLIST_DROP_SEEDSYNC] = ticked_paths
+        # Non remember_seed/forget_seed: quelle svuotano anche il campo di
+        # ricerca ("map::livesearch"), e qui si è già passati dal punto in
+        # cui quel campo si disegna — riscriverne la sessione a widget già
+        # in piedi è quello che Streamlit rifiuta. Il seme si aggiorna lo
+        # stesso; il campo di ricerca, se aveva qualcosa scritto, lo perde
+        # al giro dopo, quando la mappa lo ridisegna da capo.
         if len(ticked_paths) == 1:
-            remember_seed(frame, at_path[ticked_paths[0]])
+            idx = at_path[ticked_paths[0]]
+            st.session_state[SEED] = frame.at[idx, "path"]
+            st.session_state[SEED_FIELD] = idx
             st.session_state[SELECTION] = []
         else:
             st.session_state[SELECTION] = list(ticked_paths)
-            forget_seed()
+            st.session_state.pop(SEED, None)
+            st.session_state[SEED_FIELD] = None
         st.rerun()
     elif not ticked_paths:
         st.session_state.pop(PLAYLIST_DROP_SEEDSYNC, None)
