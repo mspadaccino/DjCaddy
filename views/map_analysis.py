@@ -213,13 +213,15 @@ SKIN = {
               "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
               "kept": "#1f9d55",
               "chained": "#f2cc0c", "mixes": "#1f9dd0",
-              "alike": "#8a4fd6", "playing": "#d92b2b"},
+              "alike": "#8a4fd6", "playing": "#d92b2b",
+              "pl_selection": "#ff8a1e"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
              "kept": "#3ddc84",
              "chained": "#ffe94d", "mixes": "#5fd0f5",
-             "alike": "#c08cff", "playing": "#ff5c5c"},
+             "alike": "#c08cff", "playing": "#ff5c5c",
+             "pl_selection": "#ffb454"},
 }
 
 # In sessione si tengono i PERCORSI, non le posizioni nella libreria. Una
@@ -260,6 +262,14 @@ SELECTION = "map::selection"
 # della pagina rimanderebbe il seme alla playlist invece di lasciarlo a chi
 # lo ha scelto per ultimo (mappa, ricerca o Finder).
 PLAYLIST_DROP_SEEDSYNC = "map::playlist_drop_seedsync"
+
+# I brani spuntati nella colonna Drop della playlist, come punto di partenza
+# per Quick List, Sounds like it e Chain Maker — un canale suo, separato dal
+# seme del riquadro in alto (SEED/SELECTION). Il seme in alto è una scelta
+# esplicita fatta lì, col suo cerchio bianco; una spunta nella playlist non
+# deve spostarla né toccarne il cerchio, altrimenti chi sta guardando "il
+# seme" nel riquadro se lo vede cambiare da un gesto fatto altrove.
+PLAYLIST_SELECTION = "map::playlist_selection"
 
 # Le chiavi dei due grafici. Sono due viste sugli stessi brani — si sceglie
 # da tutte e due, e la scelta è una sola.
@@ -630,6 +640,7 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                  chained: list[int] | None = None,
                  mixes: list[int] | None = None,
                  alike: list[int] | None = None,
+                 pl_selection: list[int] | None = None,
                  playing: int | None = None,
                  axes: tuple[str, str] = ("x", "y"),
                  titles: tuple[str, str] | None = None,
@@ -762,7 +773,14 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             ("mixes out of it", mixes or [], skin["mixes"], 27, True),
             ("sounds like it", alike or [], skin["alike"], 31, True),
             ("in the playlist", playlist, skin["kept"], 15, False),
-            ("selected", selected or [], skin["ink"], 23, True)):
+            ("selected", selected or [], skin["ink"], 23, True),
+            # Il colore suo, diverso da "selected": quello è la scelta fatta
+            # SULLA mappa (lasso, riquadro), questo è la scelta fatta nella
+            # tabella della playlist. Il cerchio bianco del seme in alto resta
+            # a parte — non è in questo elenco — proprio perché quella scelta
+            # non deve confondersi con nessuna delle due.
+            ("current PL selection", pl_selection or [],
+             skin["pl_selection"], 19, True)):
         spots = [i for i in marks if i is not None and i < len(coords)]
         if not spots:
             continue
@@ -1238,10 +1256,28 @@ def render_map(store: MapStore) -> tuple | None:
         else:
             st.session_state[SELECTION] = [frame.at[i, "path"] for i in picked]
             forget_seed()
+        # Un clic sulla mappa è un gesto più recente di qualunque spunta
+        # fatta prima nella playlist: quella smette di comandare Quick List,
+        # Sounds like it e Chain Maker, e lascia il posto a questo.
+        st.session_state.pop(PLAYLIST_SELECTION, None)
+        st.session_state.pop(PLAYLIST_DROP_SEEDSYNC, None)
     selected = [at_path[p] for p in st.session_state.get(SELECTION, [])
                 if p in at_path]
     seed = None if selected else at_path.get(st.session_state.get(SEED))
-    mixes, alike = suggested(store, cost, pool, seed, placed)
+
+    # Quello che si è spuntato nella playlist: un canale a parte da SEED e
+    # SELECTION, che non tocca il seme del riquadro in alto (vedi
+    # PLAYLIST_SELECTION) ma è quello che conta per le tre schede sotto — se
+    # c'è, viene prima del seme in alto, perché è il gesto più recente.
+    pl_selected = [at_path[p] for p in st.session_state.get(PLAYLIST_SELECTION, [])
+                   if p in at_path]
+    if pl_selected:
+        op_seed = pl_selected[0] if len(pl_selected) == 1 else None
+        op_selected = [] if len(pl_selected) == 1 else pl_selected
+    else:
+        op_seed, op_selected = seed, selected
+
+    mixes, alike = suggested(store, cost, pool, op_seed, placed)
     playing = at_path.get(st.session_state.get(NOW_PLAYING))
 
     # Sopra ventimila brani se ne disegna un campione, e il campione può non
@@ -1252,7 +1288,7 @@ def render_map(store: MapStore) -> tuple | None:
     if sampled:
         pointed = [i for i in ([seed] if seed is not None else [])
                    + ([playing] if playing is not None else [])
-                   + selected + playlist + mixes + alike
+                   + selected + playlist + mixes + alike + pl_selected
                    if i in visible.index and i not in drawn.index]
         if pointed:
             drawn = pd.concat([drawn, visible.loc[pointed]])
@@ -1263,7 +1299,8 @@ def render_map(store: MapStore) -> tuple | None:
     top_genres = [g for g, _ in ranked.most_common(COLORED_GENRES)]
     marks = {"seed_name": (frame.at[seed, "name"] if seed is not None else None),
              "selected": selected, "chained": chained,
-             "mixes": mixes, "alike": alike, "playing": playing}
+             "mixes": mixes, "alike": alike, "playing": playing,
+             "pl_selection": pl_selected}
 
     # Due viste sugli stessi brani, non due schermi. La mappa dice come un
     # brano SUONA — è il vicinato a portare il significato, e gli assi non ne
@@ -1400,7 +1437,7 @@ def render_map(store: MapStore) -> tuple | None:
         st.warning(f"`{missing_file}` is not on the map: add its folder under "
                    "**Map settings** at the top, or pick another file.")
 
-    return frame, cost, pool, store, seed, selected, playlist
+    return frame, cost, pool, store, op_seed, op_selected, playlist
 
 
 def selection_rows(frame: pd.DataFrame, indices) -> pd.DataFrame:
@@ -2318,32 +2355,21 @@ def render_playlist(frame: pd.DataFrame, cost: TransitionCost,
         editor_key=editor_key)
 
     # La colonna Drop non serve solo a togliere: quello che ci si spunta
-    # diventa anche il seme (uno spuntato) o il gruppo (più di uno), come la
-    # stessa scelta fatta sulla mappa — un'altra strada per mandare un brano
-    # della playlist al Chain Maker o alla Quick List. Solo sui cambiamenti
-    # veri: rifarlo a ogni giro rimanderebbe indietro il seme scelto nel
-    # frattempo altrove.
+    # diventa anche il punto di partenza per Chain Maker e Quick List, come
+    # la stessa scelta fatta sulla mappa — ma per un canale suo
+    # (PLAYLIST_SELECTION), non il seme del riquadro in alto: quello resta
+    # quello che era, col suo cerchio bianco, e qui il brano si cerchia di un
+    # altro colore ("current PL selection"). Solo sui cambiamenti veri:
+    # rifarlo a ogni giro rimanderebbe indietro la scelta fatta nel frattempo
+    # altrove.
     ticked_paths = tuple(sorted(edited.loc[edited["Drop"], "_path"]))
     if ticked_paths and ticked_paths != st.session_state.get(PLAYLIST_DROP_SEEDSYNC):
         st.session_state[PLAYLIST_DROP_SEEDSYNC] = ticked_paths
-        # Non remember_seed/forget_seed: quelle svuotano anche il campo di
-        # ricerca ("map::livesearch"), e qui si è già passati dal punto in
-        # cui quel campo si disegna — riscriverne la sessione a widget già
-        # in piedi è quello che Streamlit rifiuta. Il seme si aggiorna lo
-        # stesso; il campo di ricerca, se aveva qualcosa scritto, lo perde
-        # al giro dopo, quando la mappa lo ridisegna da capo.
-        if len(ticked_paths) == 1:
-            idx = at_path[ticked_paths[0]]
-            st.session_state[SEED] = frame.at[idx, "path"]
-            st.session_state[SEED_FIELD] = idx
-            st.session_state[SELECTION] = []
-        else:
-            st.session_state[SELECTION] = list(ticked_paths)
-            st.session_state.pop(SEED, None)
-            st.session_state[SEED_FIELD] = None
+        st.session_state[PLAYLIST_SELECTION] = list(ticked_paths)
         st.rerun()
     elif not ticked_paths:
         st.session_state.pop(PLAYLIST_DROP_SEEDSYNC, None)
+        st.session_state.pop(PLAYLIST_SELECTION, None)
 
     # Riscrivere un numero sposta la riga. Si legge dallo stato del widget e
     # non dalla tabella restituita: quello che serve è QUALE riga è stata
@@ -2531,7 +2557,15 @@ def graph_seeds(at_path: dict[str, int]) -> list[int]:
     ritradotti qui. Si leggono dalla sessione e non dal grafico: interrogare
     il grafico da quaggiù vorrebbe dire chiedergli una selezione che il
     ridisegno gli ha già portato via (vedi `SELECTION`).
+
+    Una spunta appena fatta nella playlist viene prima di tutto il resto: è
+    il gesto più recente, e non passa dal seme del riquadro in alto — quello
+    resta quello che era.
     """
+    pl_selected = [at_path[p] for p in st.session_state.get(PLAYLIST_SELECTION, [])
+                   if p in at_path]
+    if pl_selected:
+        return pl_selected
     selected = [at_path[p] for p in st.session_state.get(SELECTION, [])
                 if p in at_path]
     if selected:
