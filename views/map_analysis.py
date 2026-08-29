@@ -2006,9 +2006,15 @@ def _assign_chapters(frame: pd.DataFrame, playlist: list[int],
     assigned: list[list[int]] = [[] for _ in CHAPTERS]
     taken = set()
     for j in range(len(CHAPTERS)):
-        candidates = [(scores[k, j], k) for k in range(n) if k not in taken]
+        # Il pareggio si scioglie sull'indice del brano nella libreria, non
+        # sulla sua posizione nella playlist: quella cambia da un giro
+        # all'altro — un "Apply" la riscrive nell'ordine dei capitoli — e un
+        # pareggio sciolto sulla posizione dava un risultato diverso ogni
+        # volta che si rifaceva "Create chapters" sugli stessi brani.
+        candidates = [(scores[k, j], playlist[k], k)
+                      for k in range(n) if k not in taken]
         candidates.sort()
-        for _, k in candidates[:quotas[j]]:
+        for _, _, k in candidates[:quotas[j]]:
             assigned[j].append(playlist[k])
             taken.add(k)
 
@@ -2214,6 +2220,12 @@ def render_chapter_builder(frame: pd.DataFrame, cost: TransitionCost,
                  key="map::chapter_apply"):
         ordered = sum(chapters, [])
         remember_playlist(frame, ordered)
+        # remember_playlist svuota sempre CHAPTER_STATE, perché di norma una
+        # playlist riscritta non è più quella che i capitoli descrivono. Qui
+        # lo è: l'ordine appena scritto è `chapters` stesso, srotolato — le
+        # aree colorate sulla lavagna sparirebbero altrimenti proprio nel
+        # momento in cui l'accordo fra playlist e capitoli è più vero che mai.
+        st.session_state[CHAPTER_STATE] = chapters
         st.rerun()
     if c2.button("🔄 Re-assign chapters", key="map::chapter_reassign"):
         st.session_state[CHAPTER_STATE] = _assign_chapters(frame, playlist, cost)
