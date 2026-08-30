@@ -92,6 +92,10 @@ class SearchPicker(QWidget):
         self._list = QListWidget()
         self._list.setUniformItemSizes(True)
         self._list.setMaximumHeight(140)
+        # La lista compare solo quando ha risultati: da ferma è un riquadro
+        # vuoto che ruba altezza alle tabelle — visto nel parallel run, nel
+        # Chain Maker si mangiava lo spazio dei candidati.
+        self._list.setVisible(False)
         box = QVBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(4)
@@ -109,17 +113,17 @@ class SearchPicker(QWidget):
     def _refresh(self, text: str) -> None:
         self._list.clear()
         wanted = folded(text.strip())
-        if self._frame is None or not wanted:
-            return
-        shown = 0
-        for i in self._options:
-            if wanted in folded(str(self._frame.at[i, "name"])):
-                item = QListWidgetItem(str(self._frame.at[i, "name"]))
-                item.setData(Qt.ItemDataRole.UserRole, int(i))
-                self._list.addItem(item)
-                shown += 1
-                if shown >= SEARCH_MAX:
-                    break
+        if self._frame is not None and wanted:
+            shown = 0
+            for i in self._options:
+                if wanted in folded(str(self._frame.at[i, "name"])):
+                    item = QListWidgetItem(str(self._frame.at[i, "name"]))
+                    item.setData(Qt.ItemDataRole.UserRole, int(i))
+                    self._list.addItem(item)
+                    shown += 1
+                    if shown >= SEARCH_MAX:
+                        break
+        self._list.setVisible(self._list.count() > 0)
 
     def _first(self) -> None:
         if self._list.count():

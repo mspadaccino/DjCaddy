@@ -87,6 +87,25 @@ def test_numbered_rows_keep_the_given_order():
     assert list(table["_path"]) == ["/y/three.mp3", "/x/one.mp3"]
 
 
+# --- la ricerca per nome ---
+
+def test_search_picker_list_shows_only_with_matches(qtbot):
+    """Da ferma la lista non si disegna: un riquadro vuoto sotto il campo
+    ruberebbe altezza alle tabelle — nel Chain Maker se la mangiava ai
+    candidati."""
+    from qt_app.pages.map.set_builder import SearchPicker
+
+    picker = SearchPicker("type a name")
+    qtbot.addWidget(picker)
+    picker.set_universe(library(), [0, 1, 2])
+    assert picker._list.isHidden()
+    picker._search.setText("one")
+    assert not picker._list.isHidden()
+    assert picker._list.count() == 1
+    picker._search.setText("non c'è")
+    assert picker._list.isHidden()
+
+
 # --- la libreria derivata ---
 
 def _profile(path, vector, bpm=128.0):
