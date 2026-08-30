@@ -331,10 +331,8 @@ class MapPage(QWidget):
         self._filters = FiltersPanel()
         self._filters.changed.connect(self._rebuild_cloud)
         self._builder = SetBuilderPanel(self._state, self._wire)
-        self._builder.append_playlist.connect(
-            lambda idx: self._playlist.append(idx))
-        self._builder.replace_playlist.connect(
-            lambda idx: self._playlist.replace(idx))
+        self._builder.append_playlist.connect(self._on_builder_append)
+        self._builder.replace_playlist.connect(self._on_builder_replace)
         self._builder.suggestions_changed.connect(self._on_suggestions)
         self._builder.chain_changed.connect(self._on_chain)
         self._playlist = PlaylistPanel(self._state, self._wire)
@@ -616,6 +614,17 @@ class MapPage(QWidget):
             return
         self._pl_selection = list(paths)
         self._schedule_choice()
+
+    def _on_builder_append(self, indices: list[int]) -> None:
+        self._playlist.append(indices)
+        # Il risultato sta di là: mandare brani alla playlist e restare a
+        # guardare la scheda da cui sono partiti lasciava il dubbio che non
+        # fosse successo niente.
+        self._panels.setCurrentWidget(self._playlist)
+
+    def _on_builder_replace(self, indices: list[int]) -> None:
+        self._playlist.replace(indices)
+        self._panels.setCurrentWidget(self._playlist)
 
     def _on_suggestions(self, mixes: list[int], alike: list[int]) -> None:
         if (mixes, alike) != (self._mixes, self._alike):

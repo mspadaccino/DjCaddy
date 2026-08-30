@@ -77,12 +77,17 @@ def main() -> int:
     # glielo lasciamo noi, e la finestra si appoggia in alto.
     screen = app.primaryScreen()
     available = screen.availableGeometry()
-    dock_gap = 88 if available.bottom() == screen.geometry().bottom() else 12
+    dock_gap = 96 if available.bottom() == screen.geometry().bottom() else 12
     wide = min(1500, available.width() - 24)
-    tall = min(940, available.height() - 12 - dock_gap)
-    window.resize(wide, tall)
-    window.move(available.x() + (available.width() - wide) // 2,
-                available.y() + 12)
+    # setGeometry parla del CLIENT, non della cornice: il fondo — dove vive
+    # il lettore — atterra esattamente a dock_gap dal bordo dello schermo,
+    # qualunque altezza abbia la barra del titolo. Con move()+resize() la
+    # cornice spingeva il client in giù di ~28 px, e il margine lasciato al
+    # Dock se li mangiava proprio lì.
+    top = available.y() + 40
+    tall = min(940, available.bottom() - dock_gap - top)
+    window.setGeometry(available.x() + (available.width() - wide) // 2,
+                       top, wide, tall)
     window.show()
     return app.exec()
 

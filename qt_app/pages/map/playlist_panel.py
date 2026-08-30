@@ -100,7 +100,7 @@ class PlaylistPanel(QWidget):
                               "transition stays cheap. Starts from the "
                               "first track.")
         self._sort.clicked.connect(self._on_magic_sort)
-        self._drop = QPushButton("🗑 Remove selected")
+        self._drop = QPushButton("🗑 Remove ticked")
         self._drop.clicked.connect(self._on_drop)
         self._reset = QPushButton("🗑 Clear")
         self._reset.setToolTip("Clear the entire playlist.")
@@ -229,11 +229,9 @@ class PlaylistPanel(QWidget):
         return [at_path[p] for p in self._state.playlist if p in at_path]
 
     def clear_picks(self) -> None:
-        """Toglie l'evidenziazione senza rimandarla indietro come gesto:
-        serve quando un clic sulla mappa — più recente — prende il comando."""
-        self._table.blockSignals(True)
-        self._table.clearSelection()
-        self._table.blockSignals(False)
+        """Toglie le spunte senza rimandarle indietro come gesto: serve
+        quando un clic sulla mappa — più recente — prende il comando."""
+        self._table.clear_picks()
 
     def append(self, indices: list[int]) -> None:
         """In coda a quello che c'è già, saltando chi c'è già."""
@@ -306,8 +304,8 @@ class PlaylistPanel(QWidget):
         worst = max(steps, default=0)
         self._worst.setText(
             f"Roughest transition: <b>{worst:.3f}</b>. Magic sort is what "
-            "brings that number down. Drag rows to reorder; the selection "
-            "here is what Quick List and the Chain Maker start from.")
+            "brings that number down. Drag rows to reorder; the ✓ ticks "
+            "here are what Quick List and the Chain Maker start from.")
 
         fresh = ch_lookup is None
         self._ch_create.setVisible(fresh)

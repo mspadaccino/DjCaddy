@@ -18,8 +18,8 @@ import json
 
 import pandas as pd
 
-from PySide6.QtCore import (QAbstractTableModel, QItemSelectionModel,
-                            QMimeData, QModelIndex, QRect, Qt, Signal)
+from PySide6.QtCore import (QAbstractTableModel, QMimeData, QModelIndex,
+                            QRect, Qt, Signal)
 from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QMenu, QStyle,
                                QStyledItemDelegate, QStyleOptionButton,
@@ -245,7 +245,11 @@ class PillDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
+            # Il colore di modulo, non option.palette.highlight(): il
+            # pennello del temporaneo di shiboken ha fatto crollare la
+            # suite (segfault nel paint) appena i test hanno cominciato
+            # a selezionare righe.
+            painter.fillRect(option.rect, theme.SELECTED_ROW)
         values = self._values(index)
         if not values:
             return
@@ -283,27 +287,32 @@ class PillDelegate(QStyledItemDelegate):
 
 
 class CheckDelegate(QStyledItemDelegate):
-    """Una casella che RIFLETTE la selezione della riga: niente stato suo.
+    """La casella dei brani PRESI, staccata dall'evidenziazione del clic.
 
-    Spuntata vuol dire selezionata, e basta — la fonte di verità resta il
-    selection model della vista. Serve dove le righe scelte alimentano un
-    bottone ("Add selected…"): l'evidenziazione da sola diceva poco, una
-    colonna di caselle si legge al volo. Il clic sulla casella commuta la
-    sola riga (vedi `TrackTable.mousePressEvent`), che è il gesto che ci si
-    aspetta da un checkbox.
+    All'inizio la spunta rifletteva la selezione della vista, e non
+    funzionava: cliccare una riga per guardarla svuotava le spunte messe
+    prima — un gesto di lettura che disfa una scelta. Adesso i presi sono
+    un insieme della tabella (per percorso), si toccano SOLO dalla casella,
+    e il clic normale resta quello che è: evidenzia la riga su cui si sta,
+    senza toccare quello che si è già preso.
     """
 
     def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
+            # Il colore di modulo, non option.palette.highlight(): il
+            # pennello del temporaneo di shiboken ha fatto crollare la
+            # suite (segfault nel paint) appena i test hanno cominciato
+            # a selezionare righe.
+            painter.fillRect(option.rect, theme.SELECTED_ROW)
         box = QStyleOptionButton()
         box.palette = option.palette
         side = 16
         box.rect = QRect(option.rect.center().x() - side // 2,
                          option.rect.center().y() - side // 2, side, side)
+        table = self.parent()
         box.state = QStyle.StateFlag.State_Enabled | (
             QStyle.StateFlag.State_On
-            if option.state & QStyle.StateFlag.State_Selected
+            if table.is_row_picked(index.row())
             else QStyle.StateFlag.State_Off)
         option.widget.style().drawControl(
             QStyle.ControlElement.CE_CheckBox, box, painter, option.widget)
@@ -319,7 +328,11 @@ class PlayDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
         if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, option.palette.highlight())
+            # Il colore di modulo, non option.palette.highlight(): il
+            # pennello del temporaneo di shiboken ha fatto crollare la
+            # suite (segfault nel paint) appena i test hanno cominciato
+            # a selezionare righe.
+            painter.fillRect(option.rect, theme.SELECTED_ROW)
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         font = painter.font()
@@ -369,6 +382,9 @@ class TrackTable(QTableView):
         self._play_delegate = PlayDelegate(self)
         self._delegates: dict[str, PillDelegate] = {}
         self._genre_colors: dict[str, str] = {}
+        # I brani PRESI (colonna ✓), per percorso: sopravvivono ai ridisegni
+        # della tabella — quello che sparisce dal frame cade da solo.
+        self._picked: set[str] = set()
 
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setDefaultSectionSize(26)
@@ -392,8 +408,12 @@ class TrackTable(QTableView):
         self.doubleClicked.connect(self._on_double_click)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_menu)
-        self.selectionModel().selectionChanged.connect(
-            lambda *_: self.selection_paths_changed.emit(self.selected_paths()))
+        if not checkable:
+            # Dove non ci sono caselle la scelta È la selezione; dove ci
+            # sono, la racconta `toggle_pick` e il clic evidenzia soltanto.
+            self.selectionModel().selectionChanged.connect(
+                lambda *_: self.selection_paths_changed.emit(
+                    self.selected_paths()))
 
     @property
     def model_(self) -> PandasModel:
@@ -411,6 +431,12 @@ class TrackTable(QTableView):
             if self._checkable:
                 frame.insert(0, CHECK_COLUMN, "")   # ✓ prima, ▶ subito dopo
         self._model.set_frame(frame)
+        if self._checkable:
+            # I presi che il frame nuovo non porta più non sono più presi.
+            still = self._picked & {str(p) for p in frame.get("_path", [])}
+            if still != self._picked:
+                self._picked = still
+                self.selection_paths_changed.emit(self.selected_paths())
         # La mappa dei generi si legge DAL VIVO nel resolver: cambia a ogni
         # selezione, e un delegate che la catturasse alla prima chiamata
         # colorerebbe per sempre coi generi di allora.
@@ -436,17 +462,47 @@ class TrackTable(QTableView):
                 self.setColumnWidth(shown.index(name), width)
 
     def selected_paths(self) -> list[str]:
-        """I `_path` delle righe selezionate, dall'alto in basso."""
+        """I `_path` delle righe scelte, dall'alto in basso.
+
+        Su una tabella `checkable` sono le righe SPUNTATE — la scelta vive
+        nelle caselle, e il clic che evidenzia non la tocca. Sulle altre
+        resta la selezione della vista (una riga, ⌘/ctrl per estendere).
+        """
+        if self._checkable:
+            return [p for p in (self._model.path_at(r)
+                                for r in range(self._model.rowCount()))
+                    if p in self._picked]
         rows = sorted({i.row() for i in self.selectionModel().selectedRows()})
         return [p for p in (self._model.path_at(r) for r in rows) if p]
+
+    def is_row_picked(self, row: int) -> bool:
+        return self._model.path_at(row) in self._picked
+
+    def toggle_pick(self, row: int) -> None:
+        """Commuta la spunta di una riga — il solo gesto che tocca i presi."""
+        path = self._model.path_at(row)
+        if path is None:
+            return
+        self._picked.symmetric_difference_update({path})
+        self.viewport().update()
+        self.selection_paths_changed.emit(self.selected_paths())
+
+    def clear_picks(self) -> None:
+        """Via spunte ed evidenziazione, in silenzio: serve a chi le sta
+        rimpiazzando con un gesto più recente, non a segnalare un gesto."""
+        self._picked.clear()
+        self.blockSignals(True)
+        self.clearSelection()
+        self.blockSignals(False)
+        self.viewport().update()
 
     def mousePressEvent(self, event) -> None:
         """I due campi-comando davanti alla riga, prima del clic normale.
 
         Il ▶ suona la riga e NON la seleziona — sentire un brano non è
-        sceglierlo. La casella di spunta COMMUTA la riga senza svuotare le
-        altre: è la semantica di un checkbox, non quella di un clic — che
-        altrove resta il solito (una riga, ⌘/ctrl per estendere).
+        sceglierlo. La casella COMMUTA la spunta della sola riga, e il clic
+        altrove resta il solito: evidenzia la riga su cui si sta, e le
+        spunte non le tocca.
         """
         if event.button() == Qt.MouseButton.LeftButton:
             index = self.indexAt(event.position().toPoint())
@@ -459,9 +515,7 @@ class TrackTable(QTableView):
                     self.play_requested.emit(path)
                 return
             if self._checkable and name == CHECK_COLUMN:
-                self.selectionModel().select(
-                    index, QItemSelectionModel.SelectionFlag.Toggle
-                    | QItemSelectionModel.SelectionFlag.Rows)
+                self.toggle_pick(index.row())
                 return
         super().mousePressEvent(event)
 

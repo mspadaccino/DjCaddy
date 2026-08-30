@@ -272,7 +272,15 @@ class SetBuilderPanel(QWidget):
         self._mixes_add = QPushButton("➕ Add selected to the playlist")
         self._mixes_add.clicked.connect(
             lambda: self._add_rows(self._mixes_table))
-        sbox.addWidget(self._mixes_add)
+        self._mixes_send = QPushButton("↺ Send as a new playlist")
+        self._mixes_send.setToolTip("Starts over: what is in the playlist "
+                                    "now is dropped.")
+        self._mixes_send.clicked.connect(
+            lambda: self._send_rows(self._mixes_table))
+        mixes_row = QHBoxLayout()
+        mixes_row.addWidget(self._mixes_add)
+        mixes_row.addWidget(self._mixes_send)
+        sbox.addLayout(mixes_row)
 
         for page in (idle, group, seed):
             self._quick.addWidget(page)
@@ -306,7 +314,15 @@ class SetBuilderPanel(QWidget):
         self._alike_add = QPushButton("➕ Add selected to the playlist")
         self._alike_add.clicked.connect(
             lambda: self._add_rows(self._alike_table))
-        sbox.addWidget(self._alike_add)
+        self._alike_send = QPushButton("↺ Send as a new playlist")
+        self._alike_send.setToolTip("Starts over: what is in the playlist "
+                                    "now is dropped.")
+        self._alike_send.clicked.connect(
+            lambda: self._send_rows(self._alike_table))
+        alike_row = QHBoxLayout()
+        alike_row.addWidget(self._alike_add)
+        alike_row.addWidget(self._alike_send)
+        sbox.addLayout(alike_row)
 
         self._alike.addWidget(idle)
         self._alike.addWidget(seed)
@@ -377,7 +393,9 @@ class SetBuilderPanel(QWidget):
         restart = QPushButton("↺ Start over")
         restart.setToolTip("Empties the chain. The playlist is not touched.")
         restart.clicked.connect(self._on_chain_restart)
-        to_playlist = QPushButton("➡️ Append to playlist")
+        # Lo stesso verbo delle altre due schede: cambia solo il soggetto —
+        # qui va la catena intera, non le righe spuntate.
+        to_playlist = QPushButton("➕ Add to the playlist")
         to_playlist.setToolTip("The chain goes after what the playlist "
                                "already holds.")
         to_playlist.clicked.connect(self._on_chain_append)
@@ -605,6 +623,12 @@ class SetBuilderPanel(QWidget):
         wanted = [at_path[p] for p in table.selected_paths() if p in at_path]
         if wanted:
             self.append_playlist.emit(wanted)
+
+    def _send_rows(self, table: TrackTable) -> None:
+        at_path = self._lib.at_path
+        wanted = [at_path[p] for p in table.selected_paths() if p in at_path]
+        if wanted:
+            self.replace_playlist.emit(wanted)
 
     # ------------------------------------------------------------------
     # Chain Maker

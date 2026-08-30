@@ -113,11 +113,16 @@ class FiltersPanel(QWidget):
         told.setObjectName("dim")
         told.setWordWrap(True)
 
+        # Un quadrato fisso, centrato: l'SVG della ruota si allarga quanto
+        # gli si dà e tiene la proporzione — largo quanto la colonna
+        # chiederebbe più altezza di quanta ne ha, e usciva tagliato.
         self._wheel = WheelView()
-        self._wheel.setMinimumHeight(240)
-        self._wheel.height_suggested.connect(
-            lambda h: self._wheel.setFixedHeight(max(220, min(340, h))))
+        self._wheel.setFixedSize(300, 306)
         self._wheel.key_toggled.connect(self._on_key)
+        wheel_row = QHBoxLayout()
+        wheel_row.addStretch(1)
+        wheel_row.addWidget(self._wheel)
+        wheel_row.addStretch(1)
         wheel_told = QLabel("Pick the keys you want to land on.")
         wheel_told.setObjectName("dim")
 
@@ -125,6 +130,11 @@ class FiltersPanel(QWidget):
         self._moods = CheckList("Moods")
         for picker in (self._genres, self._moods):
             picker.changed.connect(self._debounce.start)
+        # Fianco a fianco: sono la stessa domanda posta su due vocabolari, e
+        # in colonna si rubavano l'altezza a vicenda.
+        lists_row = QHBoxLayout()
+        lists_row.addWidget(self._genres, stretch=1)
+        lists_row.addWidget(self._moods, stretch=1)
 
         # I decimali coprono la precisione con cui lo store scrive i numeri
         # (BPM a un decimale, danceability a tre): una casella che
@@ -152,10 +162,9 @@ class FiltersPanel(QWidget):
 
         box = QVBoxLayout(self)
         box.addWidget(told)
-        box.addWidget(self._wheel)
+        box.addLayout(wheel_row)
         box.addWidget(wheel_told)
-        box.addWidget(self._genres, stretch=3)
-        box.addWidget(self._moods, stretch=2)
+        box.addLayout(lists_row, stretch=1)
         box.addLayout(grid)
         box.addWidget(reset)
         box.addWidget(self._count)

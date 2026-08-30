@@ -200,8 +200,10 @@ def test_every_table_leads_with_the_play_column(qtbot):
 def test_play_cell_sounds_the_row_without_selecting_it(qtbot):
     table = TrackTable()
     qtbot.addWidget(table)
-    table.resize(640, 220)
-    table.show()
+    table.resize(640, 220)     # basta la geometria: visualRect non
+                               # vuole una finestra vera, e una
+                               # finestra vera lascia paint in coda
+                               # che crollano al teardown (segfault)
     table.set_tracks(shown(), {})
     cell = table.visualRect(table.model_.index(1, 0)).center()
     with qtbot.waitSignal(table.play_requested) as heard:
@@ -214,8 +216,10 @@ def test_play_cell_sounds_the_row_without_selecting_it(qtbot):
 def test_check_click_toggles_the_row_without_clearing_the_rest(qtbot):
     table = TrackTable(checkable=True)
     qtbot.addWidget(table)
-    table.resize(640, 220)
-    table.show()
+    table.resize(640, 220)     # basta la geometria: visualRect non
+                               # vuole una finestra vera, e una
+                               # finestra vera lascia paint in coda
+                               # che crollano al teardown (segfault)
     table.set_tracks(shown(), {})
 
     def tick(row):
@@ -228,3 +232,35 @@ def test_check_click_toggles_the_row_without_clearing_the_rest(qtbot):
     assert table.selected_paths() == ["/x/one.mp3", "/x/two.mp3"]
     tick(0)                     # rispuntare toglie la sola riga
     assert table.selected_paths() == ["/x/two.mp3"]
+
+
+def test_a_plain_click_highlights_but_leaves_the_ticks_alone(qtbot):
+    """Cliccare una riga per guardarla non deve disfare la scelta: il clic
+    evidenzia, la casella prende."""
+    table = TrackTable(checkable=True)
+    qtbot.addWidget(table)
+    table.resize(640, 220)     # basta la geometria: visualRect non
+                               # vuole una finestra vera, e una
+                               # finestra vera lascia paint in coda
+                               # che crollano al teardown (segfault)
+    table.set_tracks(shown(), {})
+    table.toggle_pick(0)
+    table.toggle_pick(1)
+    # Un clic su una cella qualunque della terza riga (la colonna del nome).
+    cell = table.visualRect(table.model_.index(2, 2)).center()
+    qtbot.mouseClick(table.viewport(), Qt.MouseButton.LeftButton, pos=cell)
+    assert table.selected_paths() == ["/x/one.mp3", "/x/two.mp3"]
+    assert table.selectionModel().isRowSelected(2)   # l'evidenziazione c'è
+
+
+def test_ticks_survive_a_refresh_and_prune_the_missing(qtbot):
+    table = TrackTable(checkable=True)
+    qtbot.addWidget(table)
+    table.set_tracks(shown(), {})
+    table.toggle_pick(0)
+    table.toggle_pick(2)
+    table.set_tracks(shown(), {})                    # stesso frame, rifatto
+    assert table.selected_paths() == ["/x/one.mp3", "/y/three.mp3"]
+    smaller = shown()
+    table.set_tracks(smaller[smaller["_path"] != "/x/one.mp3"], {})
+    assert table.selected_paths() == ["/y/three.mp3"]
