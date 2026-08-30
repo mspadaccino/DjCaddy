@@ -303,6 +303,8 @@ class MapPage(QWidget):
         self._trouble.setVisible(False)
         self._matches_told = _dim("")
         self._matches_told.setVisible(False)
+        # Fra i risultati si sceglie con l'orecchio: il ▶ di riga suona il
+        # brano, il doppio clic resta il gesto che lo fa seme.
         self._matches = TrackTable()
         self._wire(self._matches, activate_plays=False)
         self._matches.row_activated.connect(self._on_match_picked)
@@ -690,10 +692,9 @@ class MapPage(QWidget):
         found = matching_tracks(frame, self._pool, words)
         self._matches_told.setText(
             f"{len(found):,} match"
-            + (f" — showing the first {SEED_MATCHES_MAX}. Double-click a "
-               "row to make it the seed."
-               if len(found) > SEED_MATCHES_MAX else
-               ". Double-click a row to make it the seed."))
+            + (f" — showing the first {SEED_MATCHES_MAX}."
+               if len(found) > SEED_MATCHES_MAX else ".")
+            + " ▶ plays a track; double-click a row to make it the seed.")
         self._matches_told.setVisible(True)
         rows = frame.loc[found[:SEED_MATCHES_MAX]]
         shown = track_frame(rows, self._lib.common)

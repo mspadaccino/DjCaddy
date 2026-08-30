@@ -114,7 +114,7 @@ class PlaylistPanel(QWidget):
             "Nothing in it yet: pick tracks in Build a set, take them from "
             "the disk, or load an existing playlist and keep adding to it.")
 
-        self._table = TrackTable(reorderable=True)
+        self._table = TrackTable(reorderable=True, checkable=True)
         wire_table(self._table)
         self._table.model_.order_changed.connect(
             lambda paths: self._push(list(paths), False))

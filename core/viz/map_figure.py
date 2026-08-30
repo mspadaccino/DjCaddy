@@ -384,11 +384,13 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
     # insieme — lo si è appena selezionato ED è già in playlist — e con lo
     # stesso diametro l'anello disegnato per ultimo coprirebbe l'altro
     # esattamente. Concentrici, si vedono tutti e due.
-    # In legenda ci vanno: senza, restano quattro cerchi di colori diversi e
-    # nessun posto dove chiedere cosa vogliano dire. L'anello della playlist è
-    # l'unico che si tiene fuori, e non per dimenticanza — il suo percorso è
-    # già in legenda come "playlist", e due voci per lo stesso insieme di
-    # brani direbbero che sono due cose.
+    # In legenda ci vanno TUTTI: senza, restano cerchi di colori diversi e
+    # nessun posto dove chiedere cosa vogliano dire. Valeva anche per
+    # l'anello verde della playlist, che per un po' è rimasto fuori perché
+    # il suo percorso era già in legenda come "playlist": ma la voce del
+    # percorso mostra una linea con punti bianchi, e nessuno ci risale al
+    # cerchio verde — provato sul parallel run, la domanda è arrivata.
+    # Due voci per lo stesso insieme, purché ognuna somigli al suo segno.
     #
     # Compaiono solo quando ci sono davvero: una voce per un insieme vuoto
     # sarebbe una legenda che promette un colore introvabile sul disegno.
@@ -403,7 +405,7 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             # che dicono cosa un brano E'.
             ("mixes out of it", mixes or [], skin["mixes"], 27, True),
             ("sounds like it", alike or [], skin["alike"], 31, True),
-            ("in the playlist", playlist, skin["kept"], 15, False),
+            ("in the playlist", playlist, skin["kept"], 15, True),
             ("selected", selected or [], skin["ink"], 23, True),
             # Il colore suo, diverso da "selected": quello è la scelta fatta
             # SULLA mappa (lasso, riquadro), questo è la scelta fatta nella

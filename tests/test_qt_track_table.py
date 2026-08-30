@@ -19,8 +19,9 @@ from PySide6.QtCore import QModelIndex, Qt
 
 from core.viz.track_columns import (ENERGY_COLORS, EMOTION_COLORS,
                                     GROOVE_COLORS, KEY_COLORS, energy_level)
-from qt_app.widgets.track_table import (PILLS_ROLE, PandasModel, PillDelegate,
-                                        TrackTable, pill_color, track_frame)
+from qt_app.widgets.track_table import (CHECK_COLUMN, PILLS_ROLE, PLAY_COLUMN,
+                                        PandasModel, PillDelegate, TrackTable,
+                                        pill_color, track_frame)
 
 
 def library() -> pd.DataFrame:
@@ -172,3 +173,58 @@ def test_selected_paths_follow_the_row_selection(qtbot):
     assert table.selected_paths() == ["/x/two.mp3"]
     table.clearSelection()
     assert table.selected_paths() == []
+
+
+def test_checkable_grows_the_check_column_on_a_copy(qtbot):
+    table = TrackTable(checkable=True)
+    qtbot.addWidget(table)
+    frame = shown()
+    table.set_tracks(frame, {})
+    assert table.model_.headerData(
+        0, Qt.Orientation.Horizontal) == CHECK_COLUMN
+    assert table.model_.headerData(
+        1, Qt.Orientation.Horizontal) == PLAY_COLUMN
+    # Il frame di chi chiama resta suo: le colonne nascono su una copia.
+    assert CHECK_COLUMN not in frame.columns
+    assert PLAY_COLUMN not in frame.columns
+
+
+def test_every_table_leads_with_the_play_column(qtbot):
+    table = TrackTable()
+    qtbot.addWidget(table)
+    table.set_tracks(shown(), {})
+    assert table.model_.headerData(
+        0, Qt.Orientation.Horizontal) == PLAY_COLUMN
+
+
+def test_play_cell_sounds_the_row_without_selecting_it(qtbot):
+    table = TrackTable()
+    qtbot.addWidget(table)
+    table.resize(640, 220)
+    table.show()
+    table.set_tracks(shown(), {})
+    cell = table.visualRect(table.model_.index(1, 0)).center()
+    with qtbot.waitSignal(table.play_requested) as heard:
+        qtbot.mouseClick(table.viewport(), Qt.MouseButton.LeftButton,
+                         pos=cell)
+    assert heard.args == ["/x/two.mp3"]
+    assert table.selected_paths() == []     # suonare non è scegliere
+
+
+def test_check_click_toggles_the_row_without_clearing_the_rest(qtbot):
+    table = TrackTable(checkable=True)
+    qtbot.addWidget(table)
+    table.resize(640, 220)
+    table.show()
+    table.set_tracks(shown(), {})
+
+    def tick(row):
+        cell = table.visualRect(table.model_.index(row, 0)).center()
+        qtbot.mouseClick(table.viewport(), Qt.MouseButton.LeftButton,
+                         pos=cell)
+
+    tick(0)
+    tick(1)                     # la seconda spunta NON svuota la prima
+    assert table.selected_paths() == ["/x/one.mp3", "/x/two.mp3"]
+    tick(0)                     # rispuntare toglie la sola riga
+    assert table.selected_paths() == ["/x/two.mp3"]

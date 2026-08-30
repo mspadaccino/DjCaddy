@@ -332,12 +332,14 @@ def test_an_empty_ring_promises_no_colour():
     assert "selected" not in names
 
 
-def test_the_playlist_is_named_once_and_not_twice():
-    """Il percorso e' gia' in legenda: due voci per lo stesso insieme di brani
-    direbbero che sono due cose."""
+def test_the_playlist_names_both_of_its_signs():
+    """Percorso e anello vanno in legenda TUTTI E DUE: la voce del percorso
+    mostra una linea con punti bianchi, e dall'anello verde nessuno ci
+    risaliva — provato sul parallel run, la domanda e' arrivata. Ogni voce
+    deve somigliare al suo segno."""
     names = _legend_of(playlist=[0, 1], seed=None)
     assert names.count("playlist") == 1
-    assert "in the playlist" not in names
+    assert "in the playlist" in names
 
 
 def test_the_seed_has_its_own_entry():

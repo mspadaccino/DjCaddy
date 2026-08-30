@@ -18,11 +18,12 @@ import json
 
 import pandas as pd
 
-from PySide6.QtCore import (QAbstractTableModel, QMimeData, QModelIndex, Qt,
-                            Signal)
+from PySide6.QtCore import (QAbstractTableModel, QItemSelectionModel,
+                            QMimeData, QModelIndex, QRect, Qt, Signal)
 from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QMenu, QStyle,
-                               QStyledItemDelegate, QTableView)
+                               QStyledItemDelegate, QStyleOptionButton,
+                               QTableView)
 
 from core.viz.chapters import CHAPTER_COLORS
 from core.viz.track_columns import (ENERGY_COLORS, EMOTION_COLORS,
@@ -36,6 +37,14 @@ from qt_app import theme
 PILLS_ROLE = Qt.ItemDataRole.UserRole + 1
 
 _ROWS_MIME = "application/x-wavecut-rows"
+
+# Il nome della colonna di spunta delle tabelle `checkable`.
+CHECK_COLUMN = "✓"
+
+# La colonnina del play, su OGNI tabella: è il gemello del ▶ che
+# `play_table` mette nelle tabelle Streamlit. Un clic lì suona la riga e
+# non tocca la selezione — sentire un brano non è sceglierlo.
+PLAY_COLUMN = "▶"
 
 
 def pill_color(column: str, value: str,
@@ -273,6 +282,54 @@ class PillDelegate(QStyledItemDelegate):
         return size
 
 
+class CheckDelegate(QStyledItemDelegate):
+    """Una casella che RIFLETTE la selezione della riga: niente stato suo.
+
+    Spuntata vuol dire selezionata, e basta — la fonte di verità resta il
+    selection model della vista. Serve dove le righe scelte alimentano un
+    bottone ("Add selected…"): l'evidenziazione da sola diceva poco, una
+    colonna di caselle si legge al volo. Il clic sulla casella commuta la
+    sola riga (vedi `TrackTable.mousePressEvent`), che è il gesto che ci si
+    aspetta da un checkbox.
+    """
+
+    def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, option.palette.highlight())
+        box = QStyleOptionButton()
+        box.palette = option.palette
+        side = 16
+        box.rect = QRect(option.rect.center().x() - side // 2,
+                         option.rect.center().y() - side // 2, side, side)
+        box.state = QStyle.StateFlag.State_Enabled | (
+            QStyle.StateFlag.State_On
+            if option.state & QStyle.StateFlag.State_Selected
+            else QStyle.StateFlag.State_Off)
+        option.widget.style().drawControl(
+            QStyle.ControlElement.CE_CheckBox, box, painter, option.widget)
+
+
+class PlayDelegate(QStyledItemDelegate):
+    """Il ▶ di riga: si disegna e basta, il gesto lo raccoglie la vista.
+
+    Un glifo spento (FADED) perché è un comando presente su ogni riga: in
+    inchiostro pieno sarebbe una colonna che urla. Il clic arriva da
+    `TrackTable.mousePressEvent`, che suona la riga senza selezionarla.
+    """
+
+    def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, option.palette.highlight())
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        font = painter.font()
+        font.setPointSizeF(max(font.pointSizeF() - 2.0, 8.0))
+        painter.setFont(font)
+        painter.setPen(QColor(theme.FADED))
+        painter.drawText(option.rect, Qt.AlignmentFlag.AlignCenter, "▶")
+        painter.restore()
+
+
 class TrackTable(QTableView):
     """La tabella dei brani, già vestita: pastiglie, sort, trascinamento.
 
@@ -294,17 +351,22 @@ class TrackTable(QTableView):
     # dati (resizeColumnsToContents) visita OGNI riga, e una tabella da
     # novantamila righe si pianterebbe proprio nel gesto che Qt deve rendere
     # gratis.
-    _WIDTHS = {"#": 40, "file": 320, "BPM": 52, "key": 52, "energy": 60,
-               "groove": 64, "emotion": 64, "mood": 120, "genres": 240,
-               "cost": 56, "sound": 56, "bpm cost": 66, "key cost": 62,
-               "similarity": 72, "copies": 56, "chapter": 84,
+    _WIDTHS = {CHECK_COLUMN: 30, PLAY_COLUMN: 30, "#": 40, "file": 320,
+               "BPM": 52, "key": 52,
+               "energy": 60, "groove": 64, "emotion": 64, "mood": 120,
+               "genres": 240, "cost": 56, "sound": 56, "bpm cost": 66,
+               "key cost": 62, "similarity": 72, "copies": 56, "chapter": 84,
                "from previous": 94, "Δbpm": 52, "Δkey": 48, "Δenergy": 62,
                "Δgroove": 62}
 
-    def __init__(self, reorderable: bool = False, parent=None) -> None:
+    def __init__(self, reorderable: bool = False, checkable: bool = False,
+                 parent=None) -> None:
         super().__init__(parent)
         self._model = PandasModel(reorderable=reorderable, parent=self)
         self.setModel(self._model)
+        self._checkable = checkable
+        self._check_delegate = CheckDelegate(self) if checkable else None
+        self._play_delegate = PlayDelegate(self)
         self._delegates: dict[str, PillDelegate] = {}
         self._genre_colors: dict[str, str] = {}
 
@@ -341,6 +403,13 @@ class TrackTable(QTableView):
     def set_tracks(self, frame: pd.DataFrame,
                    genre_colors: dict[str, str] | None = None) -> None:
         """Mostra un frame di `track_frame`, e veste le colonne che conosce."""
+        if PLAY_COLUMN not in frame.columns:
+            # Su una COPIA: il frame è di chi chiama, e una colonna comparsa
+            # di soprassalto in casa sua sarebbe una sorpresa cattiva.
+            frame = frame.copy()
+            frame.insert(0, PLAY_COLUMN, "")
+            if self._checkable:
+                frame.insert(0, CHECK_COLUMN, "")   # ✓ prima, ▶ subito dopo
         self._model.set_frame(frame)
         # La mappa dei generi si legge DAL VIVO nel resolver: cambia a ogni
         # selezione, e un delegate che la catturasse alla prima chiamata
@@ -356,6 +425,12 @@ class TrackTable(QTableView):
                      pill_color(n, v, self._genre_colors)), self)
             self.setItemDelegateForColumn(
                 shown.index(name), self._delegates[name])
+        if self._check_delegate is not None and CHECK_COLUMN in shown:
+            self.setItemDelegateForColumn(
+                shown.index(CHECK_COLUMN), self._check_delegate)
+        if PLAY_COLUMN in shown:
+            self.setItemDelegateForColumn(
+                shown.index(PLAY_COLUMN), self._play_delegate)
         for name, width in self._WIDTHS.items():
             if name in shown:
                 self.setColumnWidth(shown.index(name), width)
@@ -364,6 +439,31 @@ class TrackTable(QTableView):
         """I `_path` delle righe selezionate, dall'alto in basso."""
         rows = sorted({i.row() for i in self.selectionModel().selectedRows()})
         return [p for p in (self._model.path_at(r) for r in rows) if p]
+
+    def mousePressEvent(self, event) -> None:
+        """I due campi-comando davanti alla riga, prima del clic normale.
+
+        Il ▶ suona la riga e NON la seleziona — sentire un brano non è
+        sceglierlo. La casella di spunta COMMUTA la riga senza svuotare le
+        altre: è la semantica di un checkbox, non quella di un clic — che
+        altrove resta il solito (una riga, ⌘/ctrl per estendere).
+        """
+        if event.button() == Qt.MouseButton.LeftButton:
+            index = self.indexAt(event.position().toPoint())
+            name = (self._model.headerData(index.column(),
+                                           Qt.Orientation.Horizontal)
+                    if index.isValid() else None)
+            if name == PLAY_COLUMN:
+                path = self._model.path_at(index.row())
+                if path:
+                    self.play_requested.emit(path)
+                return
+            if self._checkable and name == CHECK_COLUMN:
+                self.selectionModel().select(
+                    index, QItemSelectionModel.SelectionFlag.Toggle
+                    | QItemSelectionModel.SelectionFlag.Rows)
+                return
+        super().mousePressEvent(event)
 
     def _on_double_click(self, index: QModelIndex) -> None:
         path = self._model.path_at(index.row())

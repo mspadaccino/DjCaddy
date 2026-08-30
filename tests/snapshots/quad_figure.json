@@ -72,7 +72,6 @@
    },
    "mode": "markers",
    "name": "Electronic - House",
-   "type": "scattergl",
    "x": [
     0.0,
     0.1304,
@@ -90,7 +89,8 @@
     0.4783,
     0.3478,
     0.2174
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "customdata": [
@@ -164,7 +164,6 @@
    },
    "mode": "markers",
    "name": "Electronic - Techno",
-   "type": "scattergl",
    "x": [
     0.0435,
     0.1739,
@@ -182,7 +181,8 @@
     0.4348,
     0.3043,
     0.1739
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "customdata": [
@@ -256,7 +256,6 @@
    },
    "mode": "markers",
    "name": "Funk / Soul - Disco",
-   "type": "scattergl",
    "x": [
     0.087,
     0.2174,
@@ -274,7 +273,8 @@
     0.3913,
     0.2609,
     0.1304
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "customdata": [
@@ -316,7 +316,6 @@
    },
    "mode": "markers",
    "name": "other",
-   "type": "scattergl",
    "x": [
     0.913,
     0.9565,
@@ -326,7 +325,8 @@
     0.087,
     0.0435,
     0.0
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -355,7 +355,6 @@
     "size": 9
    },
    "textposition": "top center",
-   "type": "scattergl",
    "x": [
     0.0,
     0.1739,
@@ -367,7 +366,8 @@
     0.8261,
     0.6522,
     0.913
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -382,7 +382,6 @@
    "mode": "markers",
    "name": "in the chain",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     0.1739,
     0.4348
@@ -390,7 +389,8 @@
    "y": [
     0.8261,
     0.5652
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -405,7 +405,6 @@
    "mode": "markers",
    "name": "mixes out of it",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     0.4783,
     0.5652
@@ -413,7 +412,8 @@
    "y": [
     0.5217,
     0.4348
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -428,7 +428,6 @@
    "mode": "markers",
    "name": "sounds like it",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     0.5217,
     0.6087
@@ -436,7 +435,8 @@
    "y": [
     0.4783,
     0.3913
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -450,8 +450,7 @@
    },
    "mode": "markers",
    "name": "in the playlist",
-   "showlegend": false,
-   "type": "scattergl",
+   "showlegend": true,
    "x": [
     0.0,
     0.1739,
@@ -463,7 +462,8 @@
     0.8261,
     0.6522,
     0.913
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -478,7 +478,6 @@
    "mode": "markers",
    "name": "selected",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     0.3043,
     0.3913
@@ -486,7 +485,8 @@
    "y": [
     0.6957,
     0.6087
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -501,13 +501,13 @@
    "mode": "markers",
    "name": "current PL selection",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     0.1304
    ],
    "y": [
     0.8696
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -522,13 +522,13 @@
    "mode": "markers",
    "name": "playing",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     0.087
    ],
    "y": [
     0.913
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -543,13 +543,13 @@
    "mode": "markers",
    "name": "seed",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     0.2174
    ],
    "y": [
     0.7826
-   ]
+   ],
+   "type": "scattergl"
   }
  ],
  "layout": {
@@ -604,34 +604,6 @@
     "yshift": 18
    }
   ],
-  "height": 640,
-  "hoverlabel": {
-   "align": "left",
-   "font": {
-    "size": 11
-   }
-  },
-  "hovermode": "closest",
-  "legend": {
-   "bgcolor": "rgba(0,0,0,0)",
-   "font": {
-    "color": "#1b1f27",
-    "size": 10
-   },
-   "itemsizing": "constant",
-   "orientation": "h",
-   "x": 0,
-   "y": 1.04,
-   "yanchor": "bottom"
-  },
-  "margin": {
-   "b": 0,
-   "l": 0,
-   "r": 0,
-   "t": 0
-  },
-  "paper_bgcolor": "#ffffff",
-  "plot_bgcolor": "#f4f6f9",
   "shapes": [
    {
     "layer": "below",
@@ -662,24 +634,52 @@
     "y1": 0.5
    }
   ],
-  "showlegend": true,
+  "margin": {
+   "l": 0,
+   "r": 0,
+   "t": 0,
+   "b": 0
+  },
+  "hoverlabel": {
+   "font": {
+    "size": 11
+   },
+   "align": "left"
+  },
+  "legend": {
+   "font": {
+    "size": 10,
+    "color": "#1b1f27"
+   },
+   "orientation": "h",
+   "x": 0,
+   "y": 1.04,
+   "yanchor": "bottom",
+   "bgcolor": "rgba(0,0,0,0)",
+   "itemsizing": "constant"
+  },
   "xaxis": {
-   "automargin": true,
-   "showgrid": false,
+   "visible": true,
    "title": {
     "text": "energy"
    },
-   "visible": true,
+   "automargin": true,
+   "showgrid": false,
    "zeroline": false
   },
   "yaxis": {
-   "automargin": true,
-   "showgrid": false,
+   "visible": true,
    "title": {
     "text": "valence (mood)"
    },
-   "visible": true,
+   "automargin": true,
+   "showgrid": false,
    "zeroline": false
-  }
+  },
+  "height": 640,
+  "paper_bgcolor": "#ffffff",
+  "plot_bgcolor": "#f4f6f9",
+  "showlegend": true,
+  "hovermode": "closest"
  }
 }

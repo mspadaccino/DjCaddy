@@ -72,7 +72,6 @@
    },
    "mode": "markers",
    "name": "Electronic - House",
-   "type": "scattergl",
    "x": [
     0.0,
     7.0,
@@ -90,7 +89,8 @@
     4.0,
     7.0,
     2.0
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "customdata": [
@@ -164,7 +164,6 @@
    },
    "mode": "markers",
    "name": "Electronic - Techno",
-   "type": "scattergl",
    "x": [
     2.3333333333333335,
     1.3333333333333333,
@@ -182,7 +181,8 @@
     7.666666666666667,
     2.6666666666666665,
     5.666666666666667
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "customdata": [
@@ -256,7 +256,6 @@
    },
    "mode": "markers",
    "name": "Funk / Soul - Disco",
-   "type": "scattergl",
    "x": [
     4.666666666666667,
     3.6666666666666665,
@@ -274,7 +273,8 @@
     3.3333333333333335,
     6.333333333333333,
     1.3333333333333333
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "customdata": [
@@ -316,7 +316,6 @@
    },
    "mode": "markers",
    "name": "other",
-   "type": "scattergl",
    "x": [
     1.0,
     3.3333333333333335,
@@ -326,7 +325,8 @@
     5.0,
     0.6666666666666666,
     4.333333333333333
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -355,7 +355,6 @@
     "size": 9
    },
    "textposition": "top center",
-   "type": "scattergl",
    "x": [
     0.0,
     1.3333333333333333,
@@ -367,7 +366,8 @@
     6.666666666666667,
     5.333333333333333,
     7.333333333333333
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -382,7 +382,6 @@
    "mode": "markers",
    "name": "in the chain",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     1.3333333333333333,
     7.333333333333333
@@ -390,7 +389,8 @@
    "y": [
     6.666666666666667,
     4.666666666666667
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -405,7 +405,6 @@
    "mode": "markers",
    "name": "mixes out of it",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     1.6666666666666667,
     6.333333333333333
@@ -413,7 +412,8 @@
    "y": [
     0.3333333333333333,
     7.666666666666667
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -428,7 +428,6 @@
    "mode": "markers",
    "name": "sounds like it",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     4.0,
     0.6666666666666666
@@ -436,7 +435,8 @@
    "y": [
     4.0,
     3.3333333333333335
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -450,8 +450,7 @@
    },
    "mode": "markers",
    "name": "in the playlist",
-   "showlegend": false,
-   "type": "scattergl",
+   "showlegend": true,
    "x": [
     0.0,
     1.3333333333333333,
@@ -463,7 +462,8 @@
     6.666666666666667,
     5.333333333333333,
     7.333333333333333
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -478,7 +478,6 @@
    "mode": "markers",
    "name": "selected",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     0.3333333333333333,
     5.0
@@ -486,7 +485,8 @@
    "y": [
     1.6666666666666667,
     1.0
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -501,13 +501,13 @@
    "mode": "markers",
    "name": "current PL selection",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     7.0
    ],
    "y": [
     3.0
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -522,13 +522,13 @@
    "mode": "markers",
    "name": "playing",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     4.666666666666667
    ],
    "y": [
     7.333333333333333
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "hoverinfo": "skip",
@@ -543,13 +543,13 @@
    "mode": "markers",
    "name": "seed",
    "showlegend": true,
-   "type": "scattergl",
    "x": [
     3.6666666666666665
    ],
    "y": [
     2.3333333333333335
-   ]
+   ],
+   "type": "scattergl"
   }
  ],
  "layout": {
@@ -604,49 +604,49 @@
     "yshift": 18
    }
   ],
-  "height": 640,
+  "margin": {
+   "l": 0,
+   "r": 0,
+   "t": 0,
+   "b": 0
+  },
   "hoverlabel": {
-   "align": "left",
    "font": {
     "size": 11
-   }
-  },
-  "hovermode": "closest",
-  "legend": {
-   "bgcolor": "rgba(0,0,0,0)",
-   "font": {
-    "color": "#1b1f27",
-    "size": 10
    },
-   "itemsizing": "constant",
+   "align": "left"
+  },
+  "legend": {
+   "font": {
+    "size": 10,
+    "color": "#1b1f27"
+   },
    "orientation": "h",
    "x": 0,
    "y": -0.02,
-   "yanchor": "auto"
+   "yanchor": "auto",
+   "bgcolor": "rgba(0,0,0,0)",
+   "itemsizing": "constant"
   },
-  "margin": {
-   "b": 0,
-   "l": 0,
-   "r": 0,
-   "t": 0
-  },
-  "paper_bgcolor": "#ffffff",
-  "plot_bgcolor": "#f4f6f9",
-  "showlegend": true,
   "xaxis": {
+   "visible": false,
+   "title": {},
    "automargin": false,
    "showgrid": false,
-   "title": {},
-   "visible": false,
    "zeroline": false
   },
   "yaxis": {
-   "automargin": false,
-   "scaleanchor": "x",
-   "showgrid": false,
-   "title": {},
    "visible": false,
-   "zeroline": false
-  }
+   "title": {},
+   "automargin": false,
+   "showgrid": false,
+   "zeroline": false,
+   "scaleanchor": "x"
+  },
+  "height": 640,
+  "paper_bgcolor": "#ffffff",
+  "plot_bgcolor": "#f4f6f9",
+  "showlegend": true,
+  "hovermode": "closest"
  }
 }

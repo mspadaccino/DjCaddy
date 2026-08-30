@@ -30,6 +30,15 @@ PRIMARY = "#ff4b4b"
 # `core.viz.track_columns` non scendono mai sotto metà luminosità apposta.
 PILL_INK = "#1b1f27"
 
+# La riga selezionata nelle tabelle: il rosso primario a bassa opacità.
+# Prima era RAISED, che dal fondo alternato si distingueva appena — e la
+# riga scelta è un'informazione, non una sfumatura. Una volta sola qui, in
+# due forme: il QColor va nella palette (è quello che leggono i delegate),
+# la stringa nel QSS.
+SELECTED_ROW = QColor(255, 75, 75, 76)
+_SELECTED_CSS = (f"rgba({SELECTED_ROW.red()}, {SELECTED_ROW.green()}, "
+                 f"{SELECTED_ROW.blue()}, {SELECTED_ROW.alphaF():.2f})")
+
 _QSS = f"""
 QMainWindow, QWidget {{
     background: {BACKGROUND};
@@ -49,7 +58,7 @@ QTableView {{
     background: {PLOT}; alternate-background-color: {BACKGROUND};
     color: {INK}; border: none; border-radius: 6px;
     gridline-color: transparent;
-    selection-background-color: {RAISED}; selection-color: {INK};
+    selection-background-color: {_SELECTED_CSS}; selection-color: {INK};
 }}
 QHeaderView::section {{
     background: {BACKGROUND}; color: {FADED};
@@ -97,7 +106,7 @@ def apply_theme(app: QApplication) -> None:
     palette.setColor(QPalette.ColorRole.Text, QColor(INK))
     palette.setColor(QPalette.ColorRole.Button, QColor(RAISED))
     palette.setColor(QPalette.ColorRole.ButtonText, QColor(INK))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor(RAISED))
+    palette.setColor(QPalette.ColorRole.Highlight, SELECTED_ROW)
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(INK))
     palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(FADED))
     palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(RAISED))

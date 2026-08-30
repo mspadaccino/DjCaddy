@@ -66,7 +66,15 @@ def main() -> int:
     app = QApplication(sys.argv)
     apply_theme(app)
     window = MainWindow()
-    window.resize(1500, 940)
+    # Dentro lo schermo, sempre: il lettore compare in FONDO alla finestra,
+    # e una finestra più alta dello schermo nasconde esattamente lui — si
+    # vedeva solo a tutto schermo. 1500×940 resta il massimo, non la misura.
+    available = app.primaryScreen().availableGeometry()
+    wide = min(1500, available.width() - 24)
+    tall = min(940, available.height() - 24)
+    window.resize(wide, tall)
+    window.move(available.x() + (available.width() - wide) // 2,
+                available.y() + (available.height() - tall) // 2)
     window.show()
     return app.exec()
 
