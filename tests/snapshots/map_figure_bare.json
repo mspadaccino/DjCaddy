@@ -1,0 +1,416 @@
+{
+ "data": [
+  {
+   "customdata": [
+    [
+     0,
+     "Track 00.mp3",
+     110.0,
+     "1A",
+     "Electronic - House; Electronic - Minimal"
+    ],
+    [
+     3,
+     "Track 03.mp3",
+     113.0,
+     "8B",
+     "Electronic - House"
+    ],
+    [
+     6,
+     "Track 06.mp3",
+     116.0,
+     "4A",
+     "Electronic - House; Electronic - Minimal"
+    ],
+    [
+     9,
+     "Track 09.mp3",
+     119.0,
+     "11B",
+     "Electronic - House"
+    ],
+    [
+     12,
+     "Track 12.mp3",
+     122.0,
+     "7A",
+     "Electronic - House; Electronic - Minimal"
+    ],
+    [
+     15,
+     "Track 15.mp3",
+     125.0,
+     "2B",
+     "Electronic - House"
+    ],
+    [
+     18,
+     "Track 18.mp3",
+     128.0,
+     "10A",
+     "Electronic - House; Electronic - Minimal"
+    ]
+   ],
+   "hovertemplate": "<b>%{customdata[1]}</b><br>%{customdata[2]} BPM \u00b7 %{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+   "marker": {
+    "color": "#e0503b",
+    "line": {
+     "color": "#f4f6f9",
+     "width": 0.5
+    },
+    "opacity": 0.85,
+    "size": [
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0
+    ]
+   },
+   "mode": "markers",
+   "name": "Electronic - House",
+   "type": "scattergl",
+   "x": [
+    0.0,
+    7.0,
+    6.0,
+    5.0,
+    4.0,
+    3.0,
+    2.0
+   ],
+   "y": [
+    0.0,
+    3.0,
+    6.0,
+    1.0,
+    4.0,
+    7.0,
+    2.0
+   ]
+  },
+  {
+   "customdata": [
+    [
+     1,
+     "Track 01.mp3",
+     111.0,
+     "3B",
+     "Electronic - Techno"
+    ],
+    [
+     4,
+     "Track 04.mp3",
+     114.0,
+     "11A",
+     "Electronic - Techno; Electronic - Minimal"
+    ],
+    [
+     7,
+     "Track 07.mp3",
+     117.0,
+     "6B",
+     "Electronic - Techno"
+    ],
+    [
+     10,
+     "Track 10.mp3",
+     120.0,
+     "2A",
+     "Electronic - Techno; Electronic - Minimal"
+    ],
+    [
+     13,
+     "Track 13.mp3",
+     123.0,
+     "9B",
+     "Electronic - Techno"
+    ],
+    [
+     16,
+     "Track 16.mp3",
+     126.0,
+     "5A",
+     "Electronic - Techno; Electronic - Minimal"
+    ],
+    [
+     19,
+     "Track 19.mp3",
+     129.0,
+     "12B",
+     "Electronic - Techno"
+    ]
+   ],
+   "hovertemplate": "<b>%{customdata[1]}</b><br>%{customdata[2]} BPM \u00b7 %{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+   "marker": {
+    "color": "#3d9be0",
+    "line": {
+     "color": "#f4f6f9",
+     "width": 0.5
+    },
+    "opacity": 0.85,
+    "size": [
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0
+    ]
+   },
+   "mode": "markers",
+   "name": "Electronic - Techno",
+   "type": "scattergl",
+   "x": [
+    2.3333333333333335,
+    1.3333333333333333,
+    0.3333333333333333,
+    7.333333333333333,
+    6.333333333333333,
+    5.333333333333333,
+    4.333333333333333
+   ],
+   "y": [
+    3.6666666666666665,
+    6.666666666666667,
+    1.6666666666666667,
+    4.666666666666667,
+    7.666666666666667,
+    2.6666666666666665,
+    5.666666666666667
+   ]
+  },
+  {
+   "customdata": [
+    [
+     2,
+     "Track 02.mp3",
+     112.0,
+     "6A",
+     "Funk / Soul - Disco; Electronic - Minimal"
+    ],
+    [
+     5,
+     "Track 05.mp3",
+     115.0,
+     "1B",
+     "Funk / Soul - Disco"
+    ],
+    [
+     8,
+     "Track 08.mp3",
+     118.0,
+     "9A",
+     "Funk / Soul - Disco; Electronic - Minimal"
+    ],
+    [
+     11,
+     "Track 11.mp3",
+     121.0,
+     "4B",
+     "Funk / Soul - Disco"
+    ],
+    [
+     14,
+     "Track 14.mp3",
+     124.0,
+     "12A",
+     "Funk / Soul - Disco; Electronic - Minimal"
+    ],
+    [
+     17,
+     "Track 17.mp3",
+     127.0,
+     "7B",
+     "Funk / Soul - Disco"
+    ],
+    [
+     20,
+     "Track 20.mp3",
+     130.0,
+     "3A",
+     "Funk / Soul - Disco; Electronic - Minimal"
+    ]
+   ],
+   "hovertemplate": "<b>%{customdata[1]}</b><br>%{customdata[2]} BPM \u00b7 %{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+   "marker": {
+    "color": "#3fbf7f",
+    "line": {
+     "color": "#f4f6f9",
+     "width": 0.5
+    },
+    "opacity": 0.85,
+    "size": [
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0
+    ]
+   },
+   "mode": "markers",
+   "name": "Funk / Soul - Disco",
+   "type": "scattergl",
+   "x": [
+    4.666666666666667,
+    3.6666666666666665,
+    2.6666666666666665,
+    1.6666666666666667,
+    0.6666666666666666,
+    7.666666666666667,
+    6.666666666666667
+   ],
+   "y": [
+    7.333333333333333,
+    2.3333333333333335,
+    5.333333333333333,
+    0.3333333333333333,
+    3.3333333333333335,
+    6.333333333333333,
+    1.3333333333333333
+   ]
+  },
+  {
+   "customdata": [
+    [
+     21,
+     "Track 21.mp3",
+     131.0,
+     "5B",
+     "Rock - Prog"
+    ],
+    [
+     22,
+     "Track 22.mp3",
+     132.0,
+     "8A",
+     "Pop - Italo; Electronic - Minimal"
+    ],
+    [
+     23,
+     "Track 23.mp3",
+     133.0,
+     "10B",
+     "Jazz - Fusion"
+    ]
+   ],
+   "hovertemplate": "<b>%{customdata[1]}</b><br>%{customdata[2]} BPM \u00b7 %{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+   "marker": {
+    "color": "#9aa4b0",
+    "line": {
+     "color": "#f4f6f9",
+     "width": 0.5
+    },
+    "opacity": 0.85,
+    "size": [
+     7.0,
+     7.0,
+     7.0
+    ]
+   },
+   "mode": "markers",
+   "name": "other",
+   "type": "scattergl",
+   "x": [
+    1.0,
+    3.3333333333333335,
+    5.666666666666667
+   ],
+   "y": [
+    5.0,
+    0.6666666666666666,
+    4.333333333333333
+   ]
+  }
+ ],
+ "layout": {
+  "annotations": [
+   {
+    "bgcolor": "rgba(255,255,255,0.75)",
+    "borderpad": 3,
+    "font": {
+     "color": "rgba(27,31,39,0.82)",
+     "size": 14
+    },
+    "showarrow": false,
+    "text": "<b>House</b>",
+    "x": 4.0,
+    "y": 3.0
+   },
+   {
+    "bgcolor": "rgba(255,255,255,0.75)",
+    "borderpad": 3,
+    "font": {
+     "color": "rgba(27,31,39,0.82)",
+     "size": 14
+    },
+    "showarrow": false,
+    "text": "<b>Techno</b>",
+    "x": 4.333333333333333,
+    "y": 4.666666666666667
+   },
+   {
+    "bgcolor": "rgba(255,255,255,0.75)",
+    "borderpad": 3,
+    "font": {
+     "color": "rgba(27,31,39,0.82)",
+     "size": 14
+    },
+    "showarrow": false,
+    "text": "<b>Disco</b>",
+    "x": 3.6666666666666665,
+    "y": 3.3333333333333335
+   }
+  ],
+  "height": 640,
+  "hoverlabel": {
+   "align": "left",
+   "font": {
+    "size": 11
+   }
+  },
+  "hovermode": "closest",
+  "legend": {
+   "bgcolor": "rgba(0,0,0,0)",
+   "font": {
+    "color": "#1b1f27",
+    "size": 10
+   },
+   "itemsizing": "constant",
+   "orientation": "h",
+   "x": 0,
+   "y": -0.02,
+   "yanchor": "auto"
+  },
+  "margin": {
+   "b": 0,
+   "l": 0,
+   "r": 0,
+   "t": 0
+  },
+  "paper_bgcolor": "#ffffff",
+  "plot_bgcolor": "#f4f6f9",
+  "showlegend": true,
+  "xaxis": {
+   "automargin": false,
+   "showgrid": false,
+   "title": {},
+   "visible": false,
+   "zeroline": false
+  },
+  "yaxis": {
+   "automargin": false,
+   "scaleanchor": "x",
+   "showgrid": false,
+   "title": {},
+   "visible": false,
+   "zeroline": false
+  }
+ }
+}

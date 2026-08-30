@@ -1,0 +1,538 @@
+{
+ "axes": {
+  "BPM": {
+   "heights": {
+    "/lib/Track 00.mp3": 0.0,
+    "/lib/Track 01.mp3": 0.0,
+    "/lib/Track 02.mp3": 0.0,
+    "/lib/Track 03.mp3": 0.0,
+    "/lib/Track 04.mp3": 0.0,
+    "/lib/Track 05.mp3": 0.021857923497268263,
+    "/lib/Track 06.mp3": 0.09016393442623001,
+    "/lib/Track 07.mp3": 0.15846994535519177,
+    "/lib/Track 08.mp3": 0.2267759562841535,
+    "/lib/Track 09.mp3": 0.29508196721311525,
+    "/lib/Track 10.mp3": 0.363387978142077,
+    "/lib/Track 11.mp3": 0.43169398907103873,
+    "/lib/Track 12.mp3": 0.5000000000000004,
+    "/lib/Track 13.mp3": 0.5683060109289623,
+    "/lib/Track 14.mp3": 0.636612021857924,
+    "/lib/Track 15.mp3": 0.7049180327868857,
+    "/lib/Track 16.mp3": 0.7732240437158475,
+    "/lib/Track 17.mp3": 0.8415300546448092,
+    "/lib/Track 18.mp3": 0.909836065573771,
+    "/lib/Track 19.mp3": 0.9781420765027327,
+    "/lib/Track 20.mp3": 1.0,
+    "/lib/Track 21.mp3": 1.0,
+    "/lib/Track 22.mp3": 1.0,
+    "/lib/Track 23.mp3": 1.0
+   },
+   "measured": {
+    "/lib/Track 00.mp3": 110.0,
+    "/lib/Track 01.mp3": 111.0,
+    "/lib/Track 02.mp3": 112.0,
+    "/lib/Track 03.mp3": 113.0,
+    "/lib/Track 04.mp3": 114.0,
+    "/lib/Track 05.mp3": 115.0,
+    "/lib/Track 06.mp3": 116.0,
+    "/lib/Track 07.mp3": 117.0,
+    "/lib/Track 08.mp3": 118.0,
+    "/lib/Track 09.mp3": 119.0,
+    "/lib/Track 10.mp3": 120.0,
+    "/lib/Track 11.mp3": 121.0,
+    "/lib/Track 12.mp3": 122.0,
+    "/lib/Track 13.mp3": 123.0,
+    "/lib/Track 14.mp3": 124.0,
+    "/lib/Track 15.mp3": 125.0,
+    "/lib/Track 16.mp3": 126.0,
+    "/lib/Track 17.mp3": 127.0,
+    "/lib/Track 18.mp3": 128.0,
+    "/lib/Track 19.mp3": 129.0,
+    "/lib/Track 20.mp3": 130.0,
+    "/lib/Track 21.mp3": 131.0,
+    "/lib/Track 22.mp3": 132.0,
+    "/lib/Track 23.mp3": 133.0
+   },
+   "span": [
+    114.67999999999999,
+    129.32
+   ],
+   "ticks": [
+    {
+     "at": 0.0,
+     "label": "115"
+    },
+    {
+     "at": 0.5,
+     "label": "122"
+    },
+    {
+     "at": 1.0,
+     "label": "129"
+    }
+   ]
+  },
+  "energy": {
+   "heights": {
+    "/lib/Track 00.mp3": 0.0,
+    "/lib/Track 01.mp3": 0.0435,
+    "/lib/Track 02.mp3": 0.087,
+    "/lib/Track 03.mp3": 0.1304,
+    "/lib/Track 04.mp3": 0.1739,
+    "/lib/Track 05.mp3": 0.2174,
+    "/lib/Track 06.mp3": 0.2609,
+    "/lib/Track 07.mp3": 0.3043,
+    "/lib/Track 08.mp3": 0.3478,
+    "/lib/Track 09.mp3": 0.3913,
+    "/lib/Track 10.mp3": 0.4348,
+    "/lib/Track 11.mp3": 0.4783,
+    "/lib/Track 12.mp3": 0.5217,
+    "/lib/Track 13.mp3": 0.5652,
+    "/lib/Track 14.mp3": 0.6087,
+    "/lib/Track 15.mp3": 0.6522,
+    "/lib/Track 16.mp3": 0.6957,
+    "/lib/Track 17.mp3": 0.7391,
+    "/lib/Track 18.mp3": 0.7826,
+    "/lib/Track 19.mp3": 0.8261,
+    "/lib/Track 20.mp3": 0.8696,
+    "/lib/Track 21.mp3": 0.913,
+    "/lib/Track 22.mp3": 0.9565,
+    "/lib/Track 23.mp3": 1.0
+   },
+   "measured": {
+    "/lib/Track 00.mp3": 0.0,
+    "/lib/Track 01.mp3": 0.0435,
+    "/lib/Track 02.mp3": 0.087,
+    "/lib/Track 03.mp3": 0.1304,
+    "/lib/Track 04.mp3": 0.1739,
+    "/lib/Track 05.mp3": 0.2174,
+    "/lib/Track 06.mp3": 0.2609,
+    "/lib/Track 07.mp3": 0.3043,
+    "/lib/Track 08.mp3": 0.3478,
+    "/lib/Track 09.mp3": 0.3913,
+    "/lib/Track 10.mp3": 0.4348,
+    "/lib/Track 11.mp3": 0.4783,
+    "/lib/Track 12.mp3": 0.5217,
+    "/lib/Track 13.mp3": 0.5652,
+    "/lib/Track 14.mp3": 0.6087,
+    "/lib/Track 15.mp3": 0.6522,
+    "/lib/Track 16.mp3": 0.6957,
+    "/lib/Track 17.mp3": 0.7391,
+    "/lib/Track 18.mp3": 0.7826,
+    "/lib/Track 19.mp3": 0.8261,
+    "/lib/Track 20.mp3": 0.8696,
+    "/lib/Track 21.mp3": 0.913,
+    "/lib/Track 22.mp3": 0.9565,
+    "/lib/Track 23.mp3": 1.0
+   },
+   "span": [
+    0.0,
+    1.0
+   ],
+   "ticks": [
+    {
+     "at": 0.0,
+     "label": "0.00"
+    },
+    {
+     "at": 0.5,
+     "label": "0.50"
+    },
+    {
+     "at": 1.0,
+     "label": "1.00"
+    }
+   ]
+  },
+  "groove": {
+   "heights": {
+    "/lib/Track 00.mp3": 0.0,
+    "/lib/Track 01.mp3": 0.0,
+    "/lib/Track 02.mp3": 0.0,
+    "/lib/Track 03.mp3": 0.038043478260869484,
+    "/lib/Track 04.mp3": 0.09239130434782607,
+    "/lib/Track 05.mp3": 0.14673913043478254,
+    "/lib/Track 06.mp3": 0.2010869565217391,
+    "/lib/Track 07.mp3": 0.2554347826086957,
+    "/lib/Track 08.mp3": 0.3097826086956523,
+    "/lib/Track 09.mp3": 0.3641304347826086,
+    "/lib/Track 10.mp3": 0.4184782608695652,
+    "/lib/Track 11.mp3": 0.4728260869565218,
+    "/lib/Track 12.mp3": 0.5271739130434784,
+    "/lib/Track 13.mp3": 0.5815217391304349,
+    "/lib/Track 14.mp3": 0.6358695652173912,
+    "/lib/Track 15.mp3": 0.6902173913043479,
+    "/lib/Track 16.mp3": 0.7445652173913044,
+    "/lib/Track 17.mp3": 0.798913043478261,
+    "/lib/Track 18.mp3": 0.8532608695652176,
+    "/lib/Track 19.mp3": 0.907608695652174,
+    "/lib/Track 20.mp3": 0.9619565217391305,
+    "/lib/Track 21.mp3": 1.0,
+    "/lib/Track 22.mp3": 1.0,
+    "/lib/Track 23.mp3": 1.0
+   },
+   "measured": {
+    "/lib/Track 00.mp3": 0.35,
+    "/lib/Track 01.mp3": 0.375,
+    "/lib/Track 02.mp3": 0.4,
+    "/lib/Track 03.mp3": 0.425,
+    "/lib/Track 04.mp3": 0.45,
+    "/lib/Track 05.mp3": 0.475,
+    "/lib/Track 06.mp3": 0.5,
+    "/lib/Track 07.mp3": 0.525,
+    "/lib/Track 08.mp3": 0.55,
+    "/lib/Track 09.mp3": 0.575,
+    "/lib/Track 10.mp3": 0.6,
+    "/lib/Track 11.mp3": 0.625,
+    "/lib/Track 12.mp3": 0.65,
+    "/lib/Track 13.mp3": 0.675,
+    "/lib/Track 14.mp3": 0.7,
+    "/lib/Track 15.mp3": 0.725,
+    "/lib/Track 16.mp3": 0.75,
+    "/lib/Track 17.mp3": 0.775,
+    "/lib/Track 18.mp3": 0.8,
+    "/lib/Track 19.mp3": 0.825,
+    "/lib/Track 20.mp3": 0.85,
+    "/lib/Track 21.mp3": 0.875,
+    "/lib/Track 22.mp3": 0.9,
+    "/lib/Track 23.mp3": 0.925
+   },
+   "span": [
+    0.40750000000000003,
+    0.8674999999999999
+   ],
+   "ticks": [
+    {
+     "at": 0.0,
+     "label": "0.41"
+    },
+    {
+     "at": 0.5,
+     "label": "0.64"
+    },
+    {
+     "at": 1.0,
+     "label": "0.87"
+    }
+   ]
+  },
+  "key": {
+   "heights": {
+    "/lib/Track 00.mp3": 0.0,
+    "/lib/Track 01.mp3": 0.18181818181818182,
+    "/lib/Track 02.mp3": 0.45454545454545453,
+    "/lib/Track 03.mp3": 0.6363636363636364,
+    "/lib/Track 04.mp3": 0.9090909090909091,
+    "/lib/Track 05.mp3": 0.0,
+    "/lib/Track 06.mp3": 0.2727272727272727,
+    "/lib/Track 07.mp3": 0.45454545454545453,
+    "/lib/Track 08.mp3": 0.7272727272727273,
+    "/lib/Track 09.mp3": 0.9090909090909091,
+    "/lib/Track 10.mp3": 0.09090909090909091,
+    "/lib/Track 11.mp3": 0.2727272727272727,
+    "/lib/Track 12.mp3": 0.5454545454545454,
+    "/lib/Track 13.mp3": 0.7272727272727273,
+    "/lib/Track 14.mp3": 1.0,
+    "/lib/Track 15.mp3": 0.09090909090909091,
+    "/lib/Track 16.mp3": 0.36363636363636365,
+    "/lib/Track 17.mp3": 0.5454545454545454,
+    "/lib/Track 18.mp3": 0.8181818181818182,
+    "/lib/Track 19.mp3": 1.0,
+    "/lib/Track 20.mp3": 0.18181818181818182,
+    "/lib/Track 21.mp3": 0.36363636363636365,
+    "/lib/Track 22.mp3": 0.6363636363636364,
+    "/lib/Track 23.mp3": 0.8181818181818182
+   },
+   "measured": {
+    "/lib/Track 00.mp3": 1.0,
+    "/lib/Track 01.mp3": 3.0,
+    "/lib/Track 02.mp3": 6.0,
+    "/lib/Track 03.mp3": 8.0,
+    "/lib/Track 04.mp3": 11.0,
+    "/lib/Track 05.mp3": 1.0,
+    "/lib/Track 06.mp3": 4.0,
+    "/lib/Track 07.mp3": 6.0,
+    "/lib/Track 08.mp3": 9.0,
+    "/lib/Track 09.mp3": 11.0,
+    "/lib/Track 10.mp3": 2.0,
+    "/lib/Track 11.mp3": 4.0,
+    "/lib/Track 12.mp3": 7.0,
+    "/lib/Track 13.mp3": 9.0,
+    "/lib/Track 14.mp3": 12.0,
+    "/lib/Track 15.mp3": 2.0,
+    "/lib/Track 16.mp3": 5.0,
+    "/lib/Track 17.mp3": 7.0,
+    "/lib/Track 18.mp3": 10.0,
+    "/lib/Track 19.mp3": 12.0,
+    "/lib/Track 20.mp3": 3.0,
+    "/lib/Track 21.mp3": 5.0,
+    "/lib/Track 22.mp3": 8.0,
+    "/lib/Track 23.mp3": 10.0
+   },
+   "span": [
+    1.0,
+    12.0
+   ],
+   "ticks": [
+    {
+     "at": 0.0,
+     "label": "1"
+    },
+    {
+     "at": 0.5,
+     "label": "6"
+    },
+    {
+     "at": 1.0,
+     "label": "12"
+    }
+   ]
+  },
+  "mood": {
+   "heights": {
+    "/lib/Track 00.mp3": 1.0,
+    "/lib/Track 01.mp3": 0.9565,
+    "/lib/Track 02.mp3": 0.913,
+    "/lib/Track 03.mp3": 0.8696,
+    "/lib/Track 04.mp3": 0.8261,
+    "/lib/Track 05.mp3": 0.7826,
+    "/lib/Track 06.mp3": 0.7391,
+    "/lib/Track 07.mp3": 0.6957,
+    "/lib/Track 08.mp3": 0.6522,
+    "/lib/Track 09.mp3": 0.6087,
+    "/lib/Track 10.mp3": 0.5652,
+    "/lib/Track 11.mp3": 0.5217,
+    "/lib/Track 12.mp3": 0.4783,
+    "/lib/Track 13.mp3": 0.4348,
+    "/lib/Track 14.mp3": 0.3913,
+    "/lib/Track 15.mp3": 0.3478,
+    "/lib/Track 16.mp3": 0.3043,
+    "/lib/Track 17.mp3": 0.2609,
+    "/lib/Track 18.mp3": 0.2174,
+    "/lib/Track 19.mp3": 0.1739,
+    "/lib/Track 20.mp3": 0.1304,
+    "/lib/Track 21.mp3": 0.087,
+    "/lib/Track 22.mp3": 0.0435,
+    "/lib/Track 23.mp3": 0.0
+   },
+   "measured": {
+    "/lib/Track 00.mp3": 1.0,
+    "/lib/Track 01.mp3": 0.9565,
+    "/lib/Track 02.mp3": 0.913,
+    "/lib/Track 03.mp3": 0.8696,
+    "/lib/Track 04.mp3": 0.8261,
+    "/lib/Track 05.mp3": 0.7826,
+    "/lib/Track 06.mp3": 0.7391,
+    "/lib/Track 07.mp3": 0.6957,
+    "/lib/Track 08.mp3": 0.6522,
+    "/lib/Track 09.mp3": 0.6087,
+    "/lib/Track 10.mp3": 0.5652,
+    "/lib/Track 11.mp3": 0.5217,
+    "/lib/Track 12.mp3": 0.4783,
+    "/lib/Track 13.mp3": 0.4348,
+    "/lib/Track 14.mp3": 0.3913,
+    "/lib/Track 15.mp3": 0.3478,
+    "/lib/Track 16.mp3": 0.3043,
+    "/lib/Track 17.mp3": 0.2609,
+    "/lib/Track 18.mp3": 0.2174,
+    "/lib/Track 19.mp3": 0.1739,
+    "/lib/Track 20.mp3": 0.1304,
+    "/lib/Track 21.mp3": 0.087,
+    "/lib/Track 22.mp3": 0.0435,
+    "/lib/Track 23.mp3": 0.0
+   },
+   "span": [
+    0.0,
+    1.0
+   ],
+   "ticks": [
+    {
+     "at": 0.0,
+     "label": "dark"
+    },
+    {
+     "at": 0.5,
+     "label": "mid"
+    },
+    {
+     "at": 1.0,
+     "label": "bright"
+    }
+   ]
+  }
+ },
+ "color_map": {
+  "Electronic - House": "#e0503b",
+  "Electronic - Techno": "#3d9be0",
+  "Funk / Soul - Disco": "#3fbf7f",
+  "Jazz - Fusion": "#e06fa8",
+  "Pop - Italo": "#a06fd6",
+  "Rock - Prog": "#f2a33c"
+ },
+ "drive": [
+  0.0,
+  0.2010869565217391,
+  0.44021739130434784,
+  1.0
+ ],
+ "drive_span": [
+  0.40750000000000003,
+  0.8674999999999999
+ ],
+ "gaps": {
+  "a": {
+   "bpm": 0,
+   "dance": 0.0,
+   "energy": 0,
+   "key": [
+    0,
+    false
+   ]
+  },
+  "b": {
+   "bpm": 4,
+   "dance": 0.09,
+   "energy": 6,
+   "key": [
+    1,
+    false
+   ]
+  },
+  "poor": {
+   "bpm": -2
+  },
+  "rel": {
+   "bpm": 0,
+   "dance": 0.0,
+   "energy": 0,
+   "key": [
+    0,
+    true
+   ]
+  }
+ },
+ "gaps_from_poor": {
+  "bpm": 6
+ },
+ "labels": [
+  "short.mp3",
+  "with a path and a lon\u2026",
+  "A name that runs long\u2026"
+ ],
+ "shifts": {
+  "a": {
+   "bpm": [
+    "+0",
+    0
+   ],
+   "dance": [
+    "+.00",
+    0
+   ],
+   "energy": [
+    "+0",
+    0
+   ],
+   "key": [
+    "=",
+    0
+   ]
+  },
+  "b": {
+   "bpm": [
+    "+4",
+    1
+   ],
+   "dance": [
+    "+.09",
+    1
+   ],
+   "energy": [
+    "+6",
+    1
+   ],
+   "key": [
+    "+1",
+    1
+   ]
+  },
+  "poor": {
+   "bpm": [
+    "-2",
+    -1
+   ]
+  },
+  "rel": {
+   "bpm": [
+    "+0",
+    0
+   ],
+   "dance": [
+    "+.00",
+    0
+   ],
+   "energy": [
+    "+0",
+    0
+   ],
+   "key": [
+    "rel",
+    0
+   ]
+  }
+ },
+ "shifts_from_nothing": {},
+ "spelled": [
+  {
+   "BPM": 111,
+   "emotion": [
+    "\u2191"
+   ],
+   "energy": [
+    "1"
+   ],
+   "file": "Track 01.mp3",
+   "folder": "/lib/crate",
+   "genres": [
+    "Electronic - Techno"
+   ],
+   "groove": [
+    "0.38"
+   ],
+   "key": [
+    "3B"
+   ],
+   "mood": "Dark \u00b7 Deep",
+   "\u0394bpm": 1,
+   "\u0394energy": 0,
+   "\u0394groove": 0.03,
+   "\u0394key": 2
+  },
+  {
+   "BPM": 110,
+   "emotion": [
+    "\u2191"
+   ],
+   "energy": [
+    "1"
+   ],
+   "file": "Track 00.mp3",
+   "folder": "/lib/crate",
+   "genres": [
+    "Electronic - House",
+    "Electronic - Minimal"
+   ],
+   "groove": [
+    "0.35"
+   ],
+   "key": [
+    "1A"
+   ],
+   "mood": "Energetic \u00b7 Happy",
+   "\u0394bpm": null,
+   "\u0394energy": null,
+   "\u0394groove": null,
+   "\u0394key": null
+  }
+ ]
+}

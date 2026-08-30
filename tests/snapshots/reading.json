@@ -1,0 +1,82 @@
+{
+ "bare": {
+  "BPM": null,
+  "emotion": [],
+  "energy": [],
+  "file": "bare.mp3",
+  "folder": "/lib",
+  "genres": [],
+  "groove": [],
+  "key": [],
+  "mood": ""
+ },
+ "bright": {
+  "BPM": 114,
+  "emotion": [
+   "\u2191"
+  ],
+  "energy": [
+   "2"
+  ],
+  "file": "Track 04.mp3",
+  "folder": "/lib/crate",
+  "genres": [
+   "Electronic - Techno",
+   "Electronic - Minimal"
+  ],
+  "groove": [
+   "0.45"
+  ],
+  "key": [
+   "11A"
+  ],
+  "mood": "Summer \u00b7 Happy"
+ },
+ "camelot_junk": [
+  "#c7ccd4",
+  "#c7ccd4",
+  "#c7ccd4",
+  "#c7ccd4",
+  "#c7ccd4",
+  "#c7ccd4"
+ ],
+ "genre_colors": {
+  "Electronic - House": "#e0503b",
+  "Electronic - Minimal": "#9aa4b0",
+  "Electronic - Techno": "#3d9be0",
+  "Funk / Soul - Disco": "#3fbf7f",
+  "Jazz - Fusion": "#e06fa8",
+  "Pop - Italo": "#a06fd6",
+  "Rock - Prog": "#f2a33c"
+ },
+ "genre_colors_dark": {
+  "Electronic - House": "#e0503b",
+  "Electronic - Minimal": "#6b7684",
+  "Electronic - Techno": "#3d9be0",
+  "Funk / Soul - Disco": "#3fbf7f",
+  "Jazz - Fusion": "#e06fa8",
+  "Pop - Italo": "#a06fd6",
+  "Rock - Prog": "#f2a33c"
+ },
+ "rich": {
+  "BPM": 111,
+  "emotion": [
+   "\u2191"
+  ],
+  "energy": [
+   "1"
+  ],
+  "file": "Track 01.mp3",
+  "folder": "/lib/crate",
+  "genres": [
+   "Electronic - Techno"
+  ],
+  "groove": [
+   "0.38"
+  ],
+  "key": [
+   "3B"
+  ],
+  "mood": "Dark \u00b7 Deep"
+ }
+}

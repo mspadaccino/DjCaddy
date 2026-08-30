@@ -1,0 +1,685 @@
+{
+ "data": [
+  {
+   "customdata": [
+    [
+     0,
+     "Track 00.mp3",
+     110.0,
+     "1A",
+     "Electronic - House; Electronic - Minimal"
+    ],
+    [
+     3,
+     "Track 03.mp3",
+     113.0,
+     "8B",
+     "Electronic - House"
+    ],
+    [
+     6,
+     "Track 06.mp3",
+     116.0,
+     "4A",
+     "Electronic - House; Electronic - Minimal"
+    ],
+    [
+     9,
+     "Track 09.mp3",
+     119.0,
+     "11B",
+     "Electronic - House"
+    ],
+    [
+     12,
+     "Track 12.mp3",
+     122.0,
+     "7A",
+     "Electronic - House; Electronic - Minimal"
+    ],
+    [
+     15,
+     "Track 15.mp3",
+     125.0,
+     "2B",
+     "Electronic - House"
+    ],
+    [
+     18,
+     "Track 18.mp3",
+     128.0,
+     "10A",
+     "Electronic - House; Electronic - Minimal"
+    ]
+   ],
+   "hovertemplate": "<b>%{customdata[1]}</b><br>%{customdata[2]} BPM \u00b7 %{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+   "marker": {
+    "color": "#e0503b",
+    "line": {
+     "color": "#f4f6f9",
+     "width": 0.5
+    },
+    "opacity": 0.85,
+    "size": [
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0
+    ]
+   },
+   "mode": "markers",
+   "name": "Electronic - House",
+   "type": "scattergl",
+   "x": [
+    0.0,
+    0.1304,
+    0.2609,
+    0.3913,
+    0.5217,
+    0.6522,
+    0.7826
+   ],
+   "y": [
+    1.0,
+    0.8696,
+    0.7391,
+    0.6087,
+    0.4783,
+    0.3478,
+    0.2174
+   ]
+  },
+  {
+   "customdata": [
+    [
+     1,
+     "Track 01.mp3",
+     111.0,
+     "3B",
+     "Electronic - Techno"
+    ],
+    [
+     4,
+     "Track 04.mp3",
+     114.0,
+     "11A",
+     "Electronic - Techno; Electronic - Minimal"
+    ],
+    [
+     7,
+     "Track 07.mp3",
+     117.0,
+     "6B",
+     "Electronic - Techno"
+    ],
+    [
+     10,
+     "Track 10.mp3",
+     120.0,
+     "2A",
+     "Electronic - Techno; Electronic - Minimal"
+    ],
+    [
+     13,
+     "Track 13.mp3",
+     123.0,
+     "9B",
+     "Electronic - Techno"
+    ],
+    [
+     16,
+     "Track 16.mp3",
+     126.0,
+     "5A",
+     "Electronic - Techno; Electronic - Minimal"
+    ],
+    [
+     19,
+     "Track 19.mp3",
+     129.0,
+     "12B",
+     "Electronic - Techno"
+    ]
+   ],
+   "hovertemplate": "<b>%{customdata[1]}</b><br>%{customdata[2]} BPM \u00b7 %{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+   "marker": {
+    "color": "#3d9be0",
+    "line": {
+     "color": "#f4f6f9",
+     "width": 0.5
+    },
+    "opacity": 0.85,
+    "size": [
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0
+    ]
+   },
+   "mode": "markers",
+   "name": "Electronic - Techno",
+   "type": "scattergl",
+   "x": [
+    0.0435,
+    0.1739,
+    0.3043,
+    0.4348,
+    0.5652,
+    0.6957,
+    0.8261
+   ],
+   "y": [
+    0.9565,
+    0.8261,
+    0.6957,
+    0.5652,
+    0.4348,
+    0.3043,
+    0.1739
+   ]
+  },
+  {
+   "customdata": [
+    [
+     2,
+     "Track 02.mp3",
+     112.0,
+     "6A",
+     "Funk / Soul - Disco; Electronic - Minimal"
+    ],
+    [
+     5,
+     "Track 05.mp3",
+     115.0,
+     "1B",
+     "Funk / Soul - Disco"
+    ],
+    [
+     8,
+     "Track 08.mp3",
+     118.0,
+     "9A",
+     "Funk / Soul - Disco; Electronic - Minimal"
+    ],
+    [
+     11,
+     "Track 11.mp3",
+     121.0,
+     "4B",
+     "Funk / Soul - Disco"
+    ],
+    [
+     14,
+     "Track 14.mp3",
+     124.0,
+     "12A",
+     "Funk / Soul - Disco; Electronic - Minimal"
+    ],
+    [
+     17,
+     "Track 17.mp3",
+     127.0,
+     "7B",
+     "Funk / Soul - Disco"
+    ],
+    [
+     20,
+     "Track 20.mp3",
+     130.0,
+     "3A",
+     "Funk / Soul - Disco; Electronic - Minimal"
+    ]
+   ],
+   "hovertemplate": "<b>%{customdata[1]}</b><br>%{customdata[2]} BPM \u00b7 %{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+   "marker": {
+    "color": "#3fbf7f",
+    "line": {
+     "color": "#f4f6f9",
+     "width": 0.5
+    },
+    "opacity": 0.85,
+    "size": [
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0
+    ]
+   },
+   "mode": "markers",
+   "name": "Funk / Soul - Disco",
+   "type": "scattergl",
+   "x": [
+    0.087,
+    0.2174,
+    0.3478,
+    0.4783,
+    0.6087,
+    0.7391,
+    0.8696
+   ],
+   "y": [
+    0.913,
+    0.7826,
+    0.6522,
+    0.5217,
+    0.3913,
+    0.2609,
+    0.1304
+   ]
+  },
+  {
+   "customdata": [
+    [
+     21,
+     "Track 21.mp3",
+     131.0,
+     "5B",
+     "Rock - Prog"
+    ],
+    [
+     22,
+     "Track 22.mp3",
+     132.0,
+     "8A",
+     "Pop - Italo; Electronic - Minimal"
+    ],
+    [
+     23,
+     "Track 23.mp3",
+     133.0,
+     "10B",
+     "Jazz - Fusion"
+    ]
+   ],
+   "hovertemplate": "<b>%{customdata[1]}</b><br>%{customdata[2]} BPM \u00b7 %{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+   "marker": {
+    "color": "#9aa4b0",
+    "line": {
+     "color": "#f4f6f9",
+     "width": 0.5
+    },
+    "opacity": 0.85,
+    "size": [
+     7.0,
+     7.0,
+     7.0
+    ]
+   },
+   "mode": "markers",
+   "name": "other",
+   "type": "scattergl",
+   "x": [
+    0.913,
+    0.9565,
+    1.0
+   ],
+   "y": [
+    0.087,
+    0.0435,
+    0.0
+   ]
+  },
+  {
+   "hoverinfo": "skip",
+   "line": {
+    "color": "#1b1f27",
+    "width": 1.5
+   },
+   "marker": {
+    "color": "#ffffff",
+    "line": {
+     "color": "#1b1f27",
+     "width": 1.5
+    },
+    "size": 9
+   },
+   "mode": "lines+markers+text",
+   "name": "playlist",
+   "text": [
+    "1",
+    "2",
+    "3",
+    "4"
+   ],
+   "textfont": {
+    "color": "#1b1f27",
+    "size": 9
+   },
+   "textposition": "top center",
+   "type": "scattergl",
+   "x": [
+    0.0,
+    0.1739,
+    0.3478,
+    0.087
+   ],
+   "y": [
+    1.0,
+    0.8261,
+    0.6522,
+    0.913
+   ]
+  },
+  {
+   "hoverinfo": "skip",
+   "marker": {
+    "color": "rgba(0,0,0,0)",
+    "line": {
+     "color": "#f2cc0c",
+     "width": 2.5
+    },
+    "size": 11
+   },
+   "mode": "markers",
+   "name": "in the chain",
+   "showlegend": true,
+   "type": "scattergl",
+   "x": [
+    0.1739,
+    0.4348
+   ],
+   "y": [
+    0.8261,
+    0.5652
+   ]
+  },
+  {
+   "hoverinfo": "skip",
+   "marker": {
+    "color": "rgba(0,0,0,0)",
+    "line": {
+     "color": "#1f9dd0",
+     "width": 2.5
+    },
+    "size": 27
+   },
+   "mode": "markers",
+   "name": "mixes out of it",
+   "showlegend": true,
+   "type": "scattergl",
+   "x": [
+    0.4783,
+    0.5652
+   ],
+   "y": [
+    0.5217,
+    0.4348
+   ]
+  },
+  {
+   "hoverinfo": "skip",
+   "marker": {
+    "color": "rgba(0,0,0,0)",
+    "line": {
+     "color": "#8a4fd6",
+     "width": 2.5
+    },
+    "size": 31
+   },
+   "mode": "markers",
+   "name": "sounds like it",
+   "showlegend": true,
+   "type": "scattergl",
+   "x": [
+    0.5217,
+    0.6087
+   ],
+   "y": [
+    0.4783,
+    0.3913
+   ]
+  },
+  {
+   "hoverinfo": "skip",
+   "marker": {
+    "color": "rgba(0,0,0,0)",
+    "line": {
+     "color": "#1f9d55",
+     "width": 2.5
+    },
+    "size": 15
+   },
+   "mode": "markers",
+   "name": "in the playlist",
+   "showlegend": false,
+   "type": "scattergl",
+   "x": [
+    0.0,
+    0.1739,
+    0.3478,
+    0.087
+   ],
+   "y": [
+    1.0,
+    0.8261,
+    0.6522,
+    0.913
+   ]
+  },
+  {
+   "hoverinfo": "skip",
+   "marker": {
+    "color": "rgba(0,0,0,0)",
+    "line": {
+     "color": "#1b1f27",
+     "width": 2.5
+    },
+    "size": 23
+   },
+   "mode": "markers",
+   "name": "selected",
+   "showlegend": true,
+   "type": "scattergl",
+   "x": [
+    0.3043,
+    0.3913
+   ],
+   "y": [
+    0.6957,
+    0.6087
+   ]
+  },
+  {
+   "hoverinfo": "skip",
+   "marker": {
+    "color": "rgba(0,0,0,0)",
+    "line": {
+     "color": "#ff8a1e",
+     "width": 2.5
+    },
+    "size": 19
+   },
+   "mode": "markers",
+   "name": "current PL selection",
+   "showlegend": true,
+   "type": "scattergl",
+   "x": [
+    0.1304
+   ],
+   "y": [
+    0.8696
+   ]
+  },
+  {
+   "hoverinfo": "skip",
+   "marker": {
+    "line": {
+     "color": "#d92b2b",
+     "width": 2.5
+    },
+    "size": 13,
+    "symbol": "x-thin"
+   },
+   "mode": "markers",
+   "name": "playing",
+   "showlegend": true,
+   "type": "scattergl",
+   "x": [
+    0.087
+   ],
+   "y": [
+    0.913
+   ]
+  },
+  {
+   "hoverinfo": "skip",
+   "marker": {
+    "color": "rgba(0,0,0,0)",
+    "line": {
+     "color": "#1b1f27",
+     "width": 2
+    },
+    "size": 23
+   },
+   "mode": "markers",
+   "name": "seed",
+   "showlegend": true,
+   "type": "scattergl",
+   "x": [
+    0.2174
+   ],
+   "y": [
+    0.7826
+   ]
+  }
+ ],
+ "layout": {
+  "annotations": [
+   {
+    "bgcolor": "rgba(255,255,255,0.75)",
+    "borderpad": 3,
+    "font": {
+     "color": "rgba(27,31,39,0.82)",
+     "size": 14
+    },
+    "showarrow": false,
+    "text": "<b>House</b>",
+    "x": 0.3913,
+    "y": 0.6087
+   },
+   {
+    "bgcolor": "rgba(255,255,255,0.75)",
+    "borderpad": 3,
+    "font": {
+     "color": "rgba(27,31,39,0.82)",
+     "size": 14
+    },
+    "showarrow": false,
+    "text": "<b>Techno</b>",
+    "x": 0.4348,
+    "y": 0.5652
+   },
+   {
+    "bgcolor": "rgba(255,255,255,0.75)",
+    "borderpad": 3,
+    "font": {
+     "color": "rgba(27,31,39,0.82)",
+     "size": 14
+    },
+    "showarrow": false,
+    "text": "<b>Disco</b>",
+    "x": 0.4783,
+    "y": 0.5217
+   },
+   {
+    "bgcolor": "rgba(255,255,255,0.75)",
+    "borderpad": 3,
+    "font": {
+     "color": "#1f6fd0",
+     "size": 12
+    },
+    "showarrow": false,
+    "text": "<b>Track 05.mp3</b>",
+    "x": 0.2174,
+    "y": 0.7826,
+    "yshift": 18
+   }
+  ],
+  "height": 640,
+  "hoverlabel": {
+   "align": "left",
+   "font": {
+    "size": 11
+   }
+  },
+  "hovermode": "closest",
+  "legend": {
+   "bgcolor": "rgba(0,0,0,0)",
+   "font": {
+    "color": "#1b1f27",
+    "size": 10
+   },
+   "itemsizing": "constant",
+   "orientation": "h",
+   "x": 0,
+   "y": 1.04,
+   "yanchor": "bottom"
+  },
+  "margin": {
+   "b": 0,
+   "l": 0,
+   "r": 0,
+   "t": 0
+  },
+  "paper_bgcolor": "#ffffff",
+  "plot_bgcolor": "#f4f6f9",
+  "shapes": [
+   {
+    "layer": "below",
+    "line": {
+     "color": "#9aa4b0",
+     "dash": "dot",
+     "width": 1
+    },
+    "type": "line",
+    "x0": 0.5,
+    "x1": 0.5,
+    "y0": 0,
+    "y1": 1,
+    "yref": "paper"
+   },
+   {
+    "layer": "below",
+    "line": {
+     "color": "#9aa4b0",
+     "dash": "dot",
+     "width": 1
+    },
+    "type": "line",
+    "x0": 0,
+    "x1": 1,
+    "xref": "paper",
+    "y0": 0.5,
+    "y1": 0.5
+   }
+  ],
+  "showlegend": true,
+  "xaxis": {
+   "automargin": true,
+   "showgrid": false,
+   "title": {
+    "text": "energy"
+   },
+   "visible": true,
+   "zeroline": false
+  },
+  "yaxis": {
+   "automargin": true,
+   "showgrid": false,
+   "title": {
+    "text": "valence (mood)"
+   },
+   "visible": true,
+   "zeroline": false
+  }
+ }
+}
