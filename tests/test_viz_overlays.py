@@ -86,6 +86,25 @@ def test_cloud_plus_overlays_equals_the_full_figure():
     assert notes == [_spelled(n) for n in full.layout.annotations]
 
 
+def test_genre_labels_can_be_switched_off():
+    """`labels=False` spegne i nomi dei generi scritti sulla nuvola: dove i
+    gruppi si accavallano le scritte coprono i punti, e il flag in pagina
+    le toglie senza toccare i tracciati."""
+    drawn = pd.DataFrame({
+        "x": [0.0, 1, 2, 5, 6, 7], "y": [0.0] * 6, "_size": [7.0] * 6,
+        "genre_key": ["House"] * 3 + ["Techno"] * 3,
+        "index": range(6), "name": [f"t{i}" for i in range(6)],
+        "bpm": [120] * 6, "camelot": ["8A"] * 6, "genres": ["x"] * 6})
+    coords = np.column_stack([drawn["x"], drawn["y"]])
+    lit = build_figure(drawn, ["House", "Techno"], coords,
+                       playlist=[], seed=None)
+    off = build_figure(drawn, ["House", "Techno"], coords,
+                       playlist=[], seed=None, labels=False)
+    assert len(lit.layout.annotations) == 2
+    assert not off.layout.annotations
+    assert len(off.data) == len(lit.data)
+
+
 def test_empty_cloud_never_grows():
     """EMPTY_CLOUD è condiviso: se qualcuno lo riempisse, ogni figura di
     contorni porterebbe punti fantasma."""

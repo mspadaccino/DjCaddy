@@ -55,6 +55,10 @@ WAITING_FOR_THE_BUTTON = ("Nothing built yet — press the button above. The "
                           "map are looking around, not choosing what comes "
                           "next.")
 
+# I titoli delle tre schede, senza conteggio: il conteggio ce lo appende
+# `_retitle` quando c'è qualcosa da contare.
+TAB_TITLES = ("✨ Quick List", "🎯 Sounds like it", "🔗 Chain Maker")
+
 
 def _dim(text: str, wrap: bool = True) -> QLabel:
     label = QLabel(text)
@@ -194,9 +198,9 @@ class SetBuilderPanel(QWidget):
         weights.addStretch(1)
 
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._build_quicklist(), "✨ Quick List")
-        self._tabs.addTab(self._build_alike(), "🎯 Sounds like it")
-        self._tabs.addTab(self._build_chain(), "🔗 Chain Maker")
+        self._tabs.addTab(self._build_quicklist(), TAB_TITLES[0])
+        self._tabs.addTab(self._build_alike(), TAB_TITLES[1])
+        self._tabs.addTab(self._build_chain(), TAB_TITLES[2])
 
         box = QVBoxLayout(self)
         box.addWidget(self._seed_told)
@@ -479,11 +483,19 @@ class SetBuilderPanel(QWidget):
         self._seed_told.setVisible(True)
 
     # --- Quick List ---
+    def _retitle(self, tab: int, count: int) -> None:
+        """Il conteggio sulla linguetta — quante righe lavora quella scheda:
+        il gruppo preso, le proposte aperte, la catena. Si legge da fuori,
+        senza aprire."""
+        base = TAB_TITLES[tab]
+        self._tabs.setTabText(tab, f"{base} ({count})" if count else base)
+
     def _refresh_quick(self) -> None:
         if self._lib is None:
             return
         if self._selected:
             self._quick.setCurrentIndex(1)
+            self._retitle(0, len(self._selected))
             frame, common = self._lib.frame, self._lib.common
             self._group_told.setText(
                 f"<b>{len(self._selected)} track(s)</b> selected.")
@@ -497,6 +509,7 @@ class SetBuilderPanel(QWidget):
             return
         if self._seed is None:
             self._quick.setCurrentIndex(0)
+            self._retitle(0, 0)
             self._tell_rings()
             return
         self._quick.setCurrentIndex(2)
@@ -504,10 +517,12 @@ class SetBuilderPanel(QWidget):
         if self._asked_mixes == path:
             self._show_mixes()
         else:
+            self._retitle(0, 0)
             self._mixes_ask.setVisible(True)
             self._mixes_wait.setVisible(True)
             self._mixes_table.setVisible(False)
             self._mixes_add.setVisible(False)
+            self._mixes_send.setVisible(False)
             self._tell_rings()
 
     def _on_ask_mixes(self) -> None:
@@ -542,6 +557,10 @@ class SetBuilderPanel(QWidget):
         self._mixes_wait.setVisible(False)
         self._mixes_table.setVisible(True)
         self._mixes_add.setVisible(True)
+        self._mixes_send.setVisible(True)
+        # Le proposte, senza il seme in testa: il conteggio dice quante
+        # scelte offre la lista, non quante righe scrive.
+        self._retitle(0, len(picks) - 1)
         self._tell_rings(mixes=[i for i, _ in picks[1:]])
 
     # --- Sounds like it ---
@@ -550,6 +569,7 @@ class SetBuilderPanel(QWidget):
             return
         if self._seed is None:
             self._alike.setCurrentIndex(0)
+            self._retitle(1, 0)
             self._tell_rings()
             return
         self._alike.setCurrentIndex(1)
@@ -557,10 +577,12 @@ class SetBuilderPanel(QWidget):
         if self._asked_alike == path:
             self._show_alike()
         else:
+            self._retitle(1, 0)
             self._alike_ask.setVisible(True)
             self._alike_wait.setVisible(True)
             self._alike_table.setVisible(False)
             self._alike_add.setVisible(False)
+            self._alike_send.setVisible(False)
             self._tell_rings()
 
     def _on_ask_alike(self) -> None:
@@ -585,6 +607,8 @@ class SetBuilderPanel(QWidget):
         self._alike_wait.setVisible(False)
         self._alike_table.setVisible(True)
         self._alike_add.setVisible(True)
+        self._alike_send.setVisible(True)
+        self._retitle(1, len(rows) - 1)
         self._tell_rings(alike=[i for i, _ in rows[1:]])
 
     def _tell_rings(self, mixes: list[int] | None = None,
@@ -641,6 +665,7 @@ class SetBuilderPanel(QWidget):
     def _refresh_chain(self) -> None:
         if self._lib is None:
             return
+        self._retitle(2, len(self._graph))
         if not len(self._graph):
             self._chain.setCurrentIndex(0)
             if self._candidates:

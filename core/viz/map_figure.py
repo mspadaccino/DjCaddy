@@ -273,6 +273,7 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
                  titles: tuple[str, str] | None = None,
                  guides: tuple[float | None, float | None] | None = None,
                  dark: bool = False,
+                 labels: bool = True,
                  ) -> go.Figure:
     """La mappa: un tracciato per genere, più il percorso e il seme sopra.
 
@@ -325,8 +326,10 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
     # Il nome del genere scritto in mezzo al suo gruppo: la legenda dice quale
     # colore è cosa, questo dice dove andare a cercarlo. Mediana e non media,
     # perché un brano isolato dall'altra parte della mappa non deve spostare
-    # l'etichetta in mezzo al nulla.
-    for genre in top_genres:
+    # l'etichetta in mezzo al nulla. `labels=False` le spegne tutte: dove i
+    # gruppi si accavallano le scritte coprono i punti, e chi la mappa la
+    # conosce già può volerla nuda.
+    for genre in (top_genres if labels else []):
         part = drawn[drawn["genre_key"] == genre]
         if len(part) < 3:
             continue
