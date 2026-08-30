@@ -15,6 +15,8 @@ stabile da anni; qui ne viene generata una versione minima ma valida.
 
 from __future__ import annotations
 
+import os
+import unicodedata
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
@@ -174,3 +176,55 @@ def read_m3u8(text: str) -> list[str]:
             line = unquote(urlparse(line).path)
         paths.append(line)
     return paths
+
+
+def _composed(text: str) -> str:
+    """Il testo con gli accenti in un carattere solo (NFC), per confrontarlo."""
+    return unicodedata.normalize("NFC", text)
+
+
+def playlist_positions(paths, at_path: dict[str, int]) -> tuple[list[int], list[str]]:
+    """Da una playlist letta da file alle posizioni sulla mappa.
+
+    Il percorso scritto nel file e quello registrato sulla mappa possono non
+    coincidere pur essendo lo stesso brano — un disco montato con un'altra
+    lettera, la libreria spostata, una playlist salvata da un altro programma
+    con percorsi relativi — quindi dopo il percorso si prova il nome del file.
+    È il ripiego che salva il caso normale (la libreria è una sola, i nomi
+    dentro sono unici) senza pretendere di indovinare: se due cartelle
+    contengono lo stesso nome, vince la prima, e resta un brano da spostare a
+    mano invece di una playlist che non si carica.
+
+    Chi non si trova torna indietro per nome: sono i brani che sulla mappa non
+    ci sono ancora, e la playlist non può indicarli perché una posizione che
+    non esiste non è un brano.
+
+    **Gli accenti si confrontano composti.** macOS scrive i nomi dei file
+    decomposti — "Hervé" è "Herve" più il segno di accento, due caratteri —
+    mentre chi riscrive la playlist di solito li ricompone: rekordbox lo fa.
+    Sono la stessa parola sullo schermo e due stringhe diverse per il
+    programma, quindi il percorso non combaciava e nemmeno il ripiego sul
+    nome. Non è un caso di confine: 4.067 brani su 87.010 di questa libreria
+    (il 4,7%) hanno un nome decomposto, e bastava un artista accentato perché
+    una scaletta tornata da rekordbox arrivasse monca — con l'aggravante che
+    il messaggio mandava ad aggiungere alla mappa una cartella che c'era già
+    tutta. Si confronta allora una forma sola, e la mappa continua a
+    conservare il percorso VERO, che è quello che poi riapre il file.
+    """
+    by_path: dict[str, int] = {}
+    by_name: dict[str, int] = {}
+    for path, i in at_path.items():
+        by_path.setdefault(_composed(path), i)
+        by_name.setdefault(_composed(os.path.basename(path)), i)
+
+    found: list[int] = []
+    missing: list[str] = []
+    for path in paths:
+        i = by_path.get(_composed(os.path.abspath(path)))
+        if i is None:
+            i = by_name.get(_composed(os.path.basename(path)))
+        if i is None:
+            missing.append(path)
+        elif i not in found:
+            found.append(i)
+    return found, missing

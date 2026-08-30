@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core.analysis.duplicates import folded
+
 
 def span(frame: pd.DataFrame, column: str,
          floor: float, ceiling: float) -> tuple[float, float]:
@@ -56,3 +58,29 @@ def filter_tracks(frame: pd.DataFrame, genres: list[str], moods: list[str],
     kept = kept[kept["danceability"].isna()
                 | kept["danceability"].between(*groove)]
     return kept
+
+
+def matching_tracks(frame: pd.DataFrame, pool, words: list[str]) -> list[int]:
+    """Le posizioni che contengono TUTTE le parole, nel nome o nella cartella.
+
+    A parole sparse e non a sottostringa: "madonna lucky" deve trovare
+    "Madonna - Lucky Star (Extended Dance Remix)", che una ricerca contigua
+    non trova. L'ordine non conta — chi cerca ricorda i pezzi di un titolo,
+    non come sono disposti.
+
+    Si guarda nel nome del file e nella cartella perché è lì che stanno
+    artista e titolo: la mappa non conserva i tag, e in una libreria da DJ il
+    nome del file li porta quasi sempre entrambi.
+    """
+    inside = frame.loc[list(pool)]
+    hay = (inside["name"].fillna("") + " "
+           + inside["folder"].fillna("")).map(folded)
+    keep = pd.Series(True, index=hay.index)
+    for word in words:
+        # Anche le parole cercate, non solo il testo in cui si cerca: farlo
+        # fare a chi chiama vuol dire che la funzione è giusta solo finché
+        # tutti si ricordano di farlo. Vale per le maiuscole e vale per gli
+        # accenti — un nome che arriva dal disco di un Mac ha la tilde
+        # staccata dalla lettera e non combacia con quella che si digita.
+        keep &= hay.str.contains(folded(word), regex=False)
+    return keep[keep].index.tolist()

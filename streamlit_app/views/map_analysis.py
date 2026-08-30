@@ -23,11 +23,9 @@ e poi la si lascia lavorare, quindi sta in fondo, chiusa.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import time
-import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -36,9 +34,11 @@ import pandas as pd
 import streamlit as st
 
 from core.analysis import energy, mood_scale
-from core.analysis.duplicates import folded
-from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml, read_m3u8,
-                                read_title_artist)
+# `_composed` lo importano i test da qui; la sostanza sta in `core`, che è
+# dove la legge anche l'app Qt.
+from core.analysis.dj_export import (  # noqa: F401
+    _composed, build_m3u8, build_rekordbox_xml, playlist_positions, read_m3u8,
+    read_title_artist)
 from core.analysis.essentia_tags import MODEL_DIR, available, find_taggable, missing_models
 from core.analysis.graph_playlist import GraphPlaylist
 from core.analysis.map_job import (DEFAULT_MAP_LOG, MAP_CLI_PATH, caffeinated,
@@ -49,10 +49,11 @@ from core.analysis.map_projection import ProjectionSettings
 from core.analysis.map_projection import available as umap_available
 from core.analysis.map_projection import project
 from core.analysis.map_store import MapStore, default_store_dir
-from core.analysis.mixing import TransitionCost, magic_sort, nearest
+from core.analysis.mixing import (TransitionCost, magic_sort, nearest,
+                                  sorted_after)
 from core.viz.chapters import (CHAPTERS, CHAPTER_COLORS, assign_chapters,
                                board_chapter_regions)
-from core.viz.filters import filter_tracks, span
+from core.viz.filters import filter_tracks, matching_tracks, span
 # SKIN, AXIS_CENTRES e FLAT_SIZE non servono più a questa pagina, ma i test
 # li hanno sempre letti da qui: restano importabili.
 from core.viz.map_figure import (  # noqa: F401
@@ -292,23 +293,6 @@ def append_playlist(frame: pd.DataFrame, indices) -> None:
     st.session_state[PLAYLIST] = current
 
 
-def sorted_after(cost: TransitionCost, playlist: list[int],
-                 group: list[int]) -> list[int]:
-    """Il gruppo ordinato per attaccarsi a quello che c'è già.
-
-    Magic sort da solo sceglie da dove partire, e va bene finché la playlist
-    comincia lì. In coda a una playlist esistente no: il primo del gruppo
-    finisce dietro all'ultimo di prima, e se lo si lascia scegliere alla
-    cieca quella giuntura è l'unico salto della serata. Si parte dal brano
-    del gruppo che costa meno raggiungere da lì.
-    """
-    if not playlist:
-        return magic_sort(cost, group)
-    tail = playlist[-1]
-    return magic_sort(cost, group,
-                      start=min(group, key=lambda i: cost.between(tail, i)))
-
-
 def _play(path: str | None) -> None:
     """Manda un brano al lettore in fondo alla pagina.
 
@@ -399,32 +383,6 @@ def read_selection() -> list[int]:
                 seen.add(index)
                 out.append(index)
     return out
-
-
-def matching_tracks(frame: pd.DataFrame, pool, words: list[str]) -> list[int]:
-    """Le posizioni che contengono TUTTE le parole, nel nome o nella cartella.
-
-    A parole sparse e non a sottostringa: "madonna lucky" deve trovare
-    "Madonna - Lucky Star (Extended Dance Remix)", che una ricerca contigua
-    non trova. L'ordine non conta — chi cerca ricorda i pezzi di un titolo,
-    non come sono disposti.
-
-    Si guarda nel nome del file e nella cartella perché è lì che stanno
-    artista e titolo: la mappa non conserva i tag, e in una libreria da DJ il
-    nome del file li porta quasi sempre entrambi.
-    """
-    inside = frame.loc[list(pool)]
-    hay = (inside["name"].fillna("") + " "
-           + inside["folder"].fillna("")).map(folded)
-    keep = pd.Series(True, index=hay.index)
-    for word in words:
-        # Anche le parole cercate, non solo il testo in cui si cerca: farlo
-        # fare a chi chiama vuol dire che la funzione è giusta solo finché
-        # tutti si ricordano di farlo. Vale per le maiuscole e vale per gli
-        # accenti — un nome che arriva dal disco di un Mac ha la tilde
-        # staccata dalla lettera e non combacia con quella che si digita.
-        keep &= hay.str.contains(folded(word), regex=False)
-    return keep[keep].index.tolist()
 
 
 # --------------------------------------------------------------------------
@@ -1298,11 +1256,6 @@ def render_sounds_alike(frame: pd.DataFrame, store: MapStore, seed: int,
         st.caption(WAITING_FOR_THE_BUTTON)
 
 
-def _composed(text: str) -> str:
-    """Il testo con gli accenti in un carattere solo (NFC), per confrontarlo."""
-    return unicodedata.normalize("NFC", text)
-
-
 def add_from_finder(frame: pd.DataFrame, at_path: dict[str, int],
                     key: str) -> None:
     """Mettere in scaletta dei brani presi dal disco, anche più d'uno.
@@ -1336,53 +1289,6 @@ def add_from_finder(frame: pd.DataFrame, at_path: dict[str, int],
     if found:
         append_playlist(frame, found)
     st.rerun()
-
-
-def playlist_positions(paths, at_path: dict[str, int]) -> tuple[list[int], list[str]]:
-    """Da una playlist letta da file alle posizioni sulla mappa.
-
-    Il percorso scritto nel file e quello registrato sulla mappa possono non
-    coincidere pur essendo lo stesso brano — un disco montato con un'altra
-    lettera, la libreria spostata, una playlist salvata da un altro programma
-    con percorsi relativi — quindi dopo il percorso si prova il nome del file.
-    È il ripiego che salva il caso normale (la libreria è una sola, i nomi
-    dentro sono unici) senza pretendere di indovinare: se due cartelle
-    contengono lo stesso nome, vince la prima, e resta un brano da spostare a
-    mano invece di una playlist che non si carica.
-
-    Chi non si trova torna indietro per nome: sono i brani che sulla mappa non
-    ci sono ancora, e la playlist non può indicarli perché una posizione che
-    non esiste non è un brano.
-
-    **Gli accenti si confrontano composti.** macOS scrive i nomi dei file
-    decomposti — "Hervé" è "Herve" più il segno di accento, due caratteri —
-    mentre chi riscrive la playlist di solito li ricompone: rekordbox lo fa.
-    Sono la stessa parola sullo schermo e due stringhe diverse per il
-    programma, quindi il percorso non combaciava e nemmeno il ripiego sul
-    nome. Non è un caso di confine: 4.067 brani su 87.010 di questa libreria
-    (il 4,7%) hanno un nome decomposto, e bastava un artista accentato perché
-    una scaletta tornata da rekordbox arrivasse monca — con l'aggravante che
-    il messaggio mandava ad aggiungere alla mappa una cartella che c'era già
-    tutta. Si confronta allora una forma sola, e la mappa continua a
-    conservare il percorso VERO, che è quello che poi riapre il file.
-    """
-    by_path: dict[str, int] = {}
-    by_name: dict[str, int] = {}
-    for path, i in at_path.items():
-        by_path.setdefault(_composed(path), i)
-        by_name.setdefault(_composed(os.path.basename(path)), i)
-
-    found: list[int] = []
-    missing: list[str] = []
-    for path in paths:
-        i = by_path.get(_composed(os.path.abspath(path)))
-        if i is None:
-            i = by_name.get(_composed(os.path.basename(path)))
-        if i is None:
-            missing.append(path)
-        elif i not in found:
-            found.append(i)
-    return found, missing
 
 
 def render_playlist_loader(frame: pd.DataFrame, at_path: dict[str, int],

@@ -21,8 +21,10 @@ import pandas as pd
 from PySide6.QtCore import (QAbstractTableModel, QMimeData, QModelIndex, Qt,
                             Signal)
 from PySide6.QtGui import QColor, QFontMetrics, QPainter
-from PySide6.QtWidgets import QAbstractItemView, QStyle, QStyledItemDelegate, QTableView
+from PySide6.QtWidgets import (QAbstractItemView, QMenu, QStyle,
+                               QStyledItemDelegate, QTableView)
 
+from core.viz.chapters import CHAPTER_COLORS
 from core.viz.track_columns import (ENERGY_COLORS, EMOTION_COLORS,
                                     EMOTION_OPTIONS, GROOVE_COLORS,
                                     KEY_COLORS, LEVELS, READING_ORDER, reading)
@@ -65,6 +67,8 @@ def pill_color(column: str, value: str,
         return None
     if column == "genres":
         return (genres or {}).get(value)
+    if column == "chapter":
+        return CHAPTER_COLORS.get(value)
     return None
 
 
@@ -273,17 +277,29 @@ class TrackTable(QTableView):
     """La tabella dei brani, già vestita: pastiglie, sort, trascinamento.
 
     `row_activated` porta il `_path` della riga doppio-cliccata: è il
-    segnale a cui il lettore si aggancia.
+    segnale a cui il lettore si aggancia. Gli altri segnali escono dal menu
+    contestuale — le stesse quattro voci su ogni tabella della pagina — e
+    dalla selezione delle righe: chi li ascolta decide cosa significano (per
+    la playlist, la selezione È il canale che cerchia i brani sulla mappa).
     """
 
     row_activated = Signal(str)
+    play_requested = Signal(str)
+    seed_requested = Signal(str)
+    add_requested = Signal(list)            # i _path delle righe scelte
+    reveal_requested = Signal(str)
+    selection_paths_changed = Signal(list)  # i _path delle righe selezionate
 
     # Larghezze di partenza per le colonne che si conoscono: misurarle sui
     # dati (resizeColumnsToContents) visita OGNI riga, e una tabella da
     # novantamila righe si pianterebbe proprio nel gesto che Qt deve rendere
     # gratis.
-    _WIDTHS = {"file": 320, "BPM": 52, "key": 52, "energy": 60, "groove": 64,
-               "emotion": 64, "mood": 120, "genres": 240}
+    _WIDTHS = {"#": 40, "file": 320, "BPM": 52, "key": 52, "energy": 60,
+               "groove": 64, "emotion": 64, "mood": 120, "genres": 240,
+               "cost": 56, "sound": 56, "bpm cost": 66, "key cost": 62,
+               "similarity": 72, "copies": 56, "chapter": 84,
+               "from previous": 94, "Δbpm": 52, "Δkey": 48, "Δenergy": 62,
+               "Δgroove": 62}
 
     def __init__(self, reorderable: bool = False, parent=None) -> None:
         super().__init__(parent)
@@ -312,6 +328,10 @@ class TrackTable(QTableView):
             self.setDragDropOverwriteMode(False)
 
         self.doubleClicked.connect(self._on_double_click)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_menu)
+        self.selectionModel().selectionChanged.connect(
+            lambda *_: self.selection_paths_changed.emit(self.selected_paths()))
 
     @property
     def model_(self) -> PandasModel:
@@ -327,7 +347,7 @@ class TrackTable(QTableView):
         # colorerebbe per sempre coi generi di allora.
         self._genre_colors = dict(genre_colors or {})
         shown = [c for c in frame.columns if not str(c).startswith("_")]
-        for name in ("key", "energy", "groove", "emotion", "genres"):
+        for name in ("key", "energy", "groove", "emotion", "genres", "chapter"):
             if name not in shown:
                 continue
             if name not in self._delegates:
@@ -340,7 +360,34 @@ class TrackTable(QTableView):
             if name in shown:
                 self.setColumnWidth(shown.index(name), width)
 
+    def selected_paths(self) -> list[str]:
+        """I `_path` delle righe selezionate, dall'alto in basso."""
+        rows = sorted({i.row() for i in self.selectionModel().selectedRows()})
+        return [p for p in (self._model.path_at(r) for r in rows) if p]
+
     def _on_double_click(self, index: QModelIndex) -> None:
         path = self._model.path_at(index.row())
         if path:
             self.row_activated.emit(path)
+
+    def _on_menu(self, at) -> None:
+        index = self.indexAt(at)
+        path = self._model.path_at(index.row()) if index.isValid() else None
+        if path is None:
+            return
+        # "Add" prende le righe selezionate se la riga cliccata è fra loro,
+        # altrimenti la sola riga cliccata: è la regola dei menu contestuali
+        # ovunque — il tasto destro fuori dalla selezione parla di quella riga.
+        picked = self.selected_paths()
+        added = picked if path in picked else [path]
+        menu = QMenu(self)
+        menu.addAction("▶ Play",
+                       lambda: self.play_requested.emit(path))
+        menu.addAction("◎ Use as seed",
+                       lambda: self.seed_requested.emit(path))
+        menu.addAction(f"➕ Add to playlist ({len(added)})",
+                       lambda: self.add_requested.emit(list(added)))
+        menu.addSeparator()
+        menu.addAction("📂 Show in file manager",
+                       lambda: self.reveal_requested.emit(path))
+        menu.exec(self.viewport().mapToGlobal(at))

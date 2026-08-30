@@ -221,6 +221,25 @@ def guide_caption(guides: tuple, columns: tuple[str, str],
         for column, name in zip(columns, names))
 
 
+# Un frame senza righe con la sola colonna che `build_figure` tocca sempre:
+# è la "nuvola vuota" con cui si costruisce la figura dei soli contorni.
+EMPTY_CLOUD = pd.DataFrame({"genre_key": pd.Series(dtype=object)})
+
+
+def overlay_figure(coords, marks: dict, dark: bool = False) -> go.Figure:
+    """La figura dei SOLI tracciati di contorno: anelli, percorso, seme.
+
+    Serve all'app Qt, che manda la nuvola una volta e a ogni gesto incolla
+    questi tracciati in coda (`PlotlyView.set_overlays`): il costo del gesto
+    diventa qualche chilobyte invece dei megabyte della figura piena.
+    `coords` è dove sta OGNI brano piazzato — gli anelli si disegnano per
+    indice, non dal campione — e `marks` sono gli argomenti di contorno di
+    `build_figure` (playlist, seed, selected, chained, mixes, alike,
+    pl_selection, playing, seed_name).
+    """
+    return build_figure(EMPTY_CLOUD, [], coords, dark=dark, **marks)
+
+
 def marker_sizes(frame: pd.DataFrame, column: str | None):
     """Il diametro dei punti a partire da una colonna. Un numero se sono
     tutti uguali, una serie allineata a `frame` altrimenti.

@@ -375,3 +375,20 @@ def magic_sort(cost: TransitionCost, indices, start: int | None = None,
             break
 
     return [nodes[i] for i in route]
+
+
+def sorted_after(cost: TransitionCost, playlist: list[int],
+                 group: list[int]) -> list[int]:
+    """Il gruppo ordinato per attaccarsi a quello che c'è già.
+
+    Magic sort da solo sceglie da dove partire, e va bene finché la playlist
+    comincia lì. In coda a una playlist esistente no: il primo del gruppo
+    finisce dietro all'ultimo di prima, e se lo si lascia scegliere alla
+    cieca quella giuntura è l'unico salto della serata. Si parte dal brano
+    del gruppo che costa meno raggiungere da lì.
+    """
+    if not playlist:
+        return magic_sort(cost, group)
+    tail = playlist[-1]
+    return magic_sort(cost, group,
+                      start=min(group, key=lambda i: cost.between(tail, i)))

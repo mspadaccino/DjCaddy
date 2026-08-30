@@ -151,3 +151,24 @@ def test_double_click_names_the_track(qtbot):
     with qtbot.waitSignal(table.row_activated) as heard:
         table._on_double_click(table.model_.index(1, 0))
     assert heard.args == ["/x/two.mp3"]
+
+
+# --- la Fase 3: capitoli e selezione ---
+
+def test_chapter_pill_uses_the_chapter_colors():
+    from core.viz.chapters import CHAPTER_COLORS
+    assert pill_color("chapter", "Intro") == CHAPTER_COLORS["Intro"]
+    assert pill_color("chapter", "Climax") == CHAPTER_COLORS["Climax"]
+    assert pill_color("chapter", "boh") is None
+
+
+def test_selected_paths_follow_the_row_selection(qtbot):
+    table = TrackTable()
+    qtbot.addWidget(table)
+    table.set_tracks(shown(), {})
+    with qtbot.waitSignal(table.selection_paths_changed) as heard:
+        table.selectRow(1)
+    assert heard.args == [["/x/two.mp3"]]
+    assert table.selected_paths() == ["/x/two.mp3"]
+    table.clearSelection()
+    assert table.selected_paths() == []

@@ -8,6 +8,16 @@ la pagina; gli eventi del grafico — clic su un punto, lasso, riquadro,
 deselezione — tornano indietro dal ponte QWebChannel come segnali Qt con gli
 INDICI di libreria dei brani (il `customdata[0]` che `core.viz.build_figure`
 mette su ogni punto proprio per questo).
+
+**Due canali, non uno.** Lo spike della Fase 2 ha misurato che il costo di
+un gesto non sta nel ridisegno ma nel rifare figura+JSON in Python a mappa
+piena (~1,4 s, ~15 MB): la nuvola non cambia mai a un clic, cambiano solo il
+seme, gli anelli e il percorso. Quindi `set_figure` manda la NUVOLA (i
+tracciati per genere e le etichette), la pagina se la tiene, e
+`set_overlays` manda solo i tracciati di contorno: il JS incolla i secondi
+in coda ai primi e richiama `Plotly.react`, che riconosce i tracciati di
+base per identità e non li tocca. `layout.uirevision` fisso fa il resto:
+zoom, pan e i generi spenti in legenda sopravvivono a ogni aggiornamento.
 """
 
 from __future__ import annotations
@@ -48,6 +58,10 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 (function () {
   var bridge = null;
   var config = {displaylogo: false, scrollZoom: true, responsive: true};
+  // La base è la nuvola dell'ultima `render`: i suoi tracciati restano gli
+  // STESSI oggetti fra un gesto e l'altro, ed è per identità che react
+  // capisce di non doverli ridisegnare.
+  var base = null;
   function tell(msg) { if (bridge) bridge.event(JSON.stringify(msg)); }
 
   // Dal punto disegnato all'indice di libreria: customdata[0]. I tracciati
@@ -60,29 +74,46 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
     return out;
   }
 
+  function react(data, layout) {
+    var began = performance.now();
+    Plotly.react(document.getElementById("map"), data, layout, config)
+      .then(function (gd) {
+        if (!gd._wavecut_wired) {
+          // Una volta sola: il div sopravvive alle react successive, e
+          // gli ascoltatori con lui.
+          gd._wavecut_wired = true;
+          gd.on("plotly_click", function (e) {
+            var hit = indices(e.points);
+            if (hit.length) tell({type: "click", index: hit[0]});
+          });
+          gd.on("plotly_selected", function (e) {
+            tell({type: "selected", indices: e ? indices(e.points) : []});
+          });
+          gd.on("plotly_deselect", function () {
+            tell({type: "deselected"});
+          });
+        }
+        tell({type: "rendered", ms: performance.now() - began});
+      });
+  }
+
   window.wavecut = {
     render: function (spec) {
-      var began = performance.now();
-      Plotly.react(document.getElementById("map"),
-                   spec.data, spec.layout, config)
-        .then(function (gd) {
-          if (!gd._wavecut_wired) {
-            // Una volta sola: il div sopravvive alle react successive, e
-            // gli ascoltatori con lui.
-            gd._wavecut_wired = true;
-            gd.on("plotly_click", function (e) {
-              var hit = indices(e.points);
-              if (hit.length) tell({type: "click", index: hit[0]});
-            });
-            gd.on("plotly_selected", function (e) {
-              tell({type: "selected", indices: e ? indices(e.points) : []});
-            });
-            gd.on("plotly_deselect", function () {
-              tell({type: "deselected"});
-            });
-          }
-          tell({type: "rendered", ms: performance.now() - began});
-        });
+      // Lo zoom, il pan e le voci spente in legenda restano dove sono a
+      // ogni aggiornamento: è il contratto di uirevision.
+      spec.layout.uirevision = "wavecut";
+      base = {data: spec.data, layout: spec.layout,
+              notes: (spec.layout.annotations || [])};
+      react(spec.data, spec.layout);
+    },
+    overlays: function (spec) {
+      if (!base) return;   // nessuna nuvola sotto: non c'è dove appoggiarli
+      var notes = ((spec.layout || {}).annotations) || [];
+      // Un layout NUOVO a ogni giro: react confronta per riferimento, e un
+      // oggetto mutato sul posto passerebbe per già visto.
+      var layout = Object.assign({}, base.layout,
+                                 {annotations: base.notes.concat(notes)});
+      react(base.data.concat(spec.data), layout);
     },
   };
 
@@ -100,7 +131,7 @@ class PlotlyView(QWebEngineView):
     La figura si può dare da subito: finché la pagina non dice `ready`
     resta in attesa, e parte da sola al primo giro del ponte. Se ne arriva
     più d'una nel frattempo vale l'ultima — le altre non sono mai state
-    sullo schermo e non devono passarci.
+    sullo schermo e non devono passarci. Lo stesso per i contorni.
     """
 
     point_clicked = Signal(int)
@@ -120,22 +151,30 @@ class PlotlyView(QWebEngineView):
         self.page().setBackgroundColor(QColor(background))
         self._ready = False
         self._queued: str | None = None
+        self._queued_overlays: str | None = None
         bridge = attach_bridge(self.page())
         bridge.received.connect(self._on_event)
         self.setHtml(_PAGE.replace("BACKGROUND", background),
                      QUrl.fromLocalFile(str(plotly_package_data()) + "/"))
 
     def set_figure(self, figure) -> None:
-        """Mostra (o aggiorna) una figura Plotly — un oggetto con `to_json`,
+        """Mostra (o aggiorna) la figura di base — un oggetto con `to_json`,
         o direttamente la stringa JSON se chi chiama l'ha già."""
         spec = figure if isinstance(figure, str) else figure.to_json()
         if not self._ready:
             self._queued = spec
             return
-        self._run_render(spec)
-
-    def _run_render(self, spec: str) -> None:
         self.page().runJavaScript(f"window.wavecut.render({spec})")
+
+    def set_overlays(self, figure) -> None:
+        """Aggiorna i soli tracciati di contorno sopra l'ultima figura di
+        base: una figura Plotly SENZA nuvola — anelli, percorso, seme — i
+        cui tracciati vengono incollati in coda a quelli di base."""
+        spec = figure if isinstance(figure, str) else figure.to_json()
+        if not self._ready:
+            self._queued_overlays = spec
+            return
+        self.page().runJavaScript(f"window.wavecut.overlays({spec})")
 
     def _on_event(self, data: dict) -> None:
         kind = data.get("type")
@@ -143,7 +182,10 @@ class PlotlyView(QWebEngineView):
             self._ready = True
             if self._queued is not None:
                 spec, self._queued = self._queued, None
-                self._run_render(spec)
+                self.page().runJavaScript(f"window.wavecut.render({spec})")
+            if self._queued_overlays is not None:
+                spec, self._queued_overlays = self._queued_overlays, None
+                self.page().runJavaScript(f"window.wavecut.overlays({spec})")
         elif kind == "click":
             self.point_clicked.emit(int(data["index"]))
         elif kind == "selected":

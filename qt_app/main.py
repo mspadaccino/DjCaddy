@@ -4,8 +4,8 @@
 
 Le tab sono le stesse sezioni, nello stesso ordine, del menu Streamlit; il
 lettore sta sotto di tutte, fuori dalle tab, che è come st.bottom lo tiene
-su ogni pagina. Per la Fase 2 la pagina Map è lo spike (vedi il suo modulo)
-e le altre tre sono segnaposto.
+su ogni pagina. La pagina Map è quella vera (Fase 3); le altre tre sono
+segnaposto fino alla Fase 4.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from PySide6 import QtWebEngineWidgets  # noqa: F401  (l'import È l'effetto)
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget,
                                QVBoxLayout, QWidget)
 
-from qt_app.pages.map_page import MapPage
+from qt_app.pages.map import MapPage
 from qt_app.pages.placeholder import placeholder
 from qt_app.state import AppState
 from qt_app.theme import apply_theme
@@ -47,7 +47,7 @@ class MainWindow(QMainWindow):
                          "📁 Folder analysis")
         self.map_page = MapPage(self.state)
         self.tabs.addTab(self.map_page, "🗺️ Map")
-        # L'unica pagina vera della Fase 2 è la mappa: si apre lì.
+        # L'unica pagina vera finora è la mappa: si apre lì.
         self.tabs.setCurrentWidget(self.map_page)
 
         self.player = PlayerDock(self.state)

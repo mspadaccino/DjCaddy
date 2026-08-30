@@ -260,6 +260,41 @@ Parità funzionale con la pagina Streamlit, spuntando una checklist 1:1:
   (finestra interna al posto di Terminal.app), guard di piattaforma per
   `caffeinate`/`osascript`.
 
+**Esito (30/08/2026): fatto.** Parità verificata sullo store reale (87.026
+brani) con uno smoke offscreen che ripercorre la checklist: 34/34 voci.
+Suite a 583 test verdi (13 nuovi). Come è stata costruita:
+
+- la nuvola viaggia al grafico una volta sola; ogni gesto aggiorna i soli
+  tracciati di contorno (`core.viz.map_figure.overlay_figure` +
+  `PlotlyView.set_overlays`, il JS li incolla in coda e `Plotly.react`
+  riconosce la base per identità). Un test dimostra che nuvola+contorni ≡
+  figura intera, tracciato per tracciato. `uirevision` fisso: zoom, pan e
+  generi spenti in legenda sopravvivono ai gesti — meglio di Streamlit, che
+  li azzera a ogni rerun;
+- misure alla mano (87k brani): `nearest` 60 ms, `store.similar` 130 ms,
+  rosa 60 ms — proposte e rose girano inline, niente pool; nel pool restano
+  il caricamento (0,8 s) e la riproiezione;
+- la pagina è il package `qt_app/pages/map/` (page, filters, set_builder,
+  playlist_panel, settings, library); la spunta in playlist comanda le tre
+  schede da un canale suo (`pl_selection`, anello arancio) e un clic sulla
+  mappa gliela toglie di mano — le regole dei commit recenti;
+- le funzioni pure che servivano a tutte e due le app sono scese in core
+  con re-export in `map_analysis` per i test: `sorted_after` →
+  `core.analysis.mixing`, `playlist_positions`/`_composed` →
+  `core.analysis.dj_export`, `matching_tracks` → `core.viz.filters`;
+- costruzione mappa nel dialogo Map settings: lancio `map_cli` identico a
+  Streamlit, QTimer da 2 s, pausa/riprendi (solo dove SIGSTOP esiste),
+  stop, log in finestra interna; riproiezione UMAP nel pool con le due
+  manopole. La pagina si ricarica da sé a job finito o quando l'impronta
+  dei file cambia (vale anche per un job partito da terminale);
+- scarti deliberati dalla lettera di Streamlit: le colonne di spunta
+  "Add"/"Drop" diventano selezione di righe nativa + bottone; "clic su
+  vuoto → deselezione" è il doppio clic (l'evento deselect di Plotly); il
+  riordino di playlist e catena è il trascinamento delle righe, non la
+  colonna "#" editabile; l'"Analyze N now" inline non è portato — il job
+  in background copre il flusso (eventualmente in Fase 4 col pattern dei
+  job di Tag).
+
 ### Fase 4 — Wave, Tag e Folder analysis
 
 - Wave: WaveformWidget nativo (peaks + marker frasi + hot cue, click-to-seek,
