@@ -69,12 +69,20 @@ def main() -> int:
     # Dentro lo schermo, sempre: il lettore compare in FONDO alla finestra,
     # e una finestra più alta dello schermo nasconde esattamente lui — si
     # vedeva solo a tutto schermo. 1500×940 resta il massimo, non la misura.
-    available = app.primaryScreen().availableGeometry()
+    #
+    # Il Dock a scomparsa è il caso subdolo: non toglie spazio alla
+    # geometria "disponibile", ma quando riappare passa SOPRA la finestra —
+    # cioè sopra il lettore. Se il sistema non ha già scontato una barra in
+    # basso (available e schermo finiscono alla stessa riga), il margine
+    # glielo lasciamo noi, e la finestra si appoggia in alto.
+    screen = app.primaryScreen()
+    available = screen.availableGeometry()
+    dock_gap = 88 if available.bottom() == screen.geometry().bottom() else 12
     wide = min(1500, available.width() - 24)
-    tall = min(940, available.height() - 24)
+    tall = min(940, available.height() - 12 - dock_gap)
     window.resize(wide, tall)
     window.move(available.x() + (available.width() - wide) // 2,
-                available.y() + (available.height() - tall) // 2)
+                available.y() + 12)
     window.show()
     return app.exec()
 
