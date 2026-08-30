@@ -126,19 +126,23 @@ def test_the_tick_no_longer_draws_a_ring():
     assert _ring(figure, "being picked") is None
 
 
-def test_playlist_tracks_get_a_green_ring():
+def test_playlist_tracks_are_marked_by_the_path_alone():
+    """Il segno della playlist e' il percorso — punti bianchi, linea,
+    numeri. L'anello verde marcava lo stesso identico insieme e non sapeva
+    dire l'ordine: tolto come doppione, appena la voce in legenda l'ha reso
+    visibile."""
     coords = np.column_stack([np.arange(4.0), np.zeros(4)])
     figure = build_figure(_drawn(), ["House"], coords, playlist=[0, 2],
                           seed=None)
-    ring = _ring(figure, "in the playlist")
-    assert list(ring.x) == [0.0, 2.0]
-    assert ring.marker.line.color == SKIN["light"]["kept"]
+    path = _ring(figure, "playlist")
+    assert list(path.x) == [0.0, 2.0]
+    assert _ring(figure, "in the playlist") is None
 
 
 def test_no_ring_when_there_is_nothing_to_ring():
     coords = np.column_stack([np.arange(4.0), np.zeros(4)])
     figure = build_figure(_drawn(), ["House"], coords, playlist=[], seed=None)
-    assert _ring(figure, "in the playlist") is None
+    assert _ring(figure, "playlist") is None
     assert _ring(figure, "selected") is None
 
 
@@ -153,12 +157,12 @@ def test_the_selected_group_gets_the_ink_ring():
     assert ring.marker.line.color == SKIN["light"]["ink"]
 
 
-def test_the_playlist_ring_does_not_need_a_selection():
+def test_the_playlist_path_does_not_need_a_selection():
     """Il principio di fondo: quello che è in playlist si vede sempre."""
     coords = np.column_stack([np.arange(4.0), np.zeros(4)])
     figure = build_figure(_drawn(), ["House"], coords, playlist=[1],
                           seed=None, selected=[])
-    assert list(_ring(figure, "in the playlist").x) == [1.0]
+    assert list(_ring(figure, "playlist").x) == [1.0]
     assert _ring(figure, "selected") is None
 
 
@@ -332,14 +336,15 @@ def test_an_empty_ring_promises_no_colour():
     assert "selected" not in names
 
 
-def test_the_playlist_names_both_of_its_signs():
-    """Percorso e anello vanno in legenda TUTTI E DUE: la voce del percorso
-    mostra una linea con punti bianchi, e dall'anello verde nessuno ci
-    risaliva — provato sul parallel run, la domanda e' arrivata. Ogni voce
-    deve somigliare al suo segno."""
+def test_the_playlist_has_one_sign_and_one_name():
+    """Il percorso — punti bianchi, linea, numeri — E' il segno della
+    playlist. L'anello verde marcava lo stesso identico insieme, e il
+    doppione e' saltato fuori appena ha avuto la sua voce in legenda (due
+    voci, un insieme solo): tolto l'anello, resta il segno che porta piu'
+    informazione, cioe' l'ordine."""
     names = _legend_of(playlist=[0, 1], seed=None)
     assert names.count("playlist") == 1
-    assert "in the playlist" in names
+    assert "in the playlist" not in names
 
 
 def test_the_seed_has_its_own_entry():
@@ -447,7 +452,8 @@ def test_no_two_rings_share_a_colour():
 
     for theme in ("light", "dark"):
         rings = [SKIN[theme][k] for k in
-                 ("chained", "kept", "ink", "mixes", "alike", "playing")]
+                 ("chained", "ink", "mixes", "alike", "playing",
+                  "pl_selection")]
         assert len(set(rings)) == len(rings), theme
 
 
@@ -487,8 +493,8 @@ def test_the_rings_follow_the_tracks_onto_the_new_axes():
     places = frame[["valence", "energy"]].to_numpy()
     figure = build_figure(frame, ["House"], places, playlist=[1], seed=3,
                           axes=("valence", "energy"), titles=("v", "e"))
-    kept = _ring(figure, "in the playlist")
-    assert list(kept.x) == [-0.2] and list(kept.y) == [0.9]
+    path = _ring(figure, "playlist")
+    assert list(path.x) == [-0.2] and list(path.y) == [0.9]
     seed = _ring(figure, "seed")
     assert list(seed.x) == [0.9] and list(seed.y) == [0.6]
 

@@ -167,14 +167,12 @@ SKIN = {
     "light": {"paper": "#ffffff", "plot": "#f4f6f9", "ink": "#1b1f27",
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
               "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
-              "kept": "#1f9d55",
               "chained": "#f2cc0c", "mixes": "#1f9dd0",
               "alike": "#8a4fd6", "playing": "#d92b2b",
               "pl_selection": "#ff8a1e"},
     "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
-             "kept": "#3ddc84",
              "chained": "#ffe94d", "mixes": "#5fd0f5",
              "alike": "#c08cff", "playing": "#ff5c5c",
              "pl_selection": "#ffb454"},
@@ -375,29 +373,30 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
     # spunta dura il tempo di premere il pulsante accanto, e per cerchiarla in
     # tempo la mappa avrebbe dovuto ridisegnare ottantamila punti a ogni
     # casella — mentre quello che la spunta diventerà, la catena o la
-    # playlist, il suo anello ce l'ha già.
+    # playlist, il suo segno ce l'ha già.
+    # E c'era un anello verde attorno a ogni brano in playlist. Tolto anche
+    # lui: marcava ESATTAMENTE l'insieme che il percorso qui sopra già marca
+    # — punti bianchi, linea, numeri — e due segni per lo stesso insieme non
+    # dicono di più, affollano. Il doppione è saltato fuori appena l'anello
+    # ha avuto la sua voce in legenda, nel parallel run: due voci, un
+    # insieme solo. È rimasto il segno che porta più informazione (l'ORDINE,
+    # che l'anello non sapeva dire).
     # sulla nuvola la differenza fra "l'ho preso", "lo sto guardando" e "sto
-    # lavorando su questi" è proprio quella che serve mentre si sceglie. Il
-    # verde non dipende da nessuna selezione: la playlist si vede sempre, che
-    # è il modo di sapere dove si è già stati.
+    # lavorando su questi" è proprio quella che serve mentre si sceglie.
     # Diametri diversi, e non per gusto: un brano può stare in due insiemi
-    # insieme — lo si è appena selezionato ED è già in playlist — e con lo
+    # insieme — appena selezionato E spuntato in playlist — e con lo
     # stesso diametro l'anello disegnato per ultimo coprirebbe l'altro
     # esattamente. Concentrici, si vedono tutti e due.
     # In legenda ci vanno TUTTI: senza, restano cerchi di colori diversi e
-    # nessun posto dove chiedere cosa vogliano dire. Valeva anche per
-    # l'anello verde della playlist, che per un po' è rimasto fuori perché
-    # il suo percorso era già in legenda come "playlist": ma la voce del
-    # percorso mostra una linea con punti bianchi, e nessuno ci risale al
-    # cerchio verde — provato sul parallel run, la domanda è arrivata.
-    # Due voci per lo stesso insieme, purché ognuna somigli al suo segno.
+    # nessun posto dove chiedere cosa vogliano dire.
     #
     # Compaiono solo quando ci sono davvero: una voce per un insieme vuoto
     # sarebbe una legenda che promette un colore introvabile sul disegno.
     for name, marks, color, size, listed in (
             # Il più stretto per primo, e non è l'ordine dell'elenco: un
-            # brano della catena è quasi sempre anche in playlist, e un
-            # anello dentro l'altro si vede mentre due sovrapposti no.
+            # anello dentro l'altro si vede mentre due sovrapposti no, e il
+            # brano in catena è quello che più spesso porta anche un altro
+            # segno addosso.
             ("in the chain", chained or [], skin["chained"], 11, True),
             # I due elenchi di proposte stanno FUORI da tutto: sono molti
             # punti, e un alone largo attorno al seme si legge come "guarda
@@ -405,7 +404,6 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             # che dicono cosa un brano E'.
             ("mixes out of it", mixes or [], skin["mixes"], 27, True),
             ("sounds like it", alike or [], skin["alike"], 31, True),
-            ("in the playlist", playlist, skin["kept"], 15, True),
             ("selected", selected or [], skin["ink"], 23, True),
             # Il colore suo, diverso da "selected": quello è la scelta fatta
             # SULLA mappa (lasso, riquadro), questo è la scelta fatta nella

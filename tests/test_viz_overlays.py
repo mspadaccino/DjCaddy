@@ -45,9 +45,12 @@ def test_overlays_carry_no_cloud():
     # Nessun tracciato porta customdata: niente brani cliccabili, solo segni.
     assert all(trace.customdata is None for trace in figure.data)
     names = {trace.name for trace in figure.data}
-    assert {"playlist", "in the playlist", "selected", "in the chain",
-            "mixes out of it", "sounds like it", "current PL selection",
-            "playing", "seed"} <= names
+    assert {"playlist", "selected", "in the chain", "mixes out of it",
+            "sounds like it", "current PL selection", "playing",
+            "seed"} <= names
+    # La playlist ha UN segno: il percorso. L'anello che marcava lo stesso
+    # insieme è stato tolto come doppione.
+    assert "in the playlist" not in names
 
 
 def test_seed_name_is_the_only_annotation():

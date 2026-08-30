@@ -443,33 +443,6 @@
    "marker": {
     "color": "rgba(0,0,0,0)",
     "line": {
-     "color": "#1f9d55",
-     "width": 2.5
-    },
-    "size": 15
-   },
-   "mode": "markers",
-   "name": "in the playlist",
-   "showlegend": true,
-   "x": [
-    0.0,
-    0.1739,
-    0.3478,
-    0.087
-   ],
-   "y": [
-    1.0,
-    0.8261,
-    0.6522,
-    0.913
-   ],
-   "type": "scattergl"
-  },
-  {
-   "hoverinfo": "skip",
-   "marker": {
-    "color": "rgba(0,0,0,0)",
-    "line": {
      "color": "#1b1f27",
      "width": 2.5
     },
