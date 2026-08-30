@@ -105,6 +105,23 @@ def test_genre_labels_can_be_switched_off():
     assert len(off.data) == len(lit.data)
 
 
+def test_colour_by_none_greys_the_whole_cloud():
+    """Il livello "none": nessuna chiave di genere, quindi nessun colore —
+    tutta la nuvola in un solo tracciato grigio, senza etichette, e in
+    legenda "tracks" invece di un "other" che non ha un principale."""
+    from core.viz.map_figure import GENRE_LEVELS, SKIN, genre_level
+
+    assert GENRE_LEVELS["none"] == "none"
+    assert genre_level("Electronic - House", "none") == ""
+
+    drawn = _cloud().assign(genre_key="")
+    figure = build_figure(drawn, [], COORDS, playlist=[], seed=None)
+    assert len(figure.data) == 1
+    assert figure.data[0].name == "tracks"
+    assert figure.data[0].marker.color == SKIN["light"]["other"]
+    assert not figure.layout.annotations
+
+
 def test_empty_cloud_never_grows():
     """EMPTY_CLOUD è condiviso: se qualcuno lo riempisse, ogni figura di
     contorni porterebbe punti fantasma."""

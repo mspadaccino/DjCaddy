@@ -39,11 +39,18 @@ COLORED_GENRES = 18
 # in un grigio indistinto; contro 15 padri, di cui i primi dodici coprono il
 # 99,98%. Restano offerti tutti e due perché rispondono a domande diverse:
 # il padre dice di che musica è fatta la serata, la foglia dice quale house.
-GENRE_LEVELS = {"macro genre": "parent", "genre": "leaf"}
+#
+# E c'è "none": nessuna chiave per nessuno, quindi nessun genere in
+# classifica e tutta la nuvola nel grigio sfumato dell'"altro" — la mappa
+# nuda, per quando i colori distraggono da quello che si sta cerchiando.
+GENRE_LEVELS = {"macro genre": "parent", "genre": "leaf", "none": "none"}
 
 
 def genre_level(genre: str, level: str) -> str:
-    """L'etichetta al livello scelto. Senza trattino i due coincidono."""
+    """L'etichetta al livello scelto. Senza trattino padre e foglia
+    coincidono; "none" non ne dà nessuna, ed è come tutto diventa grigio."""
+    if level == "none":
+        return ""
     text = str(genre or "")
     return text.split(" - ")[0] if level == "parent" else text
 
@@ -309,7 +316,11 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
         if not len(part):
             continue
         figure.add_trace(go.Scattergl(
-            x=part[xcol], y=part[ycol], mode="markers", name=genre[:28],
+            x=part[xcol], y=part[ycol], mode="markers",
+            # Quando i colori sono spenti "other" sarebbe una bugia in
+            # legenda: non c'è un "principale" da cui distinguersi.
+            name=("tracks" if genre == "other" and not top_genres
+                  else genre[:28]),
             customdata=part[["index", "name", "bpm", "camelot", "genres"]].to_numpy(),
             marker={
                 "size": part["_size"], "opacity": 0.85,

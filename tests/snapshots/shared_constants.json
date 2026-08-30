@@ -418,7 +418,8 @@
  ],
  "GENRE_LEVELS": {
   "macro genre": "parent",
-  "genre": "leaf"
+  "genre": "leaf",
+  "none": "none"
  },
  "MAX_POINTS": 120000,
  "COLORED_GENRES": 18,
