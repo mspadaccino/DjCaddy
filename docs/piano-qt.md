@@ -224,6 +224,28 @@ produrre JSON identici. Più `pytest` verde e confronto visivo su Streamlit.
   selezionati e il doppio clic su una riga di tabella suona il brano;
   pytest-qt su PandasModel e delegate.
 
+**Esito (30/08/2026): GO.** Misurato sullo store reale (87.026 brani, tutto
+in `qt_app/`, si lancia con `poetry run python -m qt_app.main`):
+
+- primo disegno: 0,6 s di `Plotly.react`; aggiornamento con gli anelli di
+  selezione: 0,2 s. La parte cara è ricostruire figura+JSON in Python a ogni
+  gesto (~1,4 s a mappa piena, ~15 MB): per la Fase 3 conviene aggiornare i
+  soli tracciati di contorno (seme, anelli, percorso) invece di rimandare
+  tutta la nuvola. Pan/zoom/lasso da provare a mano, ma il motore è lo
+  stesso del browser di oggi;
+- lo shim della lavagna è stato provato **col frontend vero** (rischio
+  chiuso): payload accettato e impaginato, `setComponentValue` torna come
+  segnale Qt. Unica cura: gli args del componente sono il payload PIÙ
+  `selected`/`chapters`/`dark`, e il fondo pagina va detto a QWebEnginePage
+  (`setBackgroundColor`), perché qui il widget può essere più alto del
+  disegno;
+- il dock suona mp3 veri dal volume, onda a 800 barre da
+  `core.analysis.waveform.envelope` (estratto apposta: stessi peaks per i
+  due dock), click-to-seek verificato (60 s chiesti → 60,7 s);
+- `plotly.min.js` si carica dal pacchetto Python via `baseUrl` file:// con
+  `LocalContentCanAccessFileUrls` — niente copie, e nel bundle il pacchetto
+  c'è comunque.
+
 ### Fase 3 — Pagina Map completa
 
 Parità funzionale con la pagina Streamlit, spuntando una checklist 1:1:

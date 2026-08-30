@@ -33,6 +33,7 @@ pyside6 = { version = "^6.11", python = ">=3.11,<3.15" }
 # (da qui allow-prereleases: un vincolo tipo ">=2.1b6" non la troverebbe).
 # Se un domani manca la wheel per il Python in uso, `poetry install --without
 # essentia` tiene in piedi Wave analysis e Folder analysis, che non la usano.
+pytest-qt = "^4.5.0"
 [tool.poetry.group.essentia.dependencies]
 essentia-tensorflow = { version = "*", allow-prereleases = true }
 

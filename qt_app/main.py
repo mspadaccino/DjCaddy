@@ -1,0 +1,75 @@
+"""Entry point dell'app Qt: la finestra, le quattro tab, il lettore.
+
+    poetry run python -m qt_app.main
+
+Le tab sono le stesse sezioni, nello stesso ordine, del menu Streamlit; il
+lettore sta sotto di tutte, fuori dalle tab, che è come st.bottom lo tiene
+su ogni pagina. Per la Fase 2 la pagina Map è lo spike (vedi il suo modulo)
+e le altre tre sono segnaposto.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Lanciato come script (`python qt_app/main.py`) sul path c'è solo qt_app/:
+# senza la radice non si importano né `core` né `qt_app` stesso. Con `-m`
+# non serve, ma non disturba.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Prima di creare la QApplication, non dopo: Chromium esige che il contesto
+# OpenGL condiviso sia deciso all'avvio, e l'import è quello che lo decide.
+from PySide6 import QtWebEngineWidgets  # noqa: F401  (l'import È l'effetto)
+from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget,
+                               QVBoxLayout, QWidget)
+
+from qt_app.pages.map_page import MapPage
+from qt_app.pages.placeholder import placeholder
+from qt_app.state import AppState
+from qt_app.theme import apply_theme
+from qt_app.widgets.player_dock import PlayerDock
+
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Wavecut")
+        self.state = AppState(self)
+
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.addTab(placeholder("Wave analysis", "Fase 4"),
+                         "🌊 Wave analysis")
+        self.tabs.addTab(placeholder("Tag analysis", "Fase 4"),
+                         "🏷️ Tag analysis")
+        self.tabs.addTab(placeholder("Folder analysis", "Fase 4"),
+                         "📁 Folder analysis")
+        self.map_page = MapPage(self.state)
+        self.tabs.addTab(self.map_page, "🗺️ Map")
+        # L'unica pagina vera della Fase 2 è la mappa: si apre lì.
+        self.tabs.setCurrentWidget(self.map_page)
+
+        self.player = PlayerDock(self.state)
+
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
+        layout.addWidget(self.tabs, stretch=1)
+        layout.addWidget(self.player)
+        self.setCentralWidget(central)
+
+
+def main() -> int:
+    QApplication.setApplicationName("Wavecut")
+    app = QApplication(sys.argv)
+    apply_theme(app)
+    window = MainWindow()
+    window.resize(1500, 940)
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

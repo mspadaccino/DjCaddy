@@ -1,0 +1,153 @@
+"""PandasModel e delegate della TrackTable: il contratto della Fase 2.
+
+Girano solo con il gruppo `qt` installato: senza PySide6 (o senza
+pytest-qt) si saltano, perché la CI del profilo Streamlit non deve
+pretendere Qt. Offscreen, così la suite non fa lampeggiare finestre.
+"""
+
+import os
+
+import pytest
+
+pytest.importorskip("PySide6", reason="gruppo poetry `qt` non installato")
+pytest.importorskip("pytestqt", reason="gruppo poetry `qt` non installato")
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pandas as pd
+from PySide6.QtCore import QModelIndex, Qt
+
+from core.viz.track_columns import (ENERGY_COLORS, EMOTION_COLORS,
+                                    GROOVE_COLORS, KEY_COLORS, energy_level)
+from qt_app.widgets.track_table import (PILLS_ROLE, PandasModel, PillDelegate,
+                                        TrackTable, pill_color, track_frame)
+
+
+def library() -> pd.DataFrame:
+    """Tre brani con le colonne che `core.viz.reading` legge."""
+    return pd.DataFrame([
+        {"name": "one.mp3", "bpm": 124.0, "camelot": "8A", "energy": 0.65,
+         "danceability": 0.61, "valence_rank": 0.9,
+         "moods": "happy; summer", "genres": "Electronic - House",
+         "folder": "/x", "path": "/x/one.mp3"},
+        {"name": "two.mp3", "bpm": 98.0, "camelot": "3B", "energy": 0.10,
+         "danceability": 0.30, "valence_rank": 0.2,
+         "moods": "dark", "genres": "Electronic - Techno; Electronic - Dub",
+         "folder": "/x", "path": "/x/two.mp3"},
+        {"name": "three.mp3", "bpm": None, "camelot": None, "energy": None,
+         "danceability": None, "valence_rank": None,
+         "moods": "", "genres": "", "folder": "/y", "path": "/y/three.mp3"},
+    ])
+
+
+def shown() -> pd.DataFrame:
+    return track_frame(library(), common={})
+
+
+# --- il modello ---
+
+def test_model_hides_underscore_columns():
+    model = PandasModel(shown())
+    names = [model.headerData(c, Qt.Orientation.Horizontal)
+             for c in range(model.columnCount())]
+    assert "_path" not in names
+    assert "file" in names and "key" in names
+    assert model.rowCount() == 3
+
+
+def test_model_formats_display_values():
+    model = PandasModel(shown())
+    names = [model.headerData(c, Qt.Orientation.Horizontal)
+             for c in range(model.columnCount())]
+    bpm, genres = names.index("BPM"), names.index("genres")
+    # Il BPM intero senza il ".0" che pandas appiccica ai float con NaN.
+    assert model.data(model.index(0, bpm)) == "124"
+    assert model.data(model.index(2, bpm)) == ""
+    # Le liste si leggono unite nel testo piano, intere nel ruolo pastiglie.
+    assert model.data(model.index(1, genres)) == \
+        "Electronic - Techno; Electronic - Dub"
+    assert model.data(model.index(1, genres), PILLS_ROLE) == \
+        ["Electronic - Techno", "Electronic - Dub"]
+
+
+def test_model_sorts_numbers_with_missing_last():
+    model = PandasModel(shown())
+    names = [model.headerData(c, Qt.Orientation.Horizontal)
+             for c in range(model.columnCount())]
+    bpm = names.index("BPM")
+    model.sort(bpm, Qt.SortOrder.AscendingOrder)
+    files = list(model.frame["file"])
+    assert files[:2] == ["two.mp3", "one.mp3"]   # 98 prima di 124
+    assert files[2] == "three.mp3"               # senza BPM in fondo
+
+
+def test_model_reorders_rows_on_drop():
+    model = PandasModel(shown(), reorderable=True)
+    heard = []
+    model.order_changed.connect(heard.append)
+
+    data = model.mimeData([model.index(2, 0)])
+    # In testa: riga 2 lasciata cadere prima della riga 0. False a ragion
+    # veduta — il modello ha già spostato, la vista non deve rimuovere.
+    assert model.dropMimeData(data, Qt.DropAction.MoveAction,
+                              0, 0, QModelIndex()) is False
+    assert list(model.frame["file"]) == ["three.mp3", "one.mp3", "two.mp3"]
+    assert heard == [["/y/three.mp3", "/x/one.mp3", "/x/two.mp3"]]
+
+
+def test_model_flags_gate_the_drag():
+    still = PandasModel(shown())
+    assert not still.flags(still.index(0, 0)) & Qt.ItemFlag.ItemIsDragEnabled
+    moving = PandasModel(shown(), reorderable=True)
+    assert moving.flags(moving.index(0, 0)) & Qt.ItemFlag.ItemIsDragEnabled
+    # Si lascia cadere FRA le righe (indice invalido), non sopra una riga.
+    assert moving.flags(QModelIndex()) & Qt.ItemFlag.ItemIsDropEnabled
+    assert not moving.flags(moving.index(0, 0)) & Qt.ItemFlag.ItemIsDropEnabled
+
+
+# --- i colori delle pastiglie: le stesse scale di core/viz ---
+
+def test_pill_colors_come_from_core_viz():
+    assert pill_color("key", "8A") == KEY_COLORS["8A"]
+    assert pill_color("energy", "7") == ENERGY_COLORS[6]
+    assert pill_color("groove", "0.61") == GROOVE_COLORS[61]
+    assert pill_color("emotion", "↑") == EMOTION_COLORS[0]
+    assert pill_color("genres", "House", {"House": "#e0503b"}) == "#e0503b"
+
+
+def test_pill_colors_stay_neutral_off_scale():
+    assert pill_color("key", "13A") is None
+    assert pill_color("energy", "0") is None
+    assert pill_color("energy", "boh") is None
+    assert pill_color("groove", "1.50") is None
+    assert pill_color("genres", "House", {}) is None
+
+
+def test_energy_pill_matches_core_reading():
+    # La pastiglia in tabella scrive quello che `core.viz` scrive ovunque.
+    table = shown()
+    assert table["energy"].iloc[0] == [energy_level(0.65)]
+
+
+# --- il delegate ---
+
+def test_delegate_reads_cell_values(qtbot):
+    table = TrackTable()
+    qtbot.addWidget(table)
+    table.set_tracks(shown(), {})
+    model = table.model_
+    names = [model.headerData(c, Qt.Orientation.Horizontal)
+             for c in range(model.columnCount())]
+    key = names.index("key")
+    assert isinstance(table.itemDelegateForColumn(key), PillDelegate)
+    assert PillDelegate._values(model.index(0, key)) == ["8A"]
+    assert PillDelegate._values(model.index(2, key)) == []
+
+
+def test_double_click_names_the_track(qtbot):
+    table = TrackTable()
+    qtbot.addWidget(table)
+    table.set_tracks(shown(), {})
+    with qtbot.waitSignal(table.row_activated) as heard:
+        table._on_double_click(table.model_.index(1, 0))
+    assert heard.args == ["/x/two.mp3"]

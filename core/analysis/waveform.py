@@ -11,10 +11,51 @@ delega la parte numerica pura a helper testabili senza audio.
 
 from __future__ import annotations
 
+import subprocess
+
 import numpy as np
 
 LOW_HZ = 200.0
 HIGH_HZ = 2000.0
+
+# Quante colonne disegna l'onda del lettore, e a che frequenza si legge
+# l'audio per ricavarla. Mille campioni al secondo sono un millesimo di
+# quelli veri e bastano per il PROFILO: quello che si guarda nel dock e'
+# dove il brano sale e dove stacca, non la forma della singola oscillazione.
+ENVELOPE_POINTS = 800
+ENVELOPE_RATE = 1000
+
+
+def envelope(path: str) -> tuple[list[float], float] | None:
+    """Il profilo di ampiezza del brano — (peaks 0..1, durata in secondi) —
+    o None se non si riesce a leggerlo.
+
+    E' l'onda del lettore in fondo alla pagina, e sta in core perche' i
+    lettori sono DUE — il dock di Streamlit e quello dell'app Qt — e il
+    criterio di parita' e' proprio "stesso brano, stessa forma d'onda":
+    condividere il conto la garantisce per costruzione.
+
+    Decodifica con ffmpeg e non con librosa: misurato sullo stesso brano da
+    17 MB, 0,37 s contro 1,31 s, e ffprobe e' gia' quello che usa il
+    controllo di integrita'. Se ffmpeg manca o il file e' illeggibile si
+    torna None: sopra si ricade su un lettore senza onda, perche' l'onda e'
+    un di piu' e non deve poter impedire l'ascolto.
+    """
+    try:
+        raw = subprocess.run(
+            ["ffmpeg", "-v", "quiet", "-i", path, "-ac", "1",
+             "-ar", str(ENVELOPE_RATE), "-f", "s16le", "-"],
+            capture_output=True, timeout=120).stdout
+    except Exception:
+        return None
+
+    samples = np.frombuffer(raw, dtype="<i2")
+    if samples.size < ENVELOPE_POINTS:
+        return None
+    usable = samples.size - samples.size % ENVELOPE_POINTS
+    peaks = np.abs(samples[:usable].reshape(ENVELOPE_POINTS, -1)).max(axis=1)
+    loudest = peaks.max() or 1
+    return (peaks / loudest).round(3).tolist(), samples.size / ENVELOPE_RATE
 
 _N_FFT = 2048
 _HOP = 512

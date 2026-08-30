@@ -11,9 +11,10 @@ import inspect
 import subprocess
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import streamlit as st
+
+from core.analysis import waveform
 
 NOW_PLAYING = "components::now_playing"
 
@@ -346,13 +347,6 @@ def tick_all(base: str, into=None, default: bool = True) -> tuple[bool, str]:
     return st.session_state.get(tick_key, default), f"{base}::{fresh}"
 
 
-# Quante colonne disegna l'onda, e a che frequenza si legge l'audio per
-# ricavarla. Mille campioni al secondo sono un millesimo di quelli veri e
-# bastano per il PROFILO: quello che si guarda qui e' dove il brano sale e
-# dove stacca, non la forma della singola oscillazione.
-WAVE_POINTS = 800
-WAVE_RATE = 1000
-
 _PLAYER_HTML = """
 <div class="wp">
   <button class="pp" type="button" aria-label="Play or pause">&#9654;</button>
@@ -516,30 +510,12 @@ _wave_player = st.components.v2.component(
 def _envelope(path: str, mtime: float, size: int):
     """Il profilo di ampiezza del brano, o None se non si riesce a leggerlo.
 
-    Decodifica con ffmpeg e non con librosa: misurato sullo stesso brano da
-    17 MB, 0,37 s contro 1,31 s, e ffprobe e' gia' quello che usa il
-    controllo di integrita'. `mtime` e `size` non si usano nel corpo — sono
-    li' per la cache, che cosi' rilegge il file se cambia.
-
-    Se ffmpeg manca o il file e' illeggibile si torna None: sopra si ricade
-    sul lettore normale, perche' l'onda e' un di piu' e non deve poter
-    impedire l'ascolto.
+    Il conto sta in `core.analysis.waveform.envelope`, perche' i lettori
+    sono due — questo e quello dell'app Qt — e devono disegnare la stessa
+    onda. Qui resta solo la cache: `mtime` e `size` non si usano nel corpo,
+    sono li' perche' la cache rilegga il file se cambia.
     """
-    try:
-        raw = subprocess.run(
-            ["ffmpeg", "-v", "quiet", "-i", path, "-ac", "1",
-             "-ar", str(WAVE_RATE), "-f", "s16le", "-"],
-            capture_output=True, timeout=120).stdout
-    except Exception:
-        return None
-
-    samples = np.frombuffer(raw, dtype="<i2")
-    if samples.size < WAVE_POINTS:
-        return None
-    usable = samples.size - samples.size % WAVE_POINTS
-    peaks = np.abs(samples[:usable].reshape(WAVE_POINTS, -1)).max(axis=1)
-    loudest = peaks.max() or 1
-    return (peaks / loudest).round(3).tolist(), samples.size / WAVE_RATE
+    return waveform.envelope(path)
 
 
 def _media_url(track: Path, mime: str) -> str | None:
