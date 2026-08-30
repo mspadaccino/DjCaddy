@@ -41,11 +41,11 @@ from pathlib import Path
 
 import numpy as np
 
-from analysis import energy, mood_scale
-from analysis.essentia_tags import MODEL_DIR, MOOD_METADATA, MOOD_MODEL, _labels, format_mood_tag
-from analysis.map_job import awake
-from analysis.map_profile import MOOD_FIELDS, ProfileSettings, mood_numbers, select_labels
-from analysis.map_store import MapStore, default_store_dir
+from core.analysis import energy, mood_scale
+from core.analysis.essentia_tags import MODEL_DIR, MOOD_METADATA, MOOD_MODEL, _labels, format_mood_tag
+from core.analysis.map_job import awake
+from core.analysis.map_profile import MOOD_FIELDS, ProfileSettings, mood_numbers, select_labels
+from core.analysis.map_store import MapStore, default_store_dir
 
 # Quante righe per volta entrano nella testa. Il modello lavora a lotti, e
 # ottantasettemila vettori da 1280 float in una volta sola sono quattrocento

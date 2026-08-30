@@ -1,5 +1,5 @@
-from analysis.models import Section
-from analysis.sections import _merge_consecutive
+from core.analysis.models import Section
+from core.analysis.sections import _merge_consecutive
 
 
 def _labels(sections):

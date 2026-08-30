@@ -1,8 +1,8 @@
 import numpy as np
 
-from analysis.models import Section
-from analysis.sections import annotate_vocals
-from analysis.vocals import vocal_regions
+from core.analysis.models import Section
+from core.analysis.sections import annotate_vocals
+from core.analysis.vocals import vocal_regions
 
 
 def _envelope():

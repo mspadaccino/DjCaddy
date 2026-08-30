@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from analysis.duplicates import (
+from core.analysis.duplicates import (
     LEVEL_OTHER_FOLDER,
     LEVEL_SAME_FOLDER,
     LEVEL_SIMILAR_NAME,
@@ -17,7 +17,7 @@ from analysis.duplicates import (
     normalized_name,
     write_csv,
 )
-from analysis.folder_scan import format_of, human_size, scan_folder
+from core.analysis.folder_scan import format_of, human_size, scan_folder
 
 
 def _write(path, content=b"audio"):
@@ -326,7 +326,7 @@ def test_quarantine_plan_takes_only_the_selected_paths(tmp_path):
 def test_appledouble_files_are_not_audio(tmp_path):
     """Su exFAT il Finder affianca a ogni brano un "._<nome>" da 4 KB con gli
     attributi estesi. Ha l'estensione del brano ma non e' audio."""
-    from analysis.folder_scan import APPLEDOUBLE, format_of
+    from core.analysis.folder_scan import APPLEDOUBLE, format_of
 
     assert format_of(tmp_path / "._Track.mp3") == APPLEDOUBLE
     assert format_of(tmp_path / "Track.mp3") == "MP3"
@@ -364,7 +364,7 @@ APPLEDOUBLE = b"\x00\x05\x16\x07" + b"Mac OS X" + b"\x00" * 100
 
 def test_find_sidecars_confirms_by_content_not_by_name(tmp_path):
     """Il nome da solo non basta a cancellare: si guarda dentro."""
-    from analysis.folder_scan import find_sidecars
+    from core.analysis.folder_scan import find_sidecars
 
     _write(tmp_path / "._Track.mp3", APPLEDOUBLE)
     _write(tmp_path / "._Impostore.mp3", b"ID3\x04 sono un mp3 vero")
@@ -379,7 +379,7 @@ def test_find_sidecars_confirms_by_content_not_by_name(tmp_path):
 def test_find_sidecars_includes_folder_sidecars(tmp_path):
     """macOS ne crea anche per le cartelle: stessa spazzatura, niente
     estensione."""
-    from analysis.folder_scan import find_sidecars
+    from core.analysis.folder_scan import find_sidecars
 
     _write(tmp_path / "._FLASHBACK", APPLEDOUBLE)
     _write(tmp_path / "sub" / "._Track.flac", APPLEDOUBLE)
@@ -387,7 +387,7 @@ def test_find_sidecars_includes_folder_sidecars(tmp_path):
 
 
 def test_delete_sidecars_removes_only_confirmed_ones(tmp_path):
-    from analysis.folder_scan import delete_sidecars
+    from core.analysis.folder_scan import delete_sidecars
 
     good = _write(tmp_path / "._Track.mp3", APPLEDOUBLE)
     impostor = _write(tmp_path / "._Impostore.mp3", b"ID3\x04 vero mp3")
@@ -400,7 +400,7 @@ def test_delete_sidecars_removes_only_confirmed_ones(tmp_path):
 
 
 def test_delete_sidecars_dry_run_touches_nothing(tmp_path):
-    from analysis.folder_scan import delete_sidecars
+    from core.analysis.folder_scan import delete_sidecars
 
     target = _write(tmp_path / "._Track.mp3", APPLEDOUBLE)
     removed, freed, errors = delete_sidecars([target])       # dry_run di default
@@ -409,7 +409,7 @@ def test_delete_sidecars_dry_run_touches_nothing(tmp_path):
 
 
 def test_delete_sidecars_never_touches_the_real_track(tmp_path):
-    from analysis.folder_scan import delete_sidecars, find_sidecars
+    from core.analysis.folder_scan import delete_sidecars, find_sidecars
 
     real = _write(tmp_path / "Track.mp3", b"ID3\x04 brano vero")
     _write(tmp_path / "._Track.mp3", APPLEDOUBLE)
@@ -422,7 +422,7 @@ def test_delete_sidecars_never_touches_the_real_track(tmp_path):
 # --- file audio illeggibili -------------------------------------------------
 
 def test_check_readable_catches_the_obvious_junk(tmp_path):
-    from analysis.folder_scan import check_readable
+    from core.analysis.folder_scan import check_readable
 
     assert check_readable(_write(tmp_path / "vuoto.mp3", b"")) == "file vuoto"
     assert "intestazione" in check_readable(
@@ -435,7 +435,7 @@ def test_check_readable_shallow_can_miss_a_broken_stream(tmp_path, monkeypatch):
     """Il limite da conoscere: intestazione valida e stream rotto passa il
     controllo superficiale. Misurato su un brano reale, dove mutagen legge
     219 secondi di durata e il decoder si rifiuta di aprirlo."""
-    import analysis.folder_scan as fs
+    import core.analysis.folder_scan as fs
 
     target = _write(tmp_path / "sano_in_apparenza.mp3", b"x")
     monkeypatch.setattr(fs, "_decoder_error", lambda p, **k: "Invalid data found")
@@ -449,7 +449,7 @@ def test_check_readable_shallow_can_miss_a_broken_stream(tmp_path, monkeypatch):
 def test_check_integrity_separates_bad_from_missing(tmp_path):
     """Rotto e sparito richiedono rimedi diversi — riscaricare, oppure
     niente — quindi non vanno mescolati."""
-    from analysis.folder_scan import check_integrity
+    from core.analysis.folder_scan import check_integrity
 
     bad = _write(tmp_path / "vuoto.mp3", b"")
     gone = tmp_path / "sparito.mp3"
@@ -468,7 +468,7 @@ def test_check_integrity_separates_bad_from_missing(tmp_path):
 )
 def test_check_integrity_passes_a_real_track(tmp_path):
     """Nessun falso positivo su un brano vero: il decoder viene sempre interpellato."""
-    from analysis.folder_scan import check_integrity
+    from core.analysis.folder_scan import check_integrity
 
     src = next((Path(__file__).resolve().parent.parent / "test_mp3").glob("*.mp3"))
     report = check_integrity([src])
@@ -478,7 +478,7 @@ def test_check_integrity_passes_a_real_track(tmp_path):
 def test_decoder_error_stays_silent_without_ffprobe(tmp_path, monkeypatch):
     """Senza ffprobe non si può dire nulla: meglio tacere che accusare un
     file di essere rotto."""
-    import analysis.folder_scan as fs
+    import core.analysis.folder_scan as fs
 
     def _boom(*a, **k):
         raise FileNotFoundError("ffprobe")
@@ -538,7 +538,7 @@ def test_verify_audio_can_be_turned_off(tmp_path):
 def test_scan_skips_the_quarantine_folder(tmp_path):
     """Sta dentro la libreria: senza escluderla, la seconda analisi ritrova
     quello che la prima aveva gia' messo da parte."""
-    from analysis.folder_scan import QUARANTINE_DIRNAME, scan_folder
+    from core.analysis.folder_scan import QUARANTINE_DIRNAME, scan_folder
 
     _write(tmp_path / "Track.mp3", b"brano")
     _write(tmp_path / QUARANTINE_DIRNAME / "library" / "Vecchio.mp3", b"gia' spostato")
@@ -550,7 +550,7 @@ def test_scan_skips_the_quarantine_folder(tmp_path):
 
 def test_quarantined_duplicates_are_not_found_again(tmp_path):
     """Scenario reale: prima pulizia fatta, seconda analisi lanciata."""
-    from analysis.folder_scan import QUARANTINE_DIRNAME
+    from core.analysis.folder_scan import QUARANTINE_DIRNAME
 
     _write(tmp_path / "DANCE RETRO" / "Track.mp3", b"stesso contenuto")
     _write(tmp_path / QUARANTINE_DIRNAME / "DANCE RETRO" / "Track (1).mp3",
@@ -565,7 +565,7 @@ def test_quarantined_duplicates_are_not_found_again(tmp_path):
 def test_human_duration_always_shows_hours():
     """Le ore ci sono sempre: la colonna è testo e viene ordinata
     alfabeticamente, quindi "15:00" finirebbe dopo "1:10:57"."""
-    from analysis.folder_scan import human_duration
+    from core.analysis.folder_scan import human_duration
 
     assert human_duration(95) == "00:01:35"
     assert human_duration(20 * 60) == "00:20:00"
@@ -574,7 +574,7 @@ def test_human_duration_always_shows_hours():
 
 def test_human_duration_sorts_alphabetically_as_it_does_in_time():
     """La proprietà che serve davvero alla tabella."""
-    from analysis.folder_scan import human_duration
+    from core.analysis.folder_scan import human_duration
 
     seconds = [180, 900, 4257, 1500, 6300, 36000, 32400]
     formatted = [human_duration(s) for s in seconds]
@@ -582,7 +582,7 @@ def test_human_duration_sorts_alphabetically_as_it_does_in_time():
 
 
 def test_longer_than_filters_and_sorts(tmp_path):
-    from analysis.folder_scan import DurationReport, TrackDuration
+    from core.analysis.folder_scan import DurationReport, TrackDuration
 
     report = DurationReport(tracks=[
         TrackDuration(tmp_path / "corto.mp3", 1, 180),
@@ -598,7 +598,7 @@ def test_longer_than_filters_and_sorts(tmp_path):
 def test_read_durations_keeps_unknown_apart(tmp_path, monkeypatch):
     """Una durata non leggibile non deve diventare zero: sparirebbe da ogni
     filtro "più lungo di", proprio mentre si propone di spostare dei file."""
-    import analysis.folder_scan as fs
+    import core.analysis.folder_scan as fs
 
     good = _write(tmp_path / "ok.mp3", b"x")
     bad = _write(tmp_path / "muto.mp3", b"y")
@@ -628,7 +628,7 @@ def test_scanned_items_are_resolved_by_attribute_not_by_class(tmp_path):
     rimasti in sessione portano la classe VECCHIA, e `isinstance` contro
     quella nuova risponde False. Si guarda l'attributo, non il tipo."""
     from dataclasses import dataclass
-    from analysis.folder_scan import check_integrity, read_durations
+    from core.analysis.folder_scan import check_integrity, read_durations
 
     @dataclass
     class ScannedFileFromAnOlderImport:      # stesso ruolo, classe diversa
@@ -647,7 +647,7 @@ def test_scanned_items_are_resolved_by_attribute_not_by_class(tmp_path):
 
 
 def test_scanned_items_also_accept_plain_paths_and_strings(tmp_path):
-    from analysis.folder_scan import check_integrity
+    from core.analysis.folder_scan import check_integrity
 
     target = _write(tmp_path / "vuoto.mp3", b"")
     assert check_integrity([target]).checked == 1
@@ -658,7 +658,7 @@ def test_scanned_items_also_accept_plain_paths_and_strings(tmp_path):
 
 def test_default_keywords_catch_mixes_and_spare_extended_versions():
     """I casi veri presi dalla libreria: i mix passano, gli extended no."""
-    from analysis.mix_names import DEFAULT_KEYWORDS, matching_words
+    from core.analysis.mix_names import DEFAULT_KEYWORDS, matching_words
 
     caught = [
         "The Outhere Brothers - The Outhere Brothers Megamix (Revibes).wav",
@@ -682,7 +682,7 @@ def test_default_keywords_catch_mixes_and_spare_extended_versions():
 
 
 def test_keyword_matching_ignores_case_and_parses_the_box():
-    from analysis.mix_names import matching_words, parse_keywords
+    from core.analysis.mix_names import matching_words, parse_keywords
 
     assert parse_keywords(" Megamix , medley ,, ") == ["megamix", "medley"]
     assert matching_words("X - MEGAMIX.mp3", ["megamix"]) == ["megamix"]
@@ -696,7 +696,7 @@ def test_mixed_by_does_not_swallow_remixed_by():
     sono 138 file nella libreria, tutti da tenere, e come sottostringa
     finivano fra i mix da spostare.
     """
-    from analysis.mix_names import DEFAULT_KEYWORDS, matching_words
+    from core.analysis.mix_names import DEFAULT_KEYWORDS, matching_words
 
     remix = "Barry White - Everything (DMC RKL Remix) (Remixed By Rod Layman).mp3"
     megamix = "Duke Dumont - Duke Dumont Megamix (Mixed By Kevin Sweeney).mp3"
@@ -706,7 +706,7 @@ def test_mixed_by_does_not_swallow_remixed_by():
 
 
 def test_two_vs_mean_a_mashup_but_one_does_not():
-    from analysis.mix_names import looks_like_a_mashup
+    from core.analysis.mix_names import looks_like_a_mashup
 
     assert looks_like_a_mashup(
         "david guetta vs. alice deejay - play hard vs. better off alone.mp3")
@@ -717,7 +717,7 @@ def test_two_vs_mean_a_mashup_but_one_does_not():
 
 
 def test_duration_band_includes_the_top_but_not_the_bottom():
-    from analysis.folder_scan import DurationReport, TrackDuration
+    from core.analysis.folder_scan import DurationReport, TrackDuration
 
     t = lambda name, mins: TrackDuration(path=Path(name), size=0, seconds=mins * 60)
     report = DurationReport(tracks=[
@@ -743,7 +743,7 @@ def test_a_band_starting_at_zero_reaches_the_short_files():
     """
     from pathlib import Path
 
-    from analysis.folder_scan import DurationReport, TrackDuration
+    from core.analysis.folder_scan import DurationReport, TrackDuration
 
     r = DurationReport(tracks=[
         TrackDuration(Path("/frammento.mp3"), seconds=12, size=100),
@@ -768,7 +768,7 @@ def test_an_unreadable_folder_is_not_reported_as_clean(tmp_path):
     successo davvero: una ricerca lanciata mentre il disco era bloccato ha
     risposto "nessun sidecar" su una cartella che ne conteneva 29.522.
     """
-    from analysis.folder_scan import find_sidecars
+    from core.analysis.folder_scan import find_sidecars
 
     vuota = find_sidecars(tmp_path)
     assert vuota.looked_properly and not vuota.confirmed
@@ -779,7 +779,7 @@ def test_an_unreadable_folder_is_not_reported_as_clean(tmp_path):
 
 
 def test_a_real_sidecar_is_confirmed_by_its_content(tmp_path):
-    from analysis.folder_scan import APPLEDOUBLE_MAGIC, find_sidecars
+    from core.analysis.folder_scan import APPLEDOUBLE_MAGIC, find_sidecars
 
     (tmp_path / "brano.mp3").write_bytes(b"finto audio")
     (tmp_path / "._brano.mp3").write_bytes(APPLEDOUBLE_MAGIC + b"\x00" * 60)
@@ -800,7 +800,7 @@ def test_selection_rows_keep_the_order_they_are_given():
     """
     import pandas as pd
 
-    from views.map_analysis import selection_rows
+    from streamlit_app.views.map_analysis import selection_rows
 
     frame = pd.DataFrame([
         {"name": "A.mp3", "bpm": 124, "camelot": "8A", "danceability": 0.9,
@@ -828,7 +828,7 @@ def test_selection_rows_keep_the_order_they_are_given():
 
 
 def test_song_key_ignores_the_track_number_and_what_is_in_brackets():
-    from analysis.duplicates import song_key
+    from core.analysis.duplicates import song_key
     same = {song_key(Path(n)) for n in [
         "07 New Order - Ruined In A Day.mp3",
         "04 - New Order - Ruined In A Day.mp3",
@@ -837,7 +837,7 @@ def test_song_key_ignores_the_track_number_and_what_is_in_brackets():
 
 
 def test_song_key_still_tells_two_different_songs_apart():
-    from analysis.duplicates import song_key
+    from core.analysis.duplicates import song_key
     assert song_key(Path("New Order - Blue Monday.mp3")) \
         != song_key(Path("New Order - True Faith.mp3"))
 
@@ -845,7 +845,7 @@ def test_song_key_still_tells_two_different_songs_apart():
 def test_song_key_falls_back_when_nothing_survives():
     # Un titolo tutto fra parentesi non deve dare la chiave vuota, o due
     # brani senza niente in comune finirebbero nello stesso gruppo.
-    from analysis.duplicates import song_key
+    from core.analysis.duplicates import song_key
     assert song_key(Path("(1234).mp3")) == "1234"
 
 
@@ -854,7 +854,7 @@ def test_a_name_from_a_mac_disk_matches_what_you_type():
     scrive la tilde staccata dalla lettera, la tastiera la scrive attaccata."""
     import unicodedata
 
-    from analysis.duplicates import folded
+    from core.analysis.duplicates import folded
 
     dal_disco = unicodedata.normalize("NFD", "Karametade-Decisão")
     digitato = unicodedata.normalize("NFC", "decisão")
@@ -863,7 +863,7 @@ def test_a_name_from_a_mac_disk_matches_what_you_type():
 
 
 def test_the_accent_does_not_have_to_be_typed_at_all():
-    from analysis.duplicates import folded
+    from core.analysis.duplicates import folded
 
     assert folded("decisao") in folded("Karametade-Decisão")
     assert folded("herve") in folded("Hervé - Cheap Thrills")
@@ -872,7 +872,7 @@ def test_the_accent_does_not_have_to_be_typed_at_all():
 def test_folding_leaves_alone_what_is_not_an_accent():
     """Ridurre alle sole lettere latine renderebbe irraggiungibile un titolo
     in cirillico: quel passo lo fa `normalized_name`, non questo."""
-    from analysis.duplicates import folded
+    from core.analysis.duplicates import folded
 
     assert folded("Кино - Группа крови") == "кино - группа крови"
     assert folded("O'NEIL & Dj Quba") == "o'neil & dj quba"

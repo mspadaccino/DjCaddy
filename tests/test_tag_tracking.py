@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from analysis.tag_tracking import ProcessedTracker
+from core.analysis.tag_tracking import ProcessedTracker
 
 
 def _tracker(tmp_path, name="progress.txt"):

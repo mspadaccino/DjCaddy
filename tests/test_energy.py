@@ -1,6 +1,6 @@
 import numpy as np
 
-from analysis import energy
+from core.analysis import energy
 
 
 def _tone(hz, seconds=1.0, sr=44100):
@@ -313,7 +313,7 @@ def _board():
 
 
 def test_the_board_can_hang_the_cards_by_energy():
-    from views.graph_board import HEIGHT_FIELDS, _heights
+    from streamlit_app.views.graph_board import HEIGHT_FIELDS, _heights
 
     frame = _board()
     at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
@@ -326,7 +326,7 @@ def test_the_energy_axis_is_not_stretched_a_second_time():
     """E' gia' un rango sulla libreria: tenderlo sui decili vorrebbe dire
     prendere il rango di un rango, e una catena tutta di brani calmi
     sembrerebbe salire da zero a uno."""
-    from views.graph_board import _heights
+    from streamlit_app.views.graph_board import _heights
 
     frame = _board()
     at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
@@ -341,7 +341,7 @@ def test_a_frame_without_the_energy_column_does_not_break_the_board():
     pagina bianca."""
     import pandas as pd
 
-    from views.graph_board import _card_shifts, _gaps, _some
+    from streamlit_app.views.graph_board import _card_shifts, _gaps, _some
 
     old = pd.Series({"bpm": 120.0, "camelot": "8A", "danceability": 0.5})
     new = pd.Series({"bpm": 124.0, "camelot": "9A", "danceability": 0.6})
@@ -355,7 +355,7 @@ def test_a_frame_without_the_energy_column_does_not_break_the_board():
 def test_the_delta_energy_is_there_when_the_column_is():
     import pandas as pd
 
-    from views.graph_board import _gaps
+    from streamlit_app.views.graph_board import _gaps
 
     old = pd.Series({"bpm": 120.0, "camelot": "8A", "danceability": 0.5,
                      "energy": 0.25})

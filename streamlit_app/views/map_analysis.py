@@ -36,28 +36,28 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from analysis import energy, mood_scale
-from analysis.duplicates import folded
-from analysis.dj_export import (build_m3u8, build_rekordbox_xml, read_m3u8,
+from core.analysis import energy, mood_scale
+from core.analysis.duplicates import folded
+from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml, read_m3u8,
                                 read_title_artist)
-from analysis.essentia_tags import MODEL_DIR, available, find_taggable, missing_models
-from analysis.graph_playlist import GraphPlaylist
-from analysis.map_job import (DEFAULT_MAP_LOG, caffeinated, load_map_state,
-                              open_monitor, pause_job, process_state,
-                              resume_job, stop_job)
-from analysis.map_profile import ProfileSettings, default_workers, profile_many
-from analysis.map_projection import ProjectionSettings
-from analysis.map_projection import available as umap_available
-from analysis.map_projection import project
-from analysis.map_store import MapStore, default_store_dir
-from analysis.mixing import (TransitionCost, camelot_distance, magic_sort,
+from core.analysis.essentia_tags import MODEL_DIR, available, find_taggable, missing_models
+from core.analysis.graph_playlist import GraphPlaylist
+from core.analysis.map_job import (DEFAULT_MAP_LOG, MAP_CLI_PATH, caffeinated,
+                              load_map_state, open_monitor, pause_job,
+                              process_state, resume_job, stop_job)
+from core.analysis.map_profile import ProfileSettings, default_workers, profile_many
+from core.analysis.map_projection import ProjectionSettings
+from core.analysis.map_projection import available as umap_available
+from core.analysis.map_projection import project
+from core.analysis.map_store import MapStore, default_store_dir
+from core.analysis.mixing import (TransitionCost, camelot_distance, magic_sort,
                              nearest)
-from views.components import (NOW_PLAYING, ask_for_file, fill_dock, pick_files,
+from streamlit_app.views.components import (NOW_PLAYING, ask_for_file, fill_dock, pick_files,
                               pick_folder, play_table, save_as, tick_all)
-from views.graph_board import (GRAPH_STATE, camelot_picker,
+from streamlit_app.views.graph_board import (GRAPH_STATE, camelot_picker,
                                mood_popularity, render_board,
                                render_chain_maker, reordered)
-from views.track_columns import (PALETTE, READING_ORDER, read_only, reading,
+from streamlit_app.views.track_columns import (PALETTE, READING_ORDER, read_only, reading,
                                  reading_config)
 
 # Oltre questo numero di punti si disegna un campione. Non è la RAM a cedere
@@ -2730,15 +2730,14 @@ def render_add(store: MapStore, state) -> None:
     if col_job.button(f"▶ Add all {len(queue):,} in the background",
                       type="primary", width="stretch", disabled=blocked):
         log = DEFAULT_MAP_LOG
-        cmd = [sys.executable,
-               str(Path(__file__).resolve().parent.parent / "map_cli.py"),
+        cmd = [sys.executable, str(MAP_CLI_PATH),
                str(root), "--workers", str(workers), "--project"]
         if awake:
             cmd = caffeinated(cmd)
         with open(log, "w") as out:
             subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True,
-                             cwd=Path(__file__).resolve().parent.parent)
+                             cwd=MAP_CLI_PATH.parent)
         st.success(f"Started. Output in `{log}`.")
         time.sleep(1.5)
         st.rerun()

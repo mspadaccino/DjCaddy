@@ -1,6 +1,6 @@
 import numpy as np
 
-from analysis.waveform import _build, _colors, _scale
+from core.analysis.waveform import _build, _colors, _scale
 
 
 def test_scale_clips_to_unit_range():

@@ -1,7 +1,7 @@
 import numpy as np
 
-from analysis.models import BREAKDOWN, BUILDUP, DROP, GROOVE, INTRO, OUTRO
-from analysis.sections import _label
+from core.analysis.models import BREAKDOWN, BUILDUP, DROP, GROOVE, INTRO, OUTRO
+from core.analysis.sections import _label
 
 
 def test_label_edm_arc():

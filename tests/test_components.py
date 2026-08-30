@@ -1,6 +1,6 @@
 import pandas as pd
 
-from views.components import HEARING_GLYPH, PLAY_GLYPH, play_marks
+from streamlit_app.views.components import HEARING_GLYPH, PLAY_GLYPH, play_marks
 
 
 def test_the_row_you_are_listening_to_carries_a_speaker():
@@ -42,7 +42,7 @@ def test_the_finder_panel_can_be_asked_for_on_its_own(monkeypatch):
     import subprocess as sp
     from pathlib import Path
 
-    from views import components
+    from streamlit_app.views import components
 
     class Out:
         stdout = "/Volumes/X/DJSet/a.flac\n"
@@ -55,7 +55,7 @@ def test_a_cancelled_panel_chooses_nothing(monkeypatch):
     # In AppleScript annullare e' un ERRORE, non una risposta vuota.
     import subprocess as sp
 
-    from views import components
+    from streamlit_app.views import components
 
     monkeypatch.setattr(sp, "run", lambda *a, **k: (_ for _ in ()).throw(OSError))
     assert components.ask_for_file("scegli") is None

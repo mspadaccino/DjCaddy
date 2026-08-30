@@ -1,4 +1,4 @@
-from analysis.cue_export import (
+from core.analysis.cue_export import (
     DJAY_SLOTS,
     build_cue_rows,
     is_vocal_row,

@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from analysis.duplicates import (
+from core.analysis.duplicates import (
     QUARANTINE_DIRNAME,
     apply_quarantine_plan,
     build_quarantine_plan,
@@ -21,16 +21,16 @@ from analysis.duplicates import (
     find_duplicates,
     write_csv,
 )
-from views.components import pick_folder, play_table, tick_all
-from analysis.mix_names import (
+from streamlit_app.views.components import pick_folder, play_table, tick_all
+from core.analysis.mix_names import (
     DEFAULT_KEYWORDS,
     NOT_BY_DEFAULT,
     looks_like_a_mashup,
     matching_words,
     parse_keywords,
 )
-from analysis.truncation import inspect
-from analysis.folder_scan import (
+from core.analysis.truncation import inspect
+from core.analysis.folder_scan import (
     AUDIO_FORMATS,
     CHECK_THREADS,
     NOT_JUNK,

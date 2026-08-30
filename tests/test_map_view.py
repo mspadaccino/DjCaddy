@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from views.map_analysis import (SKIN, build_figure, matching_tracks,
+from streamlit_app.views.map_analysis import (SKIN, build_figure, matching_tracks,
                                 playlist_positions, sorted_after)
 
 
@@ -164,7 +164,7 @@ def test_the_playlist_ring_does_not_need_a_selection():
 
 def _line_cost():
     """Quattro brani in fila su una retta: il costo è la distanza."""
-    from analysis.mixing import TransitionCost
+    from core.analysis.mixing import TransitionCost
     coords = np.column_stack([np.arange(4.0), np.zeros(4)])
     return TransitionCost(coords, [120] * 4, ["8A"] * 4)
 
@@ -211,9 +211,9 @@ def test_the_chain_wears_its_own_ring_on_the_map(monkeypatch):
     ma sulla nuvola i suoi brani non si distinguevano dagli altri."""
     import streamlit as st
 
-    from analysis.graph_playlist import GraphPlaylist
-    from views.graph_board import GRAPH_STATE
-    from views.map_analysis import chain_places
+    from core.analysis.graph_playlist import GraphPlaylist
+    from streamlit_app.views.graph_board import GRAPH_STATE
+    from streamlit_app.views.map_analysis import chain_places
 
     graph = GraphPlaylist().start("/lib/a.flac")
     graph.add("/lib/a.flac", "/lib/b.flac")
@@ -227,9 +227,9 @@ def test_the_chain_wears_its_own_ring_on_the_map(monkeypatch):
 def test_a_track_no_longer_on_the_map_drops_out_by_itself(monkeypatch):
     import streamlit as st
 
-    from analysis.graph_playlist import GraphPlaylist
-    from views.graph_board import GRAPH_STATE
-    from views.map_analysis import chain_places
+    from core.analysis.graph_playlist import GraphPlaylist
+    from streamlit_app.views.graph_board import GRAPH_STATE
+    from streamlit_app.views.map_analysis import chain_places
 
     graph = GraphPlaylist().start("/lib/a.flac")
     graph.add("/lib/a.flac", "/lib/sparito.flac")
@@ -240,8 +240,8 @@ def test_a_track_no_longer_on_the_map_drops_out_by_itself(monkeypatch):
 def test_with_no_chain_there_are_no_rings(monkeypatch):
     import streamlit as st
 
-    from views.graph_board import GRAPH_STATE
-    from views.map_analysis import chain_places
+    from streamlit_app.views.graph_board import GRAPH_STATE
+    from streamlit_app.views.map_analysis import chain_places
 
     monkeypatch.setitem(st.session_state, GRAPH_STATE, None)
     assert chain_places({"/lib/a.flac": 0}) == []
@@ -257,7 +257,7 @@ def test_choosing_a_seed_fills_the_field_that_shows_it(monkeypatch):
     seme, comunque sia arrivato."""
     import streamlit as st
 
-    from views.map_analysis import SEED, SEED_FIELD, remember_seed
+    from streamlit_app.views.map_analysis import SEED, SEED_FIELD, remember_seed
 
     monkeypatch.setattr(st, "session_state", {})
     remember_seed(_four_tracks(), 2)
@@ -271,7 +271,7 @@ def test_a_new_pick_replaces_the_one_the_field_was_showing(monkeypatch):
     # vecchio.
     import streamlit as st
 
-    from views.map_analysis import SEED_FIELD, remember_seed
+    from streamlit_app.views.map_analysis import SEED_FIELD, remember_seed
 
     monkeypatch.setattr(st, "session_state", {})
     frame = _four_tracks()
@@ -285,7 +285,7 @@ def test_a_group_from_the_map_leaves_the_field_empty(monkeypatch):
     che c'e' ancora una scelta singola quando non c'e' piu'."""
     import streamlit as st
 
-    from views.map_analysis import SEED, SEED_FIELD, forget_seed, remember_seed
+    from streamlit_app.views.map_analysis import SEED, SEED_FIELD, forget_seed, remember_seed
 
     monkeypatch.setattr(st, "session_state", {})
     remember_seed(_four_tracks(), 0)
@@ -308,7 +308,7 @@ def _drawn(n: int = 4) -> "pd.DataFrame":
 def _legend_of(**kwargs) -> list[str]:
     import numpy as np
 
-    from views.map_analysis import build_figure
+    from streamlit_app.views.map_analysis import build_figure
 
     figure = build_figure(_drawn(), ["House"], np.column_stack(
         [np.arange(4.0), np.arange(4.0)]), **kwargs)
@@ -348,7 +348,7 @@ def test_the_seed_has_its_own_entry():
 def test_no_size_option_promises_a_measure_it_does_not_show():
     """La voce si chiamava "energy" e mostrava `lufs`: la loudness dice quanto
     ha spinto chi ha masterizzato, non quanto spinge il brano."""
-    from views.map_analysis import SIZE_FIELDS
+    from streamlit_app.views.map_analysis import SIZE_FIELDS
 
     assert SIZE_FIELDS.get("loudness") == "lufs"
     # Ora l'energia c'e', ed e' la sua: quattro misure sue, non la loudness.
@@ -358,7 +358,7 @@ def test_no_size_option_promises_a_measure_it_does_not_show():
 def test_the_energy_of_a_library_nobody_has_measured_is_no_size_at_all():
     """Finche' il backfill non e' passato la colonna e' vuota, e i punti
     devono restare tutti uguali invece di ammassarsi al diametro minimo."""
-    from views.map_analysis import FLAT_SIZE, marker_sizes
+    from streamlit_app.views.map_analysis import FLAT_SIZE, marker_sizes
 
     frame = pd.DataFrame({"energy": [np.nan, np.nan, np.nan]})
     assert marker_sizes(frame, "energy") == FLAT_SIZE
@@ -375,8 +375,8 @@ def test_the_two_suggestion_lists_get_their_own_rings():
 def test_without_a_seed_there_is_nothing_to_propose(monkeypatch):
     import streamlit as st
 
-    from analysis.mixing import TransitionCost
-    from views.map_analysis import suggested
+    from core.analysis.mixing import TransitionCost
+    from streamlit_app.views.map_analysis import suggested
 
     monkeypatch.setattr(st, "session_state", {})
     cost = TransitionCost(_np().zeros((3, 2)), [120, 121, 122], ["8A"] * 3)
@@ -393,10 +393,10 @@ def test_the_weights_come_from_the_session_not_from_the_sliders(monkeypatch):
     disegno: senza chiave il loro valore non si potrebbe leggere in tempo."""
     import streamlit as st
 
-    from analysis.mixing import TransitionCost
-    from views.map_analysis import suggested
+    from core.analysis.mixing import TransitionCost
+    from streamlit_app.views.map_analysis import suggested
 
-    from views.map_analysis import ASKED_ALIKE, ASKED_MIXES
+    from streamlit_app.views.map_analysis import ASKED_ALIKE, ASKED_MIXES
 
     monkeypatch.setattr(st, "session_state",
                         {"map::w_sound": 0.0, "map::w_bpm": 2.0,
@@ -421,7 +421,7 @@ def test_the_weights_come_from_the_session_not_from_the_sliders(monkeypatch):
 def test_the_track_playing_gets_a_red_cross():
     """Una X e non un anello: gli altri segni dicono cosa un brano E', questo
     dice cosa sta succedendo adesso."""
-    from views.map_analysis import build_figure
+    from streamlit_app.views.map_analysis import build_figure
 
     np = _np()
     figure = build_figure(_drawn(), ["House"],
@@ -441,7 +441,7 @@ def test_with_nothing_playing_there_is_no_cross():
 def test_no_two_rings_share_a_colour():
     """Il rosa era ambra, e l'ambra accanto al giallo della catena erano due
     gialli: si distinguevano per diametro, cioe' bisognava misurarli."""
-    from views.map_analysis import SKIN
+    from streamlit_app.views.map_analysis import SKIN
 
     for theme in ("light", "dark"):
         rings = [SKIN[theme][k] for k in
@@ -461,7 +461,7 @@ def _measured():
 
 
 def test_the_quadrants_draw_the_same_tracks_on_two_chosen_measures():
-    from views.map_analysis import build_figure
+    from streamlit_app.views.map_analysis import build_figure
 
     frame = _measured()
     places = frame[["valence", "energy"]].to_numpy()
@@ -479,7 +479,7 @@ def test_the_rings_follow_the_tracks_onto_the_new_axes():
     """E' il punto di avere una funzione sola: il seme, la catena e le
     proposte dicono le stesse cose di qua e di la', invece di essere due
     schermi che non si parlano."""
-    from views.map_analysis import build_figure
+    from streamlit_app.views.map_analysis import build_figure
 
     frame = _measured()
     places = frame[["valence", "energy"]].to_numpy()
@@ -494,7 +494,7 @@ def test_the_rings_follow_the_tracks_onto_the_new_axes():
 def test_the_map_keeps_its_axes_hidden_and_its_square_scale():
     """Le due dimensioni della proiezione non sono misure: un numero su di
     esse non vuol dire niente, e stirarne una falserebbe le distanze."""
-    from views.map_analysis import build_figure
+    from streamlit_app.views.map_analysis import build_figure
 
     coords = np.column_stack([np.arange(4.0), np.zeros(4)])
     figure = build_figure(_drawn(), ["House"], coords, playlist=[], seed=None)
@@ -505,7 +505,7 @@ def test_the_map_keeps_its_axes_hidden_and_its_square_scale():
 def test_the_quadrant_axes_are_not_tied_to_each_other():
     """Portano due misure diverse — dei BPM e un rango — e legarle
     schiaccerebbe il disegno in una riga."""
-    from views.map_analysis import build_figure
+    from streamlit_app.views.map_analysis import build_figure
 
     frame = _measured()
     figure = build_figure(frame, ["House"],
@@ -517,7 +517,7 @@ def test_the_quadrant_axes_are_not_tied_to_each_other():
 
 
 def test_the_cross_sits_where_the_measure_has_its_own_middle():
-    from views.map_analysis import axis_guide
+    from streamlit_app.views.map_analysis import axis_guide
 
     # Una misura sola ce l'ha: l'energia e' un rango sulla libreria, quindi
     # il suo mezzo E' la mediana per costruzione.
@@ -529,14 +529,14 @@ def test_the_valence_does_not_get_to_call_its_zero_a_centre():
     la croce sullo zero i due quadranti bui sarebbero rimasti vuoti, e il
     grafico avrebbe detto che la libreria e' tutta allegra — che e' una
     proprieta' di come sono fatte le due liste di parole, non della musica."""
-    from views.map_analysis import AXIS_CENTRES, axis_guide
+    from streamlit_app.views.map_analysis import AXIS_CENTRES, axis_guide
 
     assert "valence" not in AXIS_CENTRES
     assert axis_guide([0.3, 0.5, 0.7], "valence") == 0.5
 
 
 def test_the_cross_falls_back_to_the_median_of_what_is_on_screen():
-    from views.map_analysis import axis_guide
+    from streamlit_app.views.map_analysis import axis_guide
 
     assert axis_guide([96.0, 120.0, 128.0, 140.0], "bpm") == 124.0
     assert axis_guide([], "bpm") is None
@@ -546,7 +546,7 @@ def test_the_caption_says_which_of_the_two_kinds_of_middle_it_is():
     """Una riga tratteggiata a meta' del disegno sembra un centro assoluto,
     e su quasi tutte le misure e' invece la mediana di cio' che i filtri
     lasciano — cioe' si sposta appena si tocca un filtro."""
-    from views.map_analysis import guide_caption
+    from streamlit_app.views.map_analysis import guide_caption
 
     told = guide_caption((124.0, 0.5), ("bpm", "energy"), ("BPM", "energy"))
     assert "median of what the filters leave" in told
@@ -558,7 +558,7 @@ def test_both_charts_feed_the_same_choice():
     """Si sceglie indifferentemente sulla mappa o sui quadranti, e la scelta
     e' una sola. Il doppione si toglie: due volte lo stesso brano vorrebbe
     dire un GRUPPO di due invece di un seme."""
-    from views.map_analysis import MAP_CHART, QUAD_CHART, read_selection
+    from streamlit_app.views.map_analysis import MAP_CHART, QUAD_CHART, read_selection
 
     def state(points):
         return {"selection": {"points": [{"customdata": [i]} for i in points]}}
@@ -576,7 +576,7 @@ def test_both_charts_feed_the_same_choice():
 def test_the_default_axes_are_the_two_that_answer_the_question():
     """Valence e arousal, i due assi di Russell: dove sta questo brano fra il
     buio e il chiaro, fra il calmo e lo spinto."""
-    from views.map_analysis import AXIS_FIELDS, DEFAULT_AXES
+    from streamlit_app.views.map_analysis import AXIS_FIELDS, DEFAULT_AXES
 
     assert all(name in AXIS_FIELDS for name in DEFAULT_AXES)
     # Il RANGO della valence: il numero firmato non e' centrato sullo zero e
@@ -591,8 +591,8 @@ def test_the_valence_goes_on_the_axis_as_a_rank_not_as_a_signed_number():
     sopra lo zero, e nessun rimedio sulle due liste di parole la centra: il
     modello ha imparato su un mondo dove 'happy' e' un'etichetta molto piu'
     frequente di 'sad'. Il rango un mezzo ce l'ha per costruzione."""
-    from analysis import energy
-    from views.map_analysis import AXIS_CENTRES, AXIS_FIELDS, axis_guide
+    from core.analysis import energy
+    from streamlit_app.views.map_analysis import AXIS_CENTRES, AXIS_FIELDS, axis_guide
 
     skewed = [0.07, 0.18, 0.26, 0.33, 0.39, 0.45, 0.51, 0.57, 0.64]
     assert min(skewed) > 0                       # nessuno sotto lo zero
@@ -611,7 +611,7 @@ def test_every_axis_says_what_it_means():
     """Un asse che si chiama "valence" e va da 0 a 1 non si spiega da se':
     non dice in che unita' sia, ne' — che e' quello che conta — che i due
     estremi sono la TUA libreria e non una scala assoluta."""
-    from views.map_analysis import AXIS_FIELDS, AXIS_HELP
+    from streamlit_app.views.map_analysis import AXIS_FIELDS, AXIS_HELP
 
     assert not [name for name in AXIS_FIELDS if name not in AXIS_HELP]
     # E le due che sono ranghi lo dicono, perche' e' l'equivoco possibile.
@@ -625,7 +625,7 @@ def test_the_list_waits_to_be_asked_for_this_very_seed():
     """In sessione si tiene il PERCORSO del seme, non un si'/no: cosi'
     cambiando brano la scheda torna chiusa da se', senza che chi cambia il
     seme debba ricordarsi di spegnerla."""
-    from views.map_analysis import ASKED_MIXES, asked_for
+    from streamlit_app.views.map_analysis import ASKED_MIXES, asked_for
 
     st.session_state[ASKED_MIXES] = "/DJSet/a.mp3"
     try:
@@ -639,7 +639,7 @@ def test_the_list_waits_to_be_asked_for_this_very_seed():
 def test_the_two_tabs_ask_separately():
     """Due chiavi e non una: si puo' volere le proposte di mix senza volere
     anche i simili, che sono due domande diverse sullo stesso brano."""
-    from views.map_analysis import ASKED_ALIKE, ASKED_MIXES, asked_for
+    from streamlit_app.views.map_analysis import ASKED_ALIKE, ASKED_MIXES, asked_for
 
     st.session_state[ASKED_MIXES] = "/DJSet/a.mp3"
     try:
@@ -656,7 +656,7 @@ def test_the_file_name_comes_right_after_the_column_you_act_on():
     il BPM."""
     import inspect
 
-    from views import graph_board
+    from streamlit_app.views import graph_board
 
     source = inspect.getsource(graph_board)
     assert '["#", "file", "BPM"' in source          # la catena
@@ -669,8 +669,8 @@ def test_the_library_frame_carries_the_measures_that_are_not_on_disk():
     """Energia e valence sono ranghi sulla LIBRERIA, non numeri per brano:
     non stanno sulla riga, si calcolano aprendo la mappa. Chi costruisce il
     frame deve riceverli senza doverseli ricordare."""
-    from analysis.map_store import MapStore
-    from views.map_analysis import library_frame
+    from core.analysis.map_store import MapStore
+    from streamlit_app.views.map_analysis import library_frame
 
     rows = [{"path": f"/x/{i}.mp3", "name": f"{i}.mp3", "bpm": 120.0,
              "camelot": "8A", "moods": "Dark" if i else "Happy",
@@ -692,7 +692,7 @@ def test_no_section_builds_the_library_frame_on_its_own():
     aggiornati due su tre, e salvare una playlist rompeva la lavagna."""
     import inspect
 
-    from views import map_analysis
+    from streamlit_app.views import map_analysis
 
     body = inspect.getsource(map_analysis)
     built = body.count("pd.DataFrame(store.rows[:placed])")
@@ -703,9 +703,9 @@ def test_the_rings_show_only_the_lists_that_were_asked_for():
     """Gli anelli attorno a venti punti dicevano che una scelta era stata
     fatta mentre sotto la scheda diceva "premi il bottone". Peggio: erano
     gli anelli di una lista che nessuno aveva visto."""
-    from analysis.map_store import MapStore
-    from analysis.mixing import TransitionCost
-    from views.map_analysis import ASKED_ALIKE, ASKED_MIXES, suggested
+    from core.analysis.map_store import MapStore
+    from core.analysis.mixing import TransitionCost
+    from streamlit_app.views.map_analysis import ASKED_ALIKE, ASKED_MIXES, suggested
 
     rows = [{"path": f"/x/{i}.mp3", "name": f"{i}.mp3", "bpm": 120.0,
              "camelot": "8A"} for i in range(6)]

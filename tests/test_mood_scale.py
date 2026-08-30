@@ -1,6 +1,6 @@
 import pandas as pd
 
-from analysis import mood_scale
+from core.analysis import mood_scale
 
 
 def test_a_dark_mood_sits_at_the_bottom_and_a_bright_one_at_the_top():
@@ -66,7 +66,7 @@ def _board():
 
 
 def test_the_board_can_measure_the_mood():
-    from views.graph_board import HEIGHT_FIELDS, _measured
+    from streamlit_app.views.graph_board import HEIGHT_FIELDS, _measured
 
     frame = _board()
     at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
@@ -76,7 +76,7 @@ def test_the_board_can_measure_the_mood():
 
 
 def test_the_darkest_track_sits_lowest_and_the_brightest_highest():
-    from views.graph_board import _heights
+    from streamlit_app.views.graph_board import _heights
 
     frame = _board()
     at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
@@ -85,7 +85,7 @@ def test_the_darkest_track_sits_lowest_and_the_brightest_highest():
 
 
 def test_the_mood_scale_is_read_in_words_not_in_numbers():
-    from views.graph_board import _ticks
+    from streamlit_app.views.graph_board import _ticks
 
     frame = _board()
     ticks = _ticks("mood", {"/a.mp3": -1.0}, frame)

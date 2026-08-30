@@ -6,8 +6,8 @@ import json
 import os
 from pathlib import Path
 
-from analysis.essentia_tags import Prediction, TagSettings, TrackTags
-from analysis.tag_job import JobState, load_state, run_job
+from core.analysis.essentia_tags import Prediction, TagSettings, TrackTags
+from core.analysis.tag_job import JobState, load_state, run_job
 
 
 def test_a_dead_job_does_not_look_alive():
@@ -42,7 +42,7 @@ def test_the_job_writes_as_it_goes_and_keeps_going_after_a_failure(
     modo che ha l'app di sapere a che punto e', ed e' cio' che rende il
     lavoro non perso se il job viene interrotto.
     """
-    from analysis import tag_job
+    from core.analysis import tag_job
 
     brani = [tmp_path / f"{n}.mp3" for n in ("uno", "due", "tre")]
     for b in brani:
@@ -84,7 +84,7 @@ def test_the_job_writes_as_it_goes_and_keeps_going_after_a_failure(
 def test_the_queue_can_ignore_the_progress_file(tmp_path, monkeypatch):
     """I due filtri sono distinti: i FILE e il REGISTRO di cosa e' stato
     tentato. Non coincidono, e si deve poter lavorare senza il secondo."""
-    from analysis import tag_job
+    from core.analysis import tag_job
 
     brani = [tmp_path / "a.mp3", tmp_path / "b.mp3"]
     monkeypatch.setattr(tag_job, "find_taggable", lambda root: list(brani))
@@ -108,7 +108,7 @@ def test_the_eta_measures_recent_work_not_wall_clock(monkeypatch):
     dichiarata esplode: misurato su una ricostruzione della mappa, 4,73 s a
     brano contro gli 0,85 veri, cioè 32 ore invece di 6.
     """
-    import analysis.tag_job as tag_job
+    import core.analysis.tag_job as tag_job
 
     minuto = [1_000_000]
     monkeypatch.setattr(tag_job.time, "time", lambda: minuto[0] * 60.0)
@@ -124,7 +124,7 @@ def test_the_eta_measures_recent_work_not_wall_clock(monkeypatch):
 
 
 def test_the_hours_asleep_are_not_mistaken_for_a_slow_track(monkeypatch):
-    import analysis.tag_job as tag_job
+    import core.analysis.tag_job as tag_job
 
     monkeypatch.setattr(tag_job.time, "time", lambda: 60_000_000.0)
     stato = JobState(pid=1, total=10, done=3)
@@ -138,7 +138,7 @@ def test_the_hours_asleep_are_not_mistaken_for_a_slow_track(monkeypatch):
 def test_only_the_last_half_hour_of_work_counts(monkeypatch):
     """Se il ritmo cambia, la stima deve seguirlo invece di ricordarsi per
     sempre com'era all'inizio."""
-    import analysis.tag_job as tag_job
+    import core.analysis.tag_job as tag_job
 
     minuto = [1_000_000]
     monkeypatch.setattr(tag_job.time, "time", lambda: minuto[0] * 60.0)

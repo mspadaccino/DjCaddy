@@ -1,4 +1,4 @@
-from analysis.vibe import (
+from core.analysis.vibe import (
     bpm_to_tempo_bucket,
     build_energy_labeler,
     compute_vibe,

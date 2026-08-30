@@ -1,7 +1,7 @@
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from analysis.dj_export import (
+from core.analysis.dj_export import (
     _hex_to_rgb,
     build_m3u8,
     build_rekordbox_xml,
@@ -9,7 +9,7 @@ from analysis.dj_export import (
     read_m3u8,
     section_cues,
 )
-from analysis.models import Section
+from core.analysis.models import Section
 
 
 def test_hex_to_rgb():

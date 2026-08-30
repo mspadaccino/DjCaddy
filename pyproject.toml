@@ -11,12 +11,21 @@ python = "^3.11"
 mutagen = "^1.47"
 librosa = "^0.10"
 numpy = ">=1.26"
-streamlit = "^1.37"
 plotly = "^5.22"
 demucs = "^4.0"
 # La proiezione della mappa (sezione Map). Porta con sé pynndescent;
 # numba e llvmlite, che sono il grosso, arrivano già con librosa.
 umap-learn = "^0.5"
+
+# Solo per l'app Streamlit: l'app Qt (qt_app/) non ne ha bisogno, e nel
+# parallel run vive nel proprio gruppo cosi' non entra nel bundle desktop.
+[tool.poetry.group.streamlit.dependencies]
+streamlit = "^1.37"
+
+# Solo per l'app Qt (qt_app/): pin ripreso dal prototipo su qt_test
+# (commit 2dd9ff2), che ne conferma la fattibilità dello stack.
+[tool.poetry.group.qt.dependencies]
+pyside6 = { version = "^6.11", python = ">=3.11,<3.15" }
 
 # Essentia sta in un gruppo suo ma NON opzionale: `poetry install` la prende,
 # come tutto il resto. Il gruppo serve solo da via d'uscita, perche' su PyPI

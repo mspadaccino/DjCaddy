@@ -28,14 +28,14 @@ import sys
 import time
 from pathlib import Path
 
-from analysis.essentia_tags import (
+from core.analysis.essentia_tags import (
     GENRE_FORMATS,
     TagSettings,
     available,
     default_workers,
     missing_models,
 )
-from analysis.tag_job import DEFAULT_STATE_FILE, run_job
+from core.analysis.tag_job import DEFAULT_STATE_FILE, run_job
 
 
 def _human(seconds: float) -> str:

@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 
 import mood_cli
-from analysis import mood_scale
-from analysis.map_profile import EMBEDDING_DIM, ProfileSettings, TrackProfile
-from analysis.map_store import MapStore
+from core.analysis import mood_scale
+from core.analysis.map_profile import EMBEDDING_DIM, ProfileSettings, TrackProfile
+from core.analysis.map_store import MapStore
 
 SETTINGS = ProfileSettings()
 
@@ -125,7 +125,7 @@ def test_the_backfill_and_the_analyzer_are_the_same_function():
     su un vettore di attivazioni non poteva vederlo, perche' il vettore gliela
     passavo io identico a tutte e due.
     """
-    from analysis.map_profile import mood_numbers
+    from core.analysis.map_profile import mood_numbers
 
     assert mood_cli.written is mood_numbers
     assert mood_cli.FIELDS == ("valence", "mood_evidence", "mood_conf")

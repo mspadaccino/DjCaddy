@@ -1,4 +1,4 @@
-from analysis.cache import AnalysisCache
+from core.analysis.cache import AnalysisCache
 
 
 def _sample_data():

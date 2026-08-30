@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from analysis.mixing import TransitionCost, nearest
+from core.analysis.mixing import TransitionCost, nearest
 
 
 @dataclass

@@ -3,8 +3,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from analysis import mood_scale
-from analysis.map_profile import (
+from core.analysis import mood_scale
+from core.analysis.map_profile import (
     MOOD_FIELDS,
     ProfileSettings,
     TrackProfile,
@@ -116,7 +116,7 @@ def test_a_dead_worker_does_not_take_the_whole_queue_with_it(monkeypatch):
     import concurrent.futures
     from concurrent.futures.process import BrokenProcessPool
 
-    from analysis import map_profile
+    from core.analysis import map_profile
 
     pools = []
 

@@ -1,6 +1,6 @@
 import numpy as np
 
-from analysis.mixing import (
+from core.analysis.mixing import (
     TransitionCost,
     along_path,
     closed_shape,

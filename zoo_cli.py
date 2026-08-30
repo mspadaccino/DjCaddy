@@ -40,9 +40,9 @@ from pathlib import Path
 
 import numpy as np
 
-from analysis import energy, mood_scale
-from analysis.essentia_tags import MODEL_DIR
-from analysis.map_store import MapStore, default_store_dir
+from core.analysis import energy, mood_scale
+from core.analysis.essentia_tags import MODEL_DIR
+from core.analysis.map_store import MapStore, default_store_dir
 
 # Le quattro teste: nome corto, e il file (senza estensione) da cui vengono
 # il grafo e l'elenco delle classi.

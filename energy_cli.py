@@ -31,11 +31,11 @@ from pathlib import Path
 
 import numpy as np
 
-from analysis import energy, mood_scale
-from analysis.map_job import awake
-from analysis.map_profile import (ProfileSettings, default_workers,
+from core.analysis import energy, mood_scale
+from core.analysis.map_job import awake
+from core.analysis.map_profile import (ProfileSettings, default_workers,
                                   gain_for_target, rhythm_offset)
-from analysis.map_store import MapStore, default_store_dir
+from core.analysis.map_store import MapStore, default_store_dir
 
 ANALYSIS_RATE = 44100
 

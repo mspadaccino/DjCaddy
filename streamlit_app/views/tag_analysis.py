@@ -18,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from analysis.essentia_tags import (
+from core.analysis.essentia_tags import (
     GENRE_FORMATS,
     MODEL_DIR,
     MODELS,
@@ -32,10 +32,10 @@ from analysis.essentia_tags import (
     scan_coverage,
     write_tags,
 )
-from analysis.tag_breakdown import as_text, build_breakdown
-from analysis.tag_job import load_state
-from analysis.tag_tracking import DEFAULT_TRACKING_FILE, ProcessedTracker
-from views.components import pick_folder, play_table, tick_all
+from core.analysis.tag_breakdown import as_text, build_breakdown
+from core.analysis.tag_job import load_state
+from core.analysis.tag_tracking import DEFAULT_TRACKING_FILE, ProcessedTracker
+from streamlit_app.views.components import pick_folder, play_table, tick_all
 
 # Secondi a brano misurati su questa macchina (M5, 10 core, 24 analisi), per
 # numero di processi. Servono a dire quanto ci vorrà PRIMA di partire, che è
@@ -480,7 +480,7 @@ else:
     # che questo fosse il pulsante di lancio dei brani spuntati.
     if st.button(f"▶ Start the job on the whole folder — {workers} at a time"):
         log = Path(tempfile.gettempdir()) / "wavecut_tag_job.log"
-        cmd = [sys.executable, str(Path(__file__).resolve().parent.parent / "tag_cli.py"),
+        cmd = [sys.executable, str(Path(__file__).resolve().parent.parent.parent / "tag_cli.py"),
                str(root), "--workers", str(workers),
                "--genre-format", settings.genre_format,
                "--max-seconds", str(settings.max_seconds)]
@@ -497,7 +497,7 @@ else:
         with open(log, "w") as out:
             subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True,
-                             cwd=Path(__file__).resolve().parent.parent)
+                             cwd=Path(__file__).resolve().parent.parent.parent)
         st.success(f"Started. Output in `{log}`.")
         time.sleep(1.5)          # il job scrive lo stato quasi subito
         st.rerun()

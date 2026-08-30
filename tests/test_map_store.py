@@ -3,8 +3,8 @@ from pathlib import Path
 
 import numpy as np
 
-from analysis.map_profile import EMBEDDING_DIM, TrackProfile
-from analysis.map_store import MapStore
+from core.analysis.map_profile import EMBEDDING_DIM, TrackProfile
+from core.analysis.map_store import MapStore
 
 
 def _profile(path, vector, bpm=128.0):
@@ -340,7 +340,7 @@ def test_rewriting_the_rows_keeps_their_order_and_the_vectors(tmp_path):
     cosa che tiene allineati metadati, embedding e coordinate."""
     import numpy as np
 
-    from analysis.map_store import MapStore
+    from core.analysis.map_store import MapStore
 
     store = MapStore.load(tmp_path)
     store.rows = [{"path": f"/lib/{i}.flac", "bpm": 120 + i} for i in range(5)]
@@ -358,7 +358,7 @@ def test_rewriting_the_rows_keeps_their_order_and_the_vectors(tmp_path):
 def test_a_rewrite_that_dies_halfway_leaves_the_old_file_alone(tmp_path):
     import numpy as np
 
-    from analysis.map_store import MapStore
+    from core.analysis.map_store import MapStore
 
     store = MapStore.load(tmp_path)
     store.rows = [{"path": "/lib/a.flac"}]
@@ -380,7 +380,7 @@ def test_rewriting_fewer_rows_than_vectors_is_refused(tmp_path):
     import numpy as np
     import pytest
 
-    from analysis.map_store import MapStore
+    from core.analysis.map_store import MapStore
 
     store = MapStore.load(tmp_path)
     store.rows = [{"path": "/lib/a.flac"}]
@@ -400,7 +400,7 @@ def test_a_rewrite_after_a_duplicate_was_absorbed_realigns_the_vectors(tmp_path)
     """
     import numpy as np
 
-    from analysis.map_store import EMBEDDING_DIM, MapStore
+    from core.analysis.map_store import EMBEDDING_DIM, MapStore
 
     store = MapStore.load(tmp_path)
     # b compare due volte: vale l'ultima, e la fila si accorcia NEL MEZZO.

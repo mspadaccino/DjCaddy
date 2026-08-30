@@ -21,18 +21,18 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from analysis.audio_features import ANALYSIS_SR, load_audio
-from analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
-from analysis.cue_export import (
+from core.analysis.audio_features import ANALYSIS_SR, load_audio
+from core.analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
+from core.analysis.cue_export import (
     DJAY_SLOTS, PHRASE_START, build_cue_rows, is_vocal_row, plan_djay_markers,
 )
-from analysis.dj_export import build_rekordbox_xml, read_title_artist
-from analysis.djay_write import CuePoint as DjayCuePoint
-from analysis.djay_write import LoopRegion as DjayLoopRegion
-from analysis.djay_write import DjayWriteError, is_djay_running
-from analysis.djay_write import preview_write as djay_preview_write
-from analysis.djay_write import write_new_cues as djay_write_new_cues
-from analysis.models import (
+from core.analysis.dj_export import build_rekordbox_xml, read_title_artist
+from core.analysis.djay_write import CuePoint as DjayCuePoint
+from core.analysis.djay_write import LoopRegion as DjayLoopRegion
+from core.analysis.djay_write import DjayWriteError, is_djay_running
+from core.analysis.djay_write import preview_write as djay_preview_write
+from core.analysis.djay_write import write_new_cues as djay_write_new_cues
+from core.analysis.models import (
     SECTION_COLORS,
     SECTION_LABELS,
     VOCAL_END,
@@ -42,9 +42,9 @@ from analysis.models import (
     format_remaining,
     parse_mmss,
 )
-from analysis.vocals import VOCAL_FLOOR, available as vocals_available
-from analysis.vocals import vocal_regions
-from analysis.waveform import compute_frequency_waveform
+from core.analysis.vocals import VOCAL_FLOOR, available as vocals_available
+from core.analysis.vocals import vocal_regions
+from core.analysis.waveform import compute_frequency_waveform
 
 # Una frase è una riga sola (il suo inizio); la fine è informazione nella
 # colonna "End", non un tag a sé — vedi analysis.cue_export.build_cue_rows.

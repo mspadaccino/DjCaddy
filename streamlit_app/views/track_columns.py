@@ -40,7 +40,7 @@ import colorsys
 import pandas as pd
 import streamlit as st
 
-from analysis import energy, mood_scale
+from core.analysis import energy, mood_scale
 
 # I colori dei generi sulla mappa e sulle schede della lavagna. Diciotto:
 # con le etichette foglia — che sono 258, di cui le prime dodici coprono il

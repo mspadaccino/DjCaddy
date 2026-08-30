@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 import zoo_cli
-from analysis.map_profile import EMBEDDING_DIM, TrackProfile
-from analysis.map_store import MapStore
+from core.analysis.map_profile import EMBEDDING_DIM, TrackProfile
+from core.analysis.map_store import MapStore
 
 
 def _profile(path, a, b, c, d):

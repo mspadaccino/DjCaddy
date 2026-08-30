@@ -29,7 +29,7 @@ from .essentia_tags import (
 )
 from .tag_tracking import ProcessedTracker
 
-DEFAULT_STATE_FILE = Path(__file__).resolve().parent.parent / ".wavecut_tag_job.json"
+DEFAULT_STATE_FILE = Path(__file__).resolve().parent.parent.parent / ".wavecut_tag_job.json"
 
 # Fra un brano e il successivo non passa un minuto nemmeno sul file più
 # ostico: se è passato, la macchina dormiva o il job era in pausa, e quel

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from views.track_columns import (ENERGY_COLORS, GROOVE_OPTIONS, LEVEL_OPTIONS,
+from streamlit_app.views.track_columns import (ENERGY_COLORS, GROOVE_OPTIONS, LEVEL_OPTIONS,
                                  PALETTE, READING_ORDER, camelot_color,
                                  emotion_arrow, energy_level, genre_colors,
                                  groove_pill, reading)
@@ -102,7 +102,7 @@ def test_a_genre_that_only_the_shown_rows_carry_is_still_named():
 def test_every_plain_column_carries_its_explanation():
     """Una colonna che si chiama "sound" o "Δkey" non si spiega da sola, e
     chi la legge non ha nessun posto dove andare a chiedere."""
-    from views.track_columns import COLUMN_HELP, read_only
+    from streamlit_app.views.track_columns import COLUMN_HELP, read_only
 
     for name in COLUMN_HELP:
         assert read_only(name)[name]["help"] == COLUMN_HELP[name]
@@ -111,7 +111,7 @@ def test_every_plain_column_carries_its_explanation():
 def test_the_columns_the_tables_actually_ask_for_are_all_covered():
     # I nomi sono quelli che map_analysis e graph_board passano a read_only:
     # se se ne aggiunge uno senza spiegazione, questo test lo trova.
-    from views.track_columns import COLUMN_HELP
+    from streamlit_app.views.track_columns import COLUMN_HELP
 
     asked = {"#", "file", "BPM", "folder", "cost", "sound", "bpm cost",
              "key cost", "similarity", "copies", "Δbpm", "Δkey", "Δgroove"}

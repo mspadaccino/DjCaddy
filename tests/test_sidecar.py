@@ -1,5 +1,5 @@
-from analysis.engine import load_analysis, save_analysis, sidecar_path
-from analysis.models import Section, TrackAnalysis
+from core.analysis.engine import load_analysis, save_analysis, sidecar_path
+from core.analysis.models import Section, TrackAnalysis
 
 
 def test_sidecar_roundtrip(tmp_path):

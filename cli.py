@@ -28,14 +28,14 @@ import json
 import sys
 from pathlib import Path
 
-from analysis.dj_export import read_title_artist, section_cues, write_rekordbox_xml
-from analysis.engine import (
+from core.analysis.dj_export import read_title_artist, section_cues, write_rekordbox_xml
+from core.analysis.engine import (
     analyze_library,
     build_organize_plan,
     discover_tracks,
     organize,
 )
-from analysis.models import TrackAnalysis
+from core.analysis.models import TrackAnalysis
 
 REPORT_COLUMNS = ["path", "genre", "bpm", "vibe", "sections", "boundaries", "error"]
 

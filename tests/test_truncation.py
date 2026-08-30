@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from analysis.truncation import ShortFileVerdict
+from core.analysis.truncation import ShortFileVerdict
 
 
 def _v(**kw) -> ShortFileVerdict:

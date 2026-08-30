@@ -30,13 +30,13 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from analysis import energy, mood_scale
-from analysis.duplicates import folded, normalized_name, song_key
-from analysis.graph_playlist import GraphPlaylist, suggestions
-from analysis.mixing import (BPM_TOLERANCE, TransitionCost, bpm_shift,
+from core.analysis import energy, mood_scale
+from core.analysis.duplicates import folded, normalized_name, song_key
+from core.analysis.graph_playlist import GraphPlaylist, suggestions
+from core.analysis.mixing import (BPM_TOLERANCE, TransitionCost, bpm_shift,
                              camelot_shift)
-from views.components import NOW_PLAYING, fill_dock, play_table
-from views.track_columns import (KEY_COLORS, OTHER_COLOR, PALETTE,
+from streamlit_app.views.components import NOW_PLAYING, fill_dock, play_table
+from streamlit_app.views.track_columns import (KEY_COLORS, OTHER_COLOR, PALETTE,
                                  camelot_color, dark, read_only, reading,
                                  reading_config)
 

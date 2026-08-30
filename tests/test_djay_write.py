@@ -2,7 +2,7 @@ import struct
 
 import pytest
 
-from analysis.djay_write import (
+from core.analysis.djay_write import (
     CuePoint,
     DjayWriteError,
     PAD_COLORS,
@@ -419,7 +419,7 @@ def test_write_loops_leaves_everything_else_alone():
 def test_plan_djay_markers_output_is_writable():
     """Integrazione: quello che il planner produce dalla tabella deve essere
     accettato dal writer senza collisioni di slot."""
-    from analysis.cue_export import build_cue_rows, plan_djay_markers
+    from core.analysis.cue_export import build_cue_rows, plan_djay_markers
 
     rows = build_cue_rows(
         [{"start": float(i * 20), "end": float(i * 20 + 10), "label": "Intro"}

@@ -8,7 +8,7 @@ def test_decoder_retries_with_the_demuxer_the_extension_suggests(monkeypatch, tm
     file è sano — misurati 110 casi veri in una libreria — quindi un rifiuto
     del riconoscimento automatico non basta a condannarlo.
     """
-    from analysis import folder_scan as fs
+    from core.analysis import folder_scan as fs
 
     track = tmp_path / "pool.mp3"
     track.write_bytes(b"ID3\x03\x00\x00\x00\x00\x1fvRIFF")
@@ -27,7 +27,7 @@ def test_decoder_retries_with_the_demuxer_the_extension_suggests(monkeypatch, tm
 
 
 def test_decoder_still_condemns_what_fails_twice(monkeypatch, tmp_path):
-    from analysis import folder_scan as fs
+    from core.analysis import folder_scan as fs
 
     track = tmp_path / "rotto.mp3"
     track.write_bytes(b"spazzatura")
@@ -39,7 +39,7 @@ def test_decoder_still_condemns_what_fails_twice(monkeypatch, tmp_path):
 
 def test_deep_check_lets_the_decoder_overrule_mutagen(monkeypatch, tmp_path):
     """Mutagen legge i TAG: un file che non gli torna può benissimo suonare."""
-    from analysis import folder_scan as fs
+    from core.analysis import folder_scan as fs
 
     track = tmp_path / "strano.mp3"
     track.write_bytes(b"qualcosa di lungo abbastanza")
@@ -54,7 +54,7 @@ def test_deep_check_lets_the_decoder_overrule_mutagen(monkeypatch, tmp_path):
 
 
 def test_empty_file_is_condemned_before_anything_else(tmp_path):
-    from analysis.folder_scan import check_readable
+    from core.analysis.folder_scan import check_readable
 
     vuoto = tmp_path / "vuoto.mp3"
     vuoto.touch()
@@ -69,7 +69,7 @@ def test_deleting_never_touches_audio(tmp_path):
     riga spuntata su un'estensione mista, una selezione rimasta in sessione —
     non deve poter sparire.
     """
-    from analysis.folder_scan import delete_files
+    from core.analysis.folder_scan import delete_files
 
     cover = tmp_path / "folder.jpg"
     cover.write_bytes(b"x" * 100)
@@ -85,7 +85,7 @@ def test_deleting_never_touches_audio(tmp_path):
 
 
 def test_dry_run_leaves_everything_where_it_is(tmp_path):
-    from analysis.folder_scan import delete_files
+    from core.analysis.folder_scan import delete_files
 
     junk = tmp_path / "screenshot.png"
     junk.write_bytes(b"z" * 42)
@@ -97,7 +97,7 @@ def test_dry_run_leaves_everything_where_it_is(tmp_path):
 
 
 def test_extension_listing_is_case_insensitive_and_biggest_first(tmp_path):
-    from analysis.folder_scan import scan_folder
+    from core.analysis.folder_scan import scan_folder
 
     (tmp_path / "a.JPG").write_bytes(b"x" * 10)
     (tmp_path / "b.jpg").write_bytes(b"x" * 30)

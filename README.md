@@ -16,35 +16,35 @@ Local tool (macOS) to analyze an mp3/flac library and prepare DJ work in
 
 ## Architecture
 
-A **shared analysis engine** (`analysis/`, pure Python module) imported by both
+A **shared analysis engine** (`core/analysis/`, pure Python module) imported by both
 the batch CLI and the Streamlit app — no duplicated logic.
 
 | Module | Responsibility |
 | --- | --- |
-| `analysis/tags.py` | read the genre tag via mutagen (ID3 for mp3, Vorbis comment for flac) |
-| `analysis/audio_features.py` | audio loading (librosa) + BPM and RMS in a single pass |
-| `analysis/vibe.py` | tempo buckets + percentile energy (two-pass) → vibe |
-| `analysis/structure.py` | structural segmentation (Foote novelty over self-similarity) → phrase boundaries |
-| `analysis/sections.py` | section classification (Intro/Build-up/Drop/Breakdown/Outro) from energy arc and bass presence |
-| `analysis/vocals.py` | vocal detection via source separation (Demucs): sung regions + 🎤 flag per section |
-| `analysis/waveform.py` | frequency-band colored waveform (djay Pro style) |
-| `analysis/dj_export.py` | export section cues to rekordbox XML (the hub format for third-party DJ software converters) |
-| `analysis/cache.py` | per-file cache (key = path, valid by mtime+size) |
-| `analysis/engine.py` | orchestration: two-pass, cache, organize plan |
-| `analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) feeding the genre/mood heads, over twelve 10 s windows spread across the track; BPM and key from tags or Essentia; groove from onset regularity |
-| `analysis/map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
-| `analysis/energy.py` | the four raw energy measures, and the library-wide ranking that turns them into a 1–10 |
-| `analysis/mood_scale.py` | the words of the mood onto one dark→bright axis (valence), by rank or by the model's real weights |
+| `core/analysis/tags.py` | read the genre tag via mutagen (ID3 for mp3, Vorbis comment for flac) |
+| `core/analysis/audio_features.py` | audio loading (librosa) + BPM and RMS in a single pass |
+| `core/analysis/vibe.py` | tempo buckets + percentile energy (two-pass) → vibe |
+| `core/analysis/structure.py` | structural segmentation (Foote novelty over self-similarity) → phrase boundaries |
+| `core/analysis/sections.py` | section classification (Intro/Build-up/Drop/Breakdown/Outro) from energy arc and bass presence |
+| `core/analysis/vocals.py` | vocal detection via source separation (Demucs): sung regions + 🎤 flag per section |
+| `core/analysis/waveform.py` | frequency-band colored waveform (djay Pro style) |
+| `core/analysis/dj_export.py` | export section cues to rekordbox XML (the hub format for third-party DJ software converters) |
+| `core/analysis/cache.py` | per-file cache (key = path, valid by mtime+size) |
+| `core/analysis/engine.py` | orchestration: two-pass, cache, organize plan |
+| `core/analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) feeding the genre/mood heads, over twelve 10 s windows spread across the track; BPM and key from tags or Essentia; groove from onset regularity |
+| `core/analysis/map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
+| `core/analysis/energy.py` | the four raw energy measures, and the library-wide ranking that turns them into a 1–10 |
+| `core/analysis/mood_scale.py` | the words of the mood onto one dark→bright axis (valence), by rank or by the model's real weights |
 | `energy_cli.py` | measure the four energy fields on tracks already on the map — re-reads the audio, resumable |
 | `mood_cli.py` | re-score valence from the stored embeddings — no audio, minutes instead of hours |
 | `zoo_cli.py` | try the model zoo's other four Discogs-EffNet heads (aggressive, relaxed, party, danceability) on the stored embeddings. Reports only — writes nothing, to no file and no tag |
-| `analysis/map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
-| `analysis/mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
-| `analysis/mood_scale.py` | the mood labels read as one scale, dark to bright: the height a playlist takes on the board, and which of a track's moods tells it apart |
-| `analysis/graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, and the roster of what comes next |
-| `analysis/map_job.py` | the map build as a long, resumable background job |
+| `core/analysis/map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
+| `core/analysis/mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
+| `core/analysis/mood_scale.py` | the mood labels read as one scale, dark to bright: the height a playlist takes on the board, and which of a track's moods tells it apart |
+| `core/analysis/graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, and the roster of what comes next |
+| `core/analysis/map_job.py` | the map build as a long, resumable background job |
 | `cli.py` | entry point 1 — batch CLI |
-| `app.py` | entry point 2 — Wavecut review app (Streamlit) |
+| `streamlit_app/app.py` | entry point 2 — Wavecut review app (Streamlit) |
 | `map_cli.py` | build the map in the background (long job, resumable) |
 
 **Audio loading.** Each file is loaded **once** (22050 Hz, mono); BPM/RMS are
@@ -53,7 +53,7 @@ computed on the first 60 s of that signal, segmentation over the whole track.
 **Vibe.** BPM → tempo bucket (`Warm-Up`/`Groove`/`Peak-Time`/
 `High-Energy-Tempo`); RMS → 33/66 percentiles relative to the library →
 `Low`/`Mid`/`High`. Final vibe e.g. `Peak-Time-High`. Buckets and percentiles
-are configured in `analysis/vibe.py`.
+are configured in `core/analysis/vibe.py`.
 
 ## Setup
 
@@ -92,7 +92,7 @@ were already processed: use `--no-cache` to force re-analysis.
 ### Streamlit app — Wavecut (review)
 
 ```bash
-poetry run streamlit run app.py
+poetry run streamlit run streamlit_app/app.py
 ```
 
 **Night mode.** The ⋮ menu at the top right switches between *System*, *Light*
@@ -115,7 +115,7 @@ report update live. A synced player lets you scrub the waveform and listen from
 any point to confirm by ear.
 
 > Section classification is **heuristic** (rules on energy and bass, thresholds
-> in `analysis/sections.py`): meant as a starting point to correct by ear, not
+> in `core/analysis/sections.py`): meant as a starting point to correct by ear, not
 > as ground truth. Ambiguous sections are labeled `Groove`. Consecutive sections
 > of the same type are **merged**: each tag marks a **phrase change**, so you can
 > anticipate in djay Pro what's coming next.

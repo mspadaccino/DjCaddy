@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from analysis.essentia_tags import (
+from core.analysis.essentia_tags import (
     Prediction,
     TagSettings,
     TrackTags,
@@ -199,7 +199,7 @@ def test_find_taggable_skips_macos_sidecars(tmp_path):
     non vanno nemmeno messi in coda. Sulla libreria reale sono 88.115 su
     116.381, e lo script originale li ritentava a ogni esecuzione perche',
     fallendo, non poteva segnarli come fatti."""
-    from analysis.essentia_tags import find_taggable
+    from core.analysis.essentia_tags import find_taggable
 
     (tmp_path / "sub").mkdir()
     (tmp_path / "Track.mp3").write_bytes(b"vero")
@@ -215,7 +215,7 @@ def test_find_taggable_skips_macos_sidecars(tmp_path):
 
 
 def test_find_taggable_covers_the_supported_formats(tmp_path):
-    from analysis.essentia_tags import find_taggable
+    from core.analysis.essentia_tags import find_taggable
 
     for name in ("a.mp3", "b.flac", "c.m4a", "d.wv", "e.wma", "f.txt"):
         (tmp_path / name).write_bytes(b"x")
@@ -228,7 +228,7 @@ def test_find_taggable_covers_the_supported_formats(tmp_path):
 def test_read_coverage_flattens_what_mutagen_returns(tmp_path, monkeypatch):
     """mutagen restituisce ora una stringa, ora una lista, ora un frame che
     contiene una lista: senza appiattire, il genere usciva come "['House']"."""
-    from analysis.essentia_tags import read_coverage
+    from core.analysis.essentia_tags import read_coverage
 
     class Frame:
         def __init__(self, text, desc=""):
@@ -250,7 +250,7 @@ def test_read_coverage_flattens_what_mutagen_returns(tmp_path, monkeypatch):
 def test_read_coverage_ignores_comments_with_a_description(tmp_path, monkeypatch):
     """Conta solo il commento a descrizione VUOTA: è l'unico che djay Pro
     mostra, ed è lì che vanno i mood."""
-    from analysis.essentia_tags import read_coverage
+    from core.analysis.essentia_tags import read_coverage
 
     class Frame:
         def __init__(self, text, desc):
@@ -267,7 +267,7 @@ def test_read_coverage_ignores_comments_with_a_description(tmp_path, monkeypatch
 
 
 def test_read_coverage_reports_unreadable_instead_of_raising(tmp_path, monkeypatch):
-    from analysis.essentia_tags import read_coverage
+    from core.analysis.essentia_tags import read_coverage
 
     monkeypatch.setattr("mutagen.File", lambda *a, **k: None)
     cov = read_coverage(tmp_path / "t.mp3")
@@ -277,7 +277,7 @@ def test_read_coverage_reports_unreadable_instead_of_raising(tmp_path, monkeypat
 @pytestmark_audio
 def test_read_coverage_round_trips_what_we_write(tmp_path):
     """La prova che conta: quello che scriviamo, lo rileggiamo."""
-    from analysis.essentia_tags import read_coverage
+    from core.analysis.essentia_tags import read_coverage
 
     src = next(TEST_AUDIO.glob("*.mp3"))
     target = tmp_path / "track.mp3"
@@ -292,12 +292,12 @@ def test_read_coverage_round_trips_what_we_write(tmp_path):
 
 
 def _cov(name, genre=None, comment=None, error=None):
-    from analysis.essentia_tags import TagCoverage
+    from core.analysis.essentia_tags import TagCoverage
     return TagCoverage(path=Path(name), genre=genre, comment=comment, error=error)
 
 
 def test_coverage_report_splits_readable_from_not():
-    from analysis.essentia_tags import CoverageReport
+    from core.analysis.essentia_tags import CoverageReport
 
     r = CoverageReport(items=[_cov("a.mp3", "House"), _cov("b.mp3", error="rotto")])
     assert [c.path.name for c in r.readable] == ["a.mp3"]
@@ -305,7 +305,7 @@ def test_coverage_report_splits_readable_from_not():
 
 
 def test_coverage_missing_filters():
-    from analysis.essentia_tags import CoverageReport
+    from core.analysis.essentia_tags import CoverageReport
 
     r = CoverageReport(items=[
         _cov("completo.mp3", "House", "Happy"),
@@ -327,7 +327,7 @@ def test_coverage_missing_filters():
 def test_default_workers_stays_within_the_machine():
     import os
 
-    from analysis.essentia_tags import default_workers
+    from core.analysis.essentia_tags import default_workers
 
     assert 1 <= default_workers() <= (os.cpu_count() or 2)
 
@@ -341,7 +341,7 @@ def test_analyze_many_reports_a_failure_without_losing_the_rest(monkeypatch):
     """
     from pathlib import Path
 
-    from analysis import essentia_tags as et
+    from core.analysis import essentia_tags as et
 
     class FakeAnalyzer:
         def __init__(self, settings, model_dir):
@@ -370,7 +370,7 @@ def test_percentages_in_the_comment_are_optional():
     accesa, anche le percentuali. Il campo MOOD dedicato resta pulito nei
     due casi: serve a chi legge i tag da programma, non da leggio.
     """
-    from analysis.essentia_tags import (
+    from core.analysis.essentia_tags import (
         Prediction, TagSettings, TrackTags, build_tag_values)
 
     tags = TrackTags(moods=[Prediction("happy", 0.8712),

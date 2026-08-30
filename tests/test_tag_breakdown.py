@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from analysis.tag_breakdown import as_text, build_breakdown, split_tag_value
+from core.analysis.tag_breakdown import as_text, build_breakdown, split_tag_value
 
 
 @dataclass

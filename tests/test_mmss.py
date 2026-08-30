@@ -1,4 +1,4 @@
-from analysis.models import format_elapsed, parse_mmss
+from core.analysis.models import format_elapsed, parse_mmss
 
 
 def test_parse_mmss_roundtrip():

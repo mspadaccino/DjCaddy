@@ -4,7 +4,7 @@
     {
       "name": "wavecut",
       "runtimeExecutable": "/Users/mauriziospadaccino/Library/Caches/pypoetry/virtualenvs/dj-library-tools-zJeVieB6-py3.14/bin/streamlit",
-      "runtimeArgs": ["run", "app.py", "--server.port", "8502", "--server.headless", "true"],
+      "runtimeArgs": ["run", "streamlit_app/app.py", "--server.port", "8502", "--server.headless", "true"],
       "port": 8502
     }
   ]

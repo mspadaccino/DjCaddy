@@ -1,6 +1,6 @@
 import numpy as np
 
-from analysis.structure import (
+from core.analysis.structure import (
     EDGE_GAP_BEATS,
     MIN_GAP_BEATS,
     _checkerboard_kernel,

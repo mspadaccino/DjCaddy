@@ -8,7 +8,7 @@ import os
 import subprocess
 import time
 
-from analysis.map_job import (caffeinated, pause_job, process_state,
+from core.analysis.map_job import (caffeinated, pause_job, process_state,
                               resume_job, stop_job)
 
 
@@ -68,7 +68,7 @@ def test_the_job_holds_sleep_off_for_as_long_as_it_lasts(monkeypatch):
     `caffeinate` vuole il comando come argomento, non un pid da sorvegliare:
     così la sveglia cade da sola quando il job finisce, comunque finisca.
     """
-    import analysis.map_job as map_job
+    import core.analysis.map_job as map_job
 
     monkeypatch.setattr(map_job.sys, "platform", "darwin")
     assert caffeinated(["python", "map_cli.py", "/Music"]) == [
@@ -76,7 +76,7 @@ def test_the_job_holds_sleep_off_for_as_long_as_it_lasts(monkeypatch):
 
 
 def test_elsewhere_the_command_is_left_alone(monkeypatch):
-    import analysis.map_job as map_job
+    import core.analysis.map_job as map_job
 
     monkeypatch.setattr(map_job.sys, "platform", "linux")
     assert caffeinated(["python", "map_cli.py"]) == ["python", "map_cli.py"]
@@ -87,7 +87,7 @@ def test_the_machine_is_kept_awake_only_while_the_work_lasts(monkeypatch):
     dimenticata accesa e' l'errore opposto, altrettanto scortese."""
     import subprocess as sp
 
-    from analysis import map_job
+    from core.analysis import map_job
 
     started, killed = [], []
 
@@ -110,7 +110,7 @@ def test_the_machine_is_kept_awake_only_while_the_work_lasts(monkeypatch):
 def test_without_caffeinate_the_work_still_runs(monkeypatch):
     import subprocess as sp
 
-    from analysis import map_job
+    from core.analysis import map_job
 
     monkeypatch.setattr(map_job.sys, "platform", "darwin")
     monkeypatch.setattr(sp, "Popen", lambda *a, **k: (_ for _ in ()).throw(OSError))
@@ -119,7 +119,7 @@ def test_without_caffeinate_the_work_still_runs(monkeypatch):
 
 
 def test_off_a_mac_there_is_nothing_to_keep_awake(monkeypatch):
-    from analysis import map_job
+    from core.analysis import map_job
 
     monkeypatch.setattr(map_job.sys, "platform", "linux")
     with map_job.awake():

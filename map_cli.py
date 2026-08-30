@@ -29,12 +29,12 @@ from pathlib import Path
 
 import numpy as np
 
-from analysis import energy, mood_scale
-from analysis.essentia_tags import available, missing_models
-from analysis.map_job import DEFAULT_MAP_STATE_FILE, run_job
-from analysis.map_profile import ProfileSettings, default_workers
-from analysis.map_projection import ProjectionSettings, project
-from analysis.map_store import MapStore, default_store_dir
+from core.analysis import energy, mood_scale
+from core.analysis.essentia_tags import available, missing_models
+from core.analysis.map_job import DEFAULT_MAP_STATE_FILE, run_job
+from core.analysis.map_profile import ProfileSettings, default_workers
+from core.analysis.map_projection import ProjectionSettings, project
+from core.analysis.map_store import MapStore, default_store_dir
 
 
 def _human(seconds: float) -> str:
