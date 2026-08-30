@@ -193,7 +193,20 @@ def main() -> None:
             print(f"    {Path(e['file']).name[:60]} — {e['error'][:70]}")
 
     if args.project:
+        # La pagina legge lo stato su file per sapere se il job sta ancora
+        # lavorando (`state.running`), e ricarica la mappa non appena non lo
+        # è più. La riproiezione è lo stesso job, non un lavoro a parte: se
+        # lo stato dicesse già "finito" da qui, la pagina si ricaricherebbe
+        # subito, prima che `coords.npy` abbia le posizioni dei brani appena
+        # aggiunti — e siccome quel ricaricamento è un colpo solo, nessuno
+        # gliene manda un secondo quando la proiezione finisce davvero.
+        state.finished_at = None
+        state.current = "proiezione UMAP…"
+        state.save(args.state_file)
         reproject(args.store, projection)
+        state.finished_at = time.time()
+        state.current = ""
+        state.save(args.state_file)
     elif state.written:
         print("\n  La mappa ha brani nuovi senza coordinate: "
               "`--project-only` (o il pulsante nella pagina) le calcola.")
