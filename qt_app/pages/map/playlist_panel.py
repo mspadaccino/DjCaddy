@@ -31,6 +31,7 @@ from core.viz.board import (DEFAULT_HEIGHT, HEIGHT_FIELDS, HEIGHT_MEANING,
 from core.viz.chapters import (CHAPTERS, assign_chapters,
                                board_chapter_regions)
 from core.viz.track_columns import genre_colors, reading
+from qt_app import theme
 from qt_app.state import AppState
 from qt_app.widgets.board_view import BoardView
 from qt_app.widgets.track_table import TrackTable
@@ -120,33 +121,50 @@ class PlaylistPanel(QWidget):
             lambda paths: self._push(list(paths), False))
         self._table.selection_paths_changed.connect(self.picked_changed.emit)
 
+        # Il numero vivo in pagina, il come e il perché nel tooltip: lo
+        # spazio qui è della tabella e della lavagna.
         self._worst = _dim("")
+        self._worst.setToolTip(theme.hint(
+            "The transition cost from each track to the next: 0 is "
+            "seamless, 1 as far as this library goes. Magic sort is what "
+            "brings the worst one down. Drag rows to reorder; the ✓ ticks "
+            "are what Quick List and the Chain Maker start from."))
 
         # Il Chapter Builder: creare, applicare, rifare.
+        chapters_why = theme.hint(
+            "Distribute the playlist across five emotional chapters of a "
+            "DJ set: Intro, Buildup, Tension, Climax, Release. The shading "
+            "on the board shows them; drag a card across a boundary to "
+            "move it to another chapter.")
         self._ch_create = QPushButton("📖 Create chapters")
+        self._ch_create.setToolTip(chapters_why)
         self._ch_create.clicked.connect(self._on_chapters_create)
         self._ch_apply = QPushButton("📖 Apply chapter order to playlist")
         self._ch_apply.clicked.connect(self._on_chapters_apply)
         self._ch_again = QPushButton("🔄 Re-assign chapters")
+        self._ch_again.setToolTip(chapters_why)
         self._ch_again.clicked.connect(self._on_chapters_create)
-        self._ch_told = _dim(
-            "Distribute the playlist across five emotional chapters of a DJ "
-            "set: Intro, Buildup, Tension, Climax, Release. The shading on "
-            "the board shows them; drag a card across a boundary to move it "
-            "to another chapter.")
         chapters_row = QHBoxLayout()
         for button in (self._ch_create, self._ch_apply, self._ch_again):
             chapters_row.addWidget(button)
         chapters_row.addStretch(1)
 
-        # La lavagna, con la misura dell'altezza.
+        # La lavagna, con la misura dell'altezza. Cosa significhi l'altezza
+        # scelta lo dice il tooltip della manopola; come si usa la lavagna,
+        # quello dell'etichetta accanto.
         self._axis = QComboBox()
         self._axis.addItems(list(HEIGHT_FIELDS))
         self._axis.setCurrentText(DEFAULT_HEIGHT)
+        self._axis.setToolTip(theme.hint(HEIGHT_MEANING[DEFAULT_HEIGHT]))
         self._axis.currentTextChanged.connect(lambda _: self._refresh_board())
-        self._axis_told = _dim(HEIGHT_MEANING[DEFAULT_HEIGHT])
+        height_label = QLabel("Height means")
+        height_label.setToolTip(theme.hint(
+            "Left to right the set plays; how high a card sits is the "
+            "measure picked here. Hover a point for its numbers, click to "
+            "pick it — underneath, ▶ listens and the bin takes it out of "
+            "the playlist. Drag a point sideways to move it in the set."))
         axis_row = QHBoxLayout()
-        axis_row.addWidget(QLabel("Height means"))
+        axis_row.addWidget(height_label)
         axis_row.addWidget(self._axis)
         axis_row.addStretch(1)
 
@@ -157,13 +175,7 @@ class PlaylistPanel(QWidget):
         bbox.setContentsMargins(0, 0, 0, 0)
         bbox.setSpacing(4)
         bbox.addLayout(axis_row)
-        bbox.addWidget(self._axis_told)
         bbox.addWidget(self._board, stretch=1)
-        bbox.addWidget(_dim(
-            "Left to right the set plays; how high a card sits is the "
-            "measure above. Hover a point for its numbers, click to pick "
-            "it — underneath, ▶ listens and the bin takes it out. Drag a "
-            "point sideways to move it in the set."))
 
         self._split = QSplitter(Qt.Orientation.Vertical)
         table_box = QWidget()
@@ -172,7 +184,6 @@ class PlaylistPanel(QWidget):
         tbox.setSpacing(4)
         tbox.addWidget(self._table, stretch=1)
         tbox.addWidget(self._worst)
-        tbox.addWidget(self._ch_told)
         tbox.addLayout(chapters_row)
         self._split.addWidget(table_box)
         self._split.addWidget(board_box)
@@ -302,10 +313,7 @@ class PlaylistPanel(QWidget):
         steps = [self._cost.between(a, b)
                  for a, b in zip(playlist, playlist[1:])]
         worst = max(steps, default=0)
-        self._worst.setText(
-            f"Roughest transition: <b>{worst:.3f}</b>. Magic sort is what "
-            "brings that number down. Drag rows to reorder; the ✓ ticks "
-            "here are what Quick List and the Chain Maker start from.")
+        self._worst.setText(f"Roughest transition: <b>{worst:.3f}</b> · ⓘ")
 
         fresh = ch_lookup is None
         self._ch_create.setVisible(fresh)
@@ -323,7 +331,7 @@ class PlaylistPanel(QWidget):
         frame, at_path, common = (self._lib.frame, self._lib.at_path,
                                   self._lib.common)
         axis = self._axis.currentText()
-        self._axis_told.setText(HEIGHT_MEANING[axis])
+        self._axis.setToolTip(theme.hint(HEIGHT_MEANING[axis]))
         paths = [frame.at[i, "path"] for i in playlist]
         regions = board_chapter_regions(self._chapter_lookup(playlist),
                                         playlist)

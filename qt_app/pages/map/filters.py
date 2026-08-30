@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (QDoubleSpinBox, QGridLayout, QHBoxLayout,
                                QPushButton, QVBoxLayout, QWidget)
 
 from core.viz.filters import filter_tracks, span
+from qt_app import theme
 from qt_app.widgets.wheel_view import WheelView
 
 
@@ -108,23 +109,19 @@ class FiltersPanel(QWidget):
         self._debounce.setInterval(350)
         self._debounce.timeout.connect(self.changed.emit)
 
-        told = QLabel("Filters narrow the map, the suggestions and the "
-                      "roster. Nothing picked means everything passes.")
-        told.setObjectName("dim")
-        told.setWordWrap(True)
-
         # Un quadrato fisso, centrato: l'SVG della ruota si allarga quanto
         # gli si dà e tiene la proporzione — largo quanto la colonna
         # chiederebbe più altezza di quanta ne ha, e usciva tagliato.
         self._wheel = WheelView()
         self._wheel.setFixedSize(300, 306)
+        self._wheel.setToolTip(theme.hint(
+            "Pick the keys you want to land on. Nothing picked means "
+            "every key is welcome."))
         self._wheel.key_toggled.connect(self._on_key)
         wheel_row = QHBoxLayout()
         wheel_row.addStretch(1)
         wheel_row.addWidget(self._wheel)
         wheel_row.addStretch(1)
-        wheel_told = QLabel("Pick the keys you want to land on.")
-        wheel_told.setObjectName("dim")
 
         self._genres = CheckList("Genres")
         self._moods = CheckList("Moods")
@@ -152,6 +149,11 @@ class FiltersPanel(QWidget):
         self._count = QLabel("")
         self._count.setObjectName("dim")
         self._count.setWordWrap(True)
+        self._count.setToolTip(theme.hint(
+            "Filters narrow the map, the suggestions and the roster. "
+            "Nothing picked means everything passes. A track carrying ANY "
+            "of the chosen genres (or moods) stays: tracks are multi-label "
+            "on purpose."))
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -161,9 +163,7 @@ class FiltersPanel(QWidget):
         grid.addWidget(gr_row, 1, 1)
 
         box = QVBoxLayout(self)
-        box.addWidget(told)
         box.addLayout(wheel_row)
-        box.addWidget(wheel_told)
         box.addLayout(lists_row, stretch=1)
         box.addLayout(grid)
         box.addWidget(reset)
@@ -202,8 +202,7 @@ class FiltersPanel(QWidget):
             (self._bpm_low.value(), self._bpm_high.value()),
             (self._gr_low.value(), self._gr_high.value()))
         self._count.setText(
-            f"{len(out):,} of {len(frame):,} tracks pass — the map, the "
-            "suggestions and the roster all come from these.")
+            f"{len(out):,} of {len(frame):,} tracks pass · ⓘ")
         return out
 
     # --- i gesti ---

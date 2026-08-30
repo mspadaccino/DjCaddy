@@ -39,6 +39,14 @@ SELECTED_ROW = QColor(255, 75, 75, 76)
 _SELECTED_CSS = (f"rgba({SELECTED_ROW.red()}, {SELECTED_ROW.green()}, "
                  f"{SELECTED_ROW.blue()}, {SELECTED_ROW.alphaF():.2f})")
 
+
+def hint(text: str) -> str:
+    """Un tooltip che va a capo: il testo piano Qt lo scrive su una riga
+    sola, lunga quanto lo schermo — da rich text si impagina. Le parti
+    descrittive della pagina vivono nei tooltip apposta (lo spazio è dei
+    grafici e delle tabelle), quindi qui passano tutte."""
+    return "<qt>" + text.replace("\n", "<br>") + "</qt>"
+
 _QSS = f"""
 QMainWindow, QWidget {{
     background: {BACKGROUND};

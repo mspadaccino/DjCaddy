@@ -121,7 +121,6 @@ class QuadrantPane(QWidget):
 
         self._info = _dim("")
         self._info.setVisible(False)
-        self._told = _dim("")
 
         box = QVBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
@@ -129,7 +128,6 @@ class QuadrantPane(QWidget):
         box.addLayout(axes)
         box.addWidget(self._info)
         box.addWidget(self._view, stretch=1)
-        box.addWidget(self._told)
 
     def set_cloud(self, drawn, top: list[str], frame, visible) -> None:
         self._drawn, self._top = drawn, top
@@ -174,12 +172,14 @@ class QuadrantPane(QWidget):
         if self._marks is not None:
             self._view.set_overlays(overlay_figure(self._places, self._marks, dark=True))
 
-        told = [f"**{name}** — {AXIS_HELP[name]}" for name in names
-                if name in AXIS_HELP]
-        cross = guide_caption(guides, columns, names)
-        if cross:
-            told.append(cross)
-        self._told.setText("\n\n".join(told).replace("**", ""))
+        # Cosa dice ogni asse — e dove passa la croce — si legge fermandosi
+        # col mouse sulla sua manopola: scritto sotto al disegno erano
+        # quindici righe, e il disegno è quello che qui deve avere spazio.
+        cross = guide_caption(guides, columns, names).replace("**", "")
+        for combo, name in ((self._by_x, names[0]), (self._by_y, names[1])):
+            told = AXIS_HELP.get(name, "")
+            combo.setToolTip(theme.hint(told + ("\n\n" + cross
+                                                if cross else "")))
 
 
 class MapPage(QWidget):
@@ -226,17 +226,18 @@ class MapPage(QWidget):
         # La riga in alto: le due manopole del disegno, il job, i settaggi.
         self._level = QComboBox()
         self._level.addItems(list(GENRE_LEVELS))
-        self._level.setToolTip(
+        self._level.setToolTip(theme.hint(
             "Discogs labels are already two-level. The macro genre leaves "
             "almost nothing grey; the detailed one separates the house from "
-            "the disco, at the cost of a larger 'other'.")
+            "the disco, at the cost of a larger 'other'."))
         self._level.currentTextChanged.connect(lambda _: self._rebuild_cloud())
         self._size_by = QComboBox()
         self._size_by.addItems(list(SIZE_FIELDS))
-        self._size_by.setToolTip(
-            "What the diameter of a point says. The position already says "
-            "how a track sounds; this is room for a number you can read. "
-            "Tracks missing that number stay at the smallest size.")
+        self._size_by.setToolTip(theme.hint(
+            "What the diameter of a point says (scaled 5th–95th "
+            "percentile). The position already says how a track sounds; "
+            "this is room for a number you can read. Tracks missing that "
+            "number stay at the smallest size."))
         self._size_by.currentTextChanged.connect(
             lambda _: self._rebuild_cloud())
         self._job_told = _dim("")
@@ -271,7 +272,16 @@ class MapPage(QWidget):
         self._views.addTab(self._quad, "⊞ Quadrants")
         self._views.currentChanged.connect(self._on_view_changed)
 
+        # La didascalia porta i NUMERI (quanti brani, quanti in attesa); il
+        # come si usa sta nel suo tooltip — lo spazio è della mappa.
         self._caption = _dim("Opening the map…")
+        self._caption.setToolTip(theme.hint(
+            "Click a point to make it the seed. In the toolbar above the "
+            "chart, the lasso and the box grab the group they enclose — one "
+            "track is a seed, two or more are a selection; double-click "
+            "clears it. Scroll to zoom. Above "
+            f"{MAX_POINTS:,} tracks a stable random sample is drawn; the "
+            "suggestions still consider every one."))
 
         # La fila del seme: ascolta, aggiungi, cerca, togli, sfoglia.
         self._listen = QPushButton("▶")
@@ -303,6 +313,8 @@ class MapPage(QWidget):
         self._trouble.setVisible(False)
         self._matches_told = _dim("")
         self._matches_told.setVisible(False)
+        self._matches_told.setToolTip(theme.hint(
+            "▶ plays a track; double-click a row makes it the seed."))
         # Fra i risultati si sceglie con l'orecchio: il ▶ di riga suona il
         # brano, il doppio clic resta il gesto che lo fa seme.
         self._matches = TrackTable()
@@ -491,20 +503,12 @@ class MapPage(QWidget):
     def _refresh_caption(self) -> None:
         store, visible = self._lib.store, self._visible
         waiting = len(store) - self._lib.placed
-        size_by = self._size_by.currentText()
         self._caption.setText(
-            (f"Point size: {size_by} (scaled 5th–95th percentile) · "
-             if SIZE_FIELDS[size_by] else "")
-            + f"{len(visible):,} track(s) on the map"
-            + (f" — {MAX_POINTS:,} drawn, a stable random sample; the "
-               "suggestions still consider every one." if self._sampled
-               else "")
-            + " · Click a point to make it the seed. In the toolbar above "
-              "the chart, the lasso and the box grab the group they "
-              "enclose. Scroll to zoom."
-            + (f"  ➕ {waiting:,} track(s) analyzed since the last "
-               "projection are not placed yet — recompute it in ⚙️ Map "
-               "settings." if waiting else ""))
+            f"{len(visible):,} track(s) on the map"
+            + (f" — {MAX_POINTS:,} drawn (sample)" if self._sampled else "")
+            + (f" · ➕ {waiting:,} not placed yet: recompute the projection "
+               "in ⚙️ Map settings" if waiting else "")
+            + " · ⓘ")
 
     def _schedule_overlays(self) -> None:
         if not self._overlay_queued:
@@ -701,9 +705,8 @@ class MapPage(QWidget):
         found = matching_tracks(frame, self._pool, words)
         self._matches_told.setText(
             f"{len(found):,} match"
-            + (f" — showing the first {SEED_MATCHES_MAX}."
-               if len(found) > SEED_MATCHES_MAX else ".")
-            + " ▶ plays a track; double-click a row to make it the seed.")
+            + (f" — showing the first {SEED_MATCHES_MAX}"
+               if len(found) > SEED_MATCHES_MAX else "") + " · ⓘ")
         self._matches_told.setVisible(True)
         rows = frame.loc[found[:SEED_MATCHES_MAX]]
         shown = track_frame(rows, self._lib.common)

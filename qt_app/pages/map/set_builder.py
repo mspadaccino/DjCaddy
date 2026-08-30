@@ -31,6 +31,7 @@ from core.analysis.graph_playlist import GraphPlaylist, suggestions
 from core.analysis.mixing import magic_sort, nearest, sorted_after
 from core.viz.board import _label, chain_table, roster_table
 from core.viz.track_columns import READING_ORDER, genre_colors, reading
+from qt_app import theme
 from qt_app.state import AppState
 from qt_app.widgets.track_table import TrackTable
 
@@ -226,17 +227,18 @@ class SetBuilderPanel(QWidget):
         gbox = QVBoxLayout(group)
         self._group_told = QLabel("")
         gbox.addWidget(self._group_told)
-        gbox.addWidget(_dim(
-            "Magic sort walks all of them once, in the order that keeps "
-            "every transition cheap — the travelling-salesman path over the "
-            "cost. It is the answer to a folder of tracks in no order."))
         self._group_table = TrackTable()
         self._wire(self._group_table)
         gbox.addWidget(self._group_table, stretch=1)
         row = QHBoxLayout()
         self._sort_append = QPushButton("✨ Magic sort and append")
-        self._sort_append.setToolTip("Sorted among themselves, then added "
-                                     "after what the playlist already holds.")
+        # Il come e il perché stanno sul bottone che li fa: scritti sotto
+        # il titolo erano tre righe tolte alla tabella.
+        self._sort_append.setToolTip(theme.hint(
+            "Magic sort walks all of them once, in the order that keeps "
+            "every transition cheap — the travelling-salesman path over "
+            "the cost. Sorted among themselves, then added after what the "
+            "playlist already holds."))
         self._sort_append.clicked.connect(self._on_sort_append)
         self._plain_append = QPushButton("➕ Append them, unsorted")
         self._plain_append.clicked.connect(
@@ -255,18 +257,18 @@ class SetBuilderPanel(QWidget):
         # Il seme: la Quick List vera e propria.
         seed = QWidget()
         sbox = QVBoxLayout(seed)
-        sbox.addWidget(_dim(
-            "Ranked by the transition cost — sound, tempo and key together, "
-            "with the weights above. Only tracks that pass the filters are "
-            "considered. The first row is the seed itself."))
+        mixes_why = theme.hint(
+            "Ranked by the transition cost — sound, tempo and key "
+            "together, with the weights above. Only tracks that pass the "
+            "filters are considered. The first row is the seed itself.")
         self._mixes_ask = QPushButton("✨ Make the list")
-        self._mixes_ask.setToolTip("Builds the list of what mixes out of "
-                                   "this seed.")
+        self._mixes_ask.setToolTip(mixes_why)
         self._mixes_ask.clicked.connect(self._on_ask_mixes)
         sbox.addWidget(self._mixes_ask)
         self._mixes_wait = _dim(WAITING_FOR_THE_BUTTON)
         sbox.addWidget(self._mixes_wait)
         self._mixes_table = TrackTable(checkable=True)
+        self._mixes_table.setToolTip(mixes_why)
         self._wire(self._mixes_table)
         sbox.addWidget(self._mixes_table, stretch=1)
         self._mixes_add = QPushButton("➕ Add selected to the playlist")
@@ -296,19 +298,19 @@ class SetBuilderPanel(QWidget):
 
         seed = QWidget()
         sbox = QVBoxLayout(seed)
-        sbox.addWidget(_dim(
+        alike_why = theme.hint(
             "Pure acoustic closeness, measured in the 1280 dimensions of "
             "the embedding — not on the flattened map, and with no regard "
             "for tempo or key. A different question from 'what mixes out "
-            "of this'. The first row is the seed itself, here too."))
+            "of this'. The first row is the seed itself, here too.")
         self._alike_ask = QPushButton("✨ Make the list")
-        self._alike_ask.setToolTip("Builds the list of what sounds like "
-                                   "this seed.")
+        self._alike_ask.setToolTip(alike_why)
         self._alike_ask.clicked.connect(self._on_ask_alike)
         sbox.addWidget(self._alike_ask)
         self._alike_wait = _dim(WAITING_FOR_THE_BUTTON)
         sbox.addWidget(self._alike_wait)
         self._alike_table = TrackTable(checkable=True)
+        self._alike_table.setToolTip(alike_why)
         self._wire(self._alike_table)
         sbox.addWidget(self._alike_table, stretch=1)
         self._alike_add = QPushButton("➕ Add selected to the playlist")
