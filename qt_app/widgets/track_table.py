@@ -137,6 +137,10 @@ class PandasModel(QAbstractTableModel):
         # (BackgroundRole). Per percorso e non per riga: la tabella si
         # riordina e si rifà, il brano resta quello.
         self.playing: str | None = None
+        # Le righe SEGNALATE — i possibili doppioni della playlist:
+        # path -> (tinta di fondo, tooltip che dice il perché). Per
+        # percorso come `playing`, e per la stessa ragione.
+        self.marks: dict[str, tuple[QColor, str]] = {}
 
     # --- il frame ---
     @property
@@ -173,8 +177,14 @@ class PandasModel(QAbstractTableModel):
         if not index.isValid():
             return None
         if role == Qt.ItemDataRole.BackgroundRole:
-            return (theme.PLAYING_ROW if self.playing is not None
-                    and self.path_at(index.row()) == self.playing else None)
+            path = self.path_at(index.row())
+            if self.playing is not None and path == self.playing:
+                return theme.PLAYING_ROW
+            mark = self.marks.get(path)
+            return mark[0] if mark else None
+        if role == Qt.ItemDataRole.ToolTipRole:
+            mark = self.marks.get(self.path_at(index.row()))
+            return mark[1] if mark else None
         value = self._frame[self._shown()[index.column()]].iloc[index.row()]
         if role == PILLS_ROLE:
             return value
@@ -608,6 +618,15 @@ class TrackTable(QTableView):
         if path == self._model.playing:
             return
         self._model.playing = path
+        self.viewport().update()
+
+    def set_marks(self, marks: dict[str, tuple[QColor, str]]) -> None:
+        """Le righe da segnalare (path -> (tinta, tooltip)): i possibili
+        doppioni della playlist. Il giallo dell'ascolto vince comunque —
+        dice cosa sta suonando ADESSO, la tinta aspetta la fine."""
+        if marks == self._model.marks:
+            return
+        self._model.marks = dict(marks)
         self.viewport().update()
 
     def mousePressEvent(self, event) -> None:

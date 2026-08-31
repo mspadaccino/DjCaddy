@@ -42,6 +42,14 @@ SELECTED_ROW = QColor(255, 75, 75, 76)
 # colore suo perché dice una cosa diversa dal rosso della selezione —
 # rosso = l'ho scelto, giallo = lo sto sentendo — e i due capitano insieme.
 PLAYING_ROW = QColor(255, 233, 77, 46)
+
+# Le righe dei POSSIBILI DOPPIONI in playlist. Due tinte perché dicono due
+# cose diverse: arancio = stesso titolo sotto due file (quasi certo lo
+# stesso pezzo), viola = due file che suonano quasi identici (da
+# ascoltare). Trasparenti come le altre righe-segnale, su tinte che non si
+# confondono né col rosso della selezione né col giallo dell'ascolto.
+TWIN_NAME_ROW = QColor(255, 160, 60, 64)
+TWIN_SOUND_ROW = QColor(150, 120, 255, 60)
 _SELECTED_CSS = (f"rgba({SELECTED_ROW.red()}, {SELECTED_ROW.green()}, "
                  f"{SELECTED_ROW.blue()}, {SELECTED_ROW.alphaF():.2f})")
 

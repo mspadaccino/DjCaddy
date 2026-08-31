@@ -15,9 +15,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel,
                                QMessageBox, QPushButton, QSplitter,
                                QVBoxLayout, QWidget)
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel,
 from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml,
                                      playlist_positions, read_m3u8,
                                      read_title_artist)
+from core.analysis.duplicates import song_key
 from core.analysis.mixing import TransitionCost, magic_sort
 from core.viz.board import (DEFAULT_HEIGHT, HEIGHT_FIELDS, HEIGHT_MEANING,
                             board_payload, reordered)
@@ -67,6 +70,91 @@ def playlist_rows(frame: pd.DataFrame, cost: TransitionCost,
         ["file", "BPM", "key", "energy", "groove", "emotion",
          "from previous", "mood", "genres", "folder", "_path"]
     return pd.DataFrame(listed, columns=order)
+
+
+# Sopra questa somiglianza (coseno sugli embedding, la stessa misura di
+# «Sounds like it») due brani della playlist si segnalano come lo stesso
+# pezzo sotto nomi diversi. Alta apposta: verso 0.9 si pescano i vicini di
+# genere, qui si vuole lo stesso audio — rip, edit, radio cut. È solo una
+# tinta informativa: sbagliare per eccesso costa un'occhiata, non un brano.
+SOUND_TWIN_MIN = 0.97
+
+
+def playlist_doubles(paths: list[str], vectors: np.ndarray | None,
+                     twin_min: float = SOUND_TWIN_MIN
+                     ) -> tuple[list[list[int]], list[tuple[int, int, float]]]:
+    """I sospetti doppioni della scaletta: (gruppi per nome, coppie per
+    suono), come posizioni 0-based nella playlist.
+
+    Per nome comanda `song_key`, la chiave larga fatta apposta per le
+    scalette: numero di traccia e parentesi del mix non distinguono, perché
+    due edit dello stesso pezzo in serata sono un doppione. Per suono il
+    coseno sugli embedding (`vectors`, una riga per brano della playlist)
+    sopra `twin_min`; le coppie che stanno già in un gruppo per nome non si
+    ripetono — il nome è il segnale più forte, il suono aggiunge solo i
+    gemelli che si chiamano in modo diverso.
+    """
+    by_song: dict[str, list[int]] = {}
+    for n, path in enumerate(paths):
+        by_song.setdefault(song_key(Path(path)), []).append(n)
+    groups = [g for g in by_song.values() if len(g) > 1]
+    group_of = {n: k for k, g in enumerate(groups) for n in g}
+
+    pairs: list[tuple[int, int, float]] = []
+    if vectors is not None and len(paths) > 1:
+        unit = vectors / np.maximum(
+            np.linalg.norm(vectors, axis=1, keepdims=True), 1e-9)
+        scores = unit @ unit.T
+        # Il triangolo alto: ogni coppia una volta, mai (n, n). Gli zeri
+        # che triu lascia sotto non passano la soglia, che è ben sopra.
+        for a, b in np.argwhere(np.triu(scores, k=1) >= twin_min):
+            a, b = int(a), int(b)
+            same_name = (a in group_of and b in group_of
+                         and group_of[a] == group_of[b])
+            if not same_name:
+                pairs.append((a, b, float(scores[a, b])))
+    return groups, pairs
+
+
+def double_marks(paths: list[str], vectors: np.ndarray | None,
+                 twin_min: float = SOUND_TWIN_MIN
+                 ) -> tuple[dict[str, tuple[QColor, str]], str | None]:
+    """Le tinte dei sospetti per `TrackTable.set_marks`, e il resoconto.
+
+    path -> (tinta, tooltip): arancio per lo stesso pezzo sotto altro nome,
+    viola per due file che suonano quasi identici — dove valgono entrambi
+    veste il nome, che è il segnale più forte, e il tooltip li dice tutti.
+    Il resoconto è la riga sotto la tabella, None quando non c'è niente da
+    segnalare.
+    """
+    groups, pairs = playlist_doubles(paths, vectors, twin_min)
+    noted: dict[int, tuple[QColor, list[str]]] = {}
+
+    def note(n: int, tint: QColor, line: str) -> None:
+        noted.setdefault(n, (tint, []))[1].append(line)
+
+    for g in groups:
+        for n in g:
+            others = ", ".join(f"#{m + 1}" for m in g if m != n)
+            note(n, theme.TWIN_NAME_ROW,
+                 f"Reads as the same song as {others} — same name once "
+                 "track numbers and (mix) notes are stripped.")
+    for a, b, score in pairs:
+        for n, other in ((a, b), (b, a)):
+            note(n, theme.TWIN_SOUND_ROW,
+                 f"Sounds nearly identical to #{other + 1} "
+                 f"(similarity {score:.3f}).")
+    if not noted:
+        return {}, None
+    marks = {paths[n]: (tint, theme.hint("<br>".join(lines)))
+             for n, (tint, lines) in noted.items()}
+    named = sum(len(g) for g in groups)
+    parts = ([f"{named} row(s) share a song name"] if named else []) + \
+        ([f"{len(noted) - named} sound nearly identical"] if
+         len(noted) > named else [])
+    told = ("🎭 Possible doubles — " + ", ".join(parts)
+            + ". The tinted rows: hover one for its partner.")
+    return marks, told
 
 
 class PlaylistPanel(QWidget):
@@ -130,6 +218,18 @@ class PlaylistPanel(QWidget):
             "brings the worst one down. Drag rows to reorder; the ✓ ticks "
             "are what Quick List and the Chain Maker start from."))
 
+        # I possibili doppioni: la riga compare solo quando ce ne sono, il
+        # resto del racconto sta nelle tinte delle righe e nei loro tooltip.
+        self._doubles = _dim("")
+        self._doubles.setToolTip(theme.hint(
+            "Orange rows: the playlist reads as holding the same song "
+            "twice — different files, same name once numbering and (mix) "
+            "notes are stripped. Violet rows: two files that sound nearly "
+            "identical, whatever their names. A tint is a question, not a "
+            "verdict: hover it for the partner, listen, then tick what you "
+            "don't want twice and 🗑 Remove ticked."))
+        self._doubles.setVisible(False)
+
         # Il Chapter Builder: creare, applicare, rifare.
         chapters_why = theme.hint(
             "Distribute the playlist across five emotional chapters of a "
@@ -184,6 +284,7 @@ class PlaylistPanel(QWidget):
         tbox.setSpacing(4)
         tbox.addWidget(self._table, stretch=1)
         tbox.addWidget(self._worst)
+        tbox.addWidget(self._doubles)
         tbox.addLayout(chapters_row)
         self._split.addWidget(table_box)
         self._split.addWidget(board_box)
@@ -309,6 +410,16 @@ class PlaylistPanel(QWidget):
         self._table.set_tracks(
             table, genre_colors(frame, table["genres"], dark=True))
         self._sort.setDisabled(len(playlist) < 3)
+
+        # I possibili doppioni, ricalcolati a ogni giro: la playlist è corta
+        # e il conto è banale, mentre una tinta rimasta da un giro prima
+        # mentirebbe. Gli embedding coprono ogni riga per costruzione dello
+        # store (righe e vettori si tengono al minimo comune in load).
+        marks, doubled = double_marks(
+            list(table["_path"]), self._lib.store.embeddings[playlist])
+        self._table.set_marks(marks)
+        self._doubles.setVisible(doubled is not None)
+        self._doubles.setText(doubled or "")
 
         steps = [self._cost.between(a, b)
                  for a, b in zip(playlist, playlist[1:])]

@@ -18,7 +18,8 @@ from core.analysis.map_profile import EMBEDDING_DIM, TrackProfile
 from core.analysis.map_store import MapStore
 from core.analysis.mixing import TransitionCost
 from qt_app.pages.map.library import library_frame
-from qt_app.pages.map.playlist_panel import playlist_rows
+from qt_app.pages.map.playlist_panel import (double_marks, playlist_doubles,
+                                             playlist_rows)
 from qt_app.pages.map.set_builder import numbered_rows
 
 
@@ -75,6 +76,63 @@ def test_playlist_rows_track_missing_a_chapter_stays_blank():
     table = playlist_rows(frame, cost_of(frame), [0, 1], common={},
                           ch_lookup={0: "Intro"})
     assert table.at[1, "chapter"] == []
+
+
+# --- i possibili doppioni della playlist ---
+
+def test_playlist_doubles_reads_the_same_song_through_its_disguises():
+    """Numero di traccia in testa e parentesi del mix non distinguono: sono
+    i travestimenti tipici dello stesso pezzo arrivato da fonti diverse."""
+    paths = ["/a/07 New Order - Ruined In A Day.mp3",
+             "/b/New Order - Ruined In A Day (club mix).mp3",
+             "/c/Totally Else.mp3"]
+    groups, pairs = playlist_doubles(paths, vectors=None)
+    assert groups == [[0, 1]]
+    assert pairs == []
+
+
+def test_playlist_doubles_hears_twins_only_above_the_threshold():
+    paths = ["/a/one.mp3", "/b/two.mp3", "/c/three.mp3"]
+    vectors = np.array([
+        [1.0, 0.0],
+        [0.9, 0.43589],     # coseno 0.9 col primo: vicino, non gemello
+        [0.9999, 0.01]])    # coseno ~1 col primo: gemello
+    groups, pairs = playlist_doubles(paths, vectors)
+    assert groups == []
+    assert [(a, b) for a, b, _ in pairs] == [(0, 2)]
+    assert pairs[0][2] > 0.99
+
+
+def test_playlist_doubles_name_group_absorbs_its_own_sound_pair():
+    """Due file dello stesso pezzo suonano anche uguali: la coppia per suono
+    dentro un gruppo per nome non si ripete — vale il segnale più forte. Il
+    gemello che si chiama in tutt'altro modo invece si aggiunge."""
+    paths = ["/a/07 Foo - Bar.mp3", "/b/Foo - Bar (edit).mp3",
+             "/c/Totally Else.mp3"]
+    groups, pairs = playlist_doubles(paths, np.ones((3, 4)))
+    assert groups == [[0, 1]]
+    assert [(a, b) for a, b, _ in pairs] == [(0, 2), (1, 2)]
+
+
+def test_double_marks_tint_name_over_sound_and_write_the_summary():
+    from qt_app import theme
+
+    paths = ["/a/07 Foo - Bar.mp3", "/b/Foo - Bar (edit).mp3",
+             "/c/Totally Else.mp3"]
+    marks, told = double_marks(paths, np.ones((3, 4)))
+    assert marks[paths[0]][0] is theme.TWIN_NAME_ROW
+    assert marks[paths[1]][0] is theme.TWIN_NAME_ROW
+    assert marks[paths[2]][0] is theme.TWIN_SOUND_ROW
+    assert "#2" in marks[paths[0]][1]          # il compagno per nome
+    assert "#1" in marks[paths[2]][1]          # uno dei gemelli per suono
+    assert "2 row(s) share a song name" in told
+    assert "1 sound nearly identical" in told
+
+
+def test_double_marks_stay_silent_on_a_clean_playlist():
+    marks, told = double_marks(["/a/one.mp3", "/b/two.mp3"], None)
+    assert marks == {}
+    assert told is None
 
 
 # --- le righe numerate della selezione ---

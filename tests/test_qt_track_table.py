@@ -296,6 +296,31 @@ def test_playing_row_wears_the_yellow(qtbot):
     assert model.data(model.index(1, 2), ground) is None
 
 
+def test_marked_rows_wear_their_tint_but_the_playing_yellow_wins(qtbot):
+    """I possibili doppioni si tingono per percorso (BackgroundRole) e
+    spiegano il perché nel tooltip; il giallo dell'ascolto resta più forte,
+    e a marks vuoti la tinta se ne va."""
+    from qt_app import theme
+
+    table = TrackTable()
+    qtbot.addWidget(table)
+    table.set_tracks(shown(), {})
+    model = table.model_
+    ground = Qt.ItemDataRole.BackgroundRole
+    tip = Qt.ItemDataRole.ToolTipRole
+    table.set_marks({"/x/two.mp3": (theme.TWIN_NAME_ROW, "same song as #1")})
+    assert model.data(model.index(1, 2), ground) == theme.TWIN_NAME_ROW
+    assert model.data(model.index(1, 2), tip) == "same song as #1"
+    assert model.data(model.index(0, 2), ground) is None
+    assert model.data(model.index(0, 2), tip) is None
+    table.set_playing("/x/two.mp3")
+    assert model.data(model.index(1, 2), ground) == theme.PLAYING_ROW
+    table.set_playing(None)
+    assert model.data(model.index(1, 2), ground) == theme.TWIN_NAME_ROW
+    table.set_marks({})
+    assert model.data(model.index(1, 2), ground) is None
+
+
 def test_ticks_survive_a_refresh_and_prune_the_missing(qtbot):
     table = TrackTable(checkable=True)
     qtbot.addWidget(table)
