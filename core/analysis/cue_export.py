@@ -202,42 +202,53 @@ class RekordboxPlan:
     unpaired: list[str]
 
 
+def default_hot(kind: str) -> bool:
+    """Se una riga nasce come hot cue o come memory cue.
+
+    Gli inizi di frase sì: sono i punti su cui si salta, ed è per quelli
+    che i pad esistono. Le regioni vocali no: diventano loop, e un loop su
+    un pad toglie il posto a una frase. Resta una PROPOSTA — la colonna
+    Hot della tabella la ribalta riga per riga.
+    """
+    return kind == PHRASE_START
+
+
+def wants_hot(row: dict) -> bool:
+    """Cosa chiede questa riga: la scelta dell'utente, o il default."""
+    value = row.get("hot")
+    return default_hot(row["kind"]) if value is None else bool(value)
+
+
 def plan_rekordbox_markers(rows) -> RekordboxPlan:
     """Assegna i marcatori di rekordbox alle righe, in ordine cronologico.
 
-    Gli INIZI di frase diventano cue: i primi otto sui pad A..H, gli altri
-    memory cue. Le fini di frase no, per la stessa ragione di djay: le
-    sezioni sono contigue, quindi la fine di una cade sull'inizio della
-    successiva e sarebbe un doppione.
+    Ogni riga dice se vuole un pad (`hot`, vedi `wants_hot`): chi lo vuole
+    prende un pad in ordine di tempo, finché ce n'è. I pad sono otto e non
+    di più, quindi la spunta è una RICHIESTA: la nona riga spuntata scende
+    a memory cue invece di scavalcare la prima, e la colonna slot lo dice.
+    Chi non lo vuole è memory cue da subito — e i memory cue non hanno un
+    numero da esaurire, quindi non si scarta mai niente (è la differenza
+    con `plan_djay_markers`, dove oltre l'ottavo slot si perdeva la riga).
 
-    Le regioni vocali diventano loop di memoria — servono entrambi gli
-    estremi, e uno solo non è una regione. Loop e cue NON si contendono i
-    pad qui, perché i loop nascono già memory: in rekordbox i pad sono otto
-    in tutto, e spenderli in loop vorrebbe dire non avere più dove mettere
-    le frasi.
+    Le fini di frase non diventano marcatori: le sezioni sono contigue,
+    quindi la fine di una cade sull'inizio della successiva e sarebbe un
+    doppione. Le regioni vocali diventano loop — servono entrambi gli
+    estremi, e uno solo non è una regione.
 
-    A differenza di `plan_djay_markers` non scarta niente: è il vantaggio
-    dei memory cue, che non hanno un numero da esaurire.
-
-    `rows`: iterabile di dict con id, kind, start, label.
+    `rows`: iterabile di dict con id, kind, start, label, e `hot` facoltativo.
     """
     rows = list(rows)
     by_id = {r["id"]: r for r in rows}
-    markers: list[RekordboxMarker] = []
     slot_label: dict[str, str] = {}
     unpaired: list[str] = []
 
-    phrases = sorted((r for r in rows if r["kind"] == PHRASE_START),
-                     key=lambda r: r["start"])
-    for i, r in enumerate(phrases):
-        pad = i + 1 if i < RB_HOT_CUES else None
-        markers.append(RekordboxMarker(r["id"], r["start"], None,
-                                       r.get("label") or r.get("tag") or "",
-                                       pad))
-        slot_label[r["id"]] = (f"Hot cue {chr(ord('A') + i)}" if pad
-                               else "Memory cue")
+    def label_of(row: dict) -> str:
+        return row.get("label") or row.get("tag") or ""
 
-    regions = []
+    # I candidati: una frase è un cue, una regione vocale è un loop. Il
+    # secondo elemento è la riga gemella, che per le frasi non c'è.
+    candidates: list[tuple[dict, dict | None]] = [
+        (r, None) for r in rows if r["kind"] == PHRASE_START]
     for r in rows:
         if r["kind"] != VOCAL_START_KIND:
             continue
@@ -245,19 +256,29 @@ def plan_rekordbox_markers(rows) -> RekordboxPlan:
         if end_row is None or end_row["start"] <= r["start"]:
             unpaired.append(r["id"])
             continue
-        regions.append((r, end_row))
+        candidates.append((r, end_row))
     for r in rows:
         if r["kind"] == VOCAL_END_KIND and "vs" + r["id"][2:] not in by_id:
             unpaired.append(r["id"])
 
-    regions.sort(key=lambda pair: pair[0]["start"])
-    for start_row, end_row in regions:
-        markers.append(RekordboxMarker(
-            start_row["id"], start_row["start"], end_row["start"],
-            start_row.get("label") or start_row.get("tag") or "", None))
-        slot_label[start_row["id"]] = slot_label[end_row["id"]] = "Loop"
+    candidates.sort(key=lambda pair: pair[0]["start"])
+    markers: list[RekordboxMarker] = []
+    pad = 1
+    for row, end_row in candidates:
+        take = wants_hot(row) and pad <= RB_HOT_CUES
+        here = pad if take else None
+        if take:
+            pad += 1
+        end = end_row["start"] if end_row is not None else None
+        markers.append(RekordboxMarker(row["id"], row["start"], end,
+                                       label_of(row), here))
+        what = "loop" if end is not None else "cue"
+        slot_label[row["id"]] = (
+            f"Hot {what} {chr(ord('A') + here - 1)}" if here
+            else f"Memory {what}")
+        if end_row is not None:
+            slot_label[end_row["id"]] = slot_label[row["id"]]
 
     for r in rows:
         slot_label.setdefault(r["id"], "")
-    markers.sort(key=lambda m: m.start)
     return RekordboxPlan(markers, slot_label, unpaired)

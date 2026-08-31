@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHeaderView,
                                QTableWidgetItem)
 
 from core.analysis.cue_export import (PHRASE_START, phrase_ends,
-                                      plan_rekordbox_markers)
+                                      plan_rekordbox_markers, wants_hot)
 from core.analysis.models import (SECTION_LABELS, VOCAL_END, VOCAL_START,
                                   format_elapsed, parse_mmss)
 
@@ -25,7 +25,7 @@ from core.analysis.models import (SECTION_LABELS, VOCAL_END, VOCAL_START,
 TAG_OPTIONS = list(SECTION_LABELS) + [VOCAL_START, VOCAL_END]
 
 _HEADERS = ["#", "▶", "Tag", "Start (mm:ss)", "End (mm:ss)", "Beats",
-            "slot", "🗑"]
+            "Hot", "slot", "🗑"]
 _TIPS = {
     "End (mm:ss)": "Dove finisce la frase, solo come riferimento: NON "
                    "diventa un cue. Le sezioni sono contigue, quindi "
@@ -33,6 +33,11 @@ _TIPS = {
                    "Le righe vocali hanno la loro fine nella riga gemella.",
     "Beats": "Lunghezza della frase in battiti, ricalcolata dalla fine "
              "corrente.",
+    "Hot": "Spuntata, questa riga chiede uno degli 8 pad hot cue (A-H); "
+           "spenta diventa un memory cue, che non ha numero e non si "
+           "esaurisce mai. È una RICHIESTA: i pad sono otto, quindi la nona "
+           "riga spuntata scende a memory da sola — la colonna qui accanto "
+           "dice sempre dove finisce davvero.",
     "slot": "Dove finisce questa riga una volta scritta: gli INIZI di frase "
             "sui pad hot-cue 1-8 (la posizione decide il colore), le "
             "regioni vocali sugli slot loop 1-8 (inizio e fine nello "
@@ -40,7 +45,8 @@ _TIPS = {
             "viene scritta.",
     "Start (mm:ss)": "Formato mm:ss o mm:ss.d, es. 1:07.3",
 }
-_COL_PLAY, _COL_TAG, _COL_START, _COL_DEL = 1, 2, 3, 7
+_COL_PLAY, _COL_TAG, _COL_START = 1, 2, 3
+_COL_HOT, _COL_SLOT, _COL_DEL = 6, 7, 8
 
 
 def view_rows(rows: list[dict], bpm: float | None,
@@ -58,7 +64,8 @@ def view_rows(rows: list[dict], bpm: float | None,
     starts = {r["id"]: r["start"] for r in ordered}
     ends = phrase_ends(kinds, starts, analysis_end)
     plan = plan_rekordbox_markers([
-        {"id": r["id"], "kind": r["kind"], "start": r["start"]}
+        {"id": r["id"], "kind": r["kind"], "start": r["start"],
+         "hot": r.get("hot")}
         for r in ordered])
     beat_seconds = (60.0 / bpm) if bpm else None
     out = []
@@ -68,6 +75,7 @@ def view_rows(rows: list[dict], bpm: float | None,
                  if r["kind"] == PHRASE_START and beat_seconds
                  and end is not None else None)
         out.append({**r, "end": end, "beats": beats,
+                    "hot": wants_hot(r),
                     "slot": plan.slot_label.get(r["id"], "")})
     return out
 
@@ -100,6 +108,7 @@ class CueTable(QTableWidget):
     tag_edited = Signal(str, str)       # rid, etichetta nuova
     start_edited = Signal(str, float)   # rid, secondi nuovi
     start_rejected = Signal()           # formato non valido: si ricarica
+    hot_toggled = Signal(str, bool)     # rid, pad sì/no
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -120,7 +129,8 @@ class CueTable(QTableWidget):
             | QAbstractItemView.EditTrigger.SelectedClicked)
         self.setItemDelegateForColumn(_COL_TAG, _TagDelegate(self))
         for column, width in ((0, 40), (_COL_PLAY, 30), (_COL_TAG, 130),
-                              (_COL_START, 110), (4, 110), (5, 64), (6, 84),
+                              (_COL_START, 110), (4, 110), (5, 64),
+                              (_COL_HOT, 44), (_COL_SLOT, 110),
                               (_COL_DEL, 30)):
             self.setColumnWidth(column, width)
         self.horizontalHeader().setSectionResizeMode(
@@ -157,7 +167,12 @@ class CueTable(QTableWidget):
                                      if row["end"] is not None else ""))
             self.setItem(at, 5, cell("" if row["beats"] is None
                                      else f"{row['beats']:g}"))
-            self.setItem(at, 6, cell(row["slot"]))
+            hot = cell("")
+            hot.setFlags(hot.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            hot.setCheckState(Qt.CheckState.Checked if row.get("hot")
+                              else Qt.CheckState.Unchecked)
+            self.setItem(at, _COL_HOT, hot)
+            self.setItem(at, _COL_SLOT, cell(row["slot"]))
             trash = cell("🗑")
             trash.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.setItem(at, _COL_DEL, trash)
@@ -185,6 +200,9 @@ class CueTable(QTableWidget):
             return
         if item.column() == _COL_TAG:
             self.tag_edited.emit(rid, item.text())
+        elif item.column() == _COL_HOT:
+            self.hot_toggled.emit(
+                rid, item.checkState() == Qt.CheckState.Checked)
         elif item.column() == _COL_START:
             seconds = parse_mmss(item.text())
             if seconds is None:

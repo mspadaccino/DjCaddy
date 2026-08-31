@@ -17,13 +17,16 @@ from core.analysis.rekordbox_write import (MEMORY_CUE, RekordboxWriteError,
                                            fit_to_free_pads)
 
 
-def plan_of(n_phrases: int, regions=()):
+def plan_of(n_phrases: int, regions=(), hot=None):
+    """Il piano per n frasi e le regioni date. `hot` sono le scelte
+    ESPLICITE per riga, come le tiene la pagina: {row_id: True/False}."""
     sections = [{"label": f"Phrase {i}", "start": i * 30.0,
                  "end": (i + 1) * 30.0} for i in range(n_phrases)]
     rows = build_cue_rows(sections, regions, bpm=120.0)
     return plan_rekordbox_markers([
         {"id": r["id"], "kind": r["kind"], "start": r["start"],
-         "label": r["label"]} for r in rows])
+         "label": r["label"], "hot": (hot or {}).get(r["id"])}
+        for r in rows])
 
 
 # --- il piano ---------------------------------------------------------------
@@ -51,7 +54,7 @@ def test_a_vocal_region_becomes_one_memory_loop():
     assert len(loops) == 1
     assert (loops[0].start, loops[0].end) == (45.0, 61.5)
     assert loops[0].pad is None       # i loop non rubano un pad alle frasi
-    assert plan.slot_label["vs0"] == plan.slot_label["ve0"] == "Loop"
+    assert plan.slot_label["vs0"] == plan.slot_label["ve0"] == "Memory loop"
 
 
 def test_a_vocal_marker_without_its_twin_is_unpaired():
@@ -65,6 +68,43 @@ def test_markers_come_out_in_time_order():
     plan = plan_of(3, [(45.0, 50.0)])
     assert [m.start for m in plan.markers] == sorted(
         m.start for m in plan.markers)
+
+
+# --- pad o memory, riga per riga --------------------------------------------
+
+def test_a_phrase_can_be_pushed_down_to_memory():
+    """La colonna Hot spenta: la frase non vuole un pad, e quel pad resta
+    per una riga più avanti nel brano."""
+    plan = plan_of(3, hot={"sec0": False})
+    by_id = {m.row_id: m for m in plan.markers}
+    assert by_id["sec0"].pad is None
+    assert plan.slot_label["sec0"] == "Memory cue"
+    assert [by_id["sec1"].pad, by_id["sec2"].pad] == [1, 2]
+
+
+def test_a_vocal_region_can_be_lifted_onto_a_pad():
+    """Un loop salvato su pad: rekordbox lo sa fare, e la spunta lo chiede."""
+    plan = plan_of(1, [(45.0, 61.5)], hot={"vs0": True})
+    loop = [m for m in plan.markers if m.end is not None][0]
+    assert loop.pad == 2                      # dopo sec0, che è a 0 s
+    assert plan.slot_label["vs0"] == "Hot loop B"
+    assert plan.slot_label["ve0"] == "Hot loop B"
+
+
+def test_the_ninth_asked_pad_falls_back_to_memory():
+    """La spunta è una richiesta, non una promessa: i pad sono otto."""
+    plan = plan_of(9)
+    by_id = {m.row_id: m for m in plan.markers}
+    assert by_id["sec7"].pad == RB_HOT_CUES
+    assert by_id["sec8"].pad is None
+    assert plan.slot_label["sec8"] == "Memory cue"
+
+
+def test_the_pads_go_in_time_order_not_in_row_order():
+    plan = plan_of(3, hot={"sec1": False})
+    by_id = {m.row_id: m for m in plan.markers}
+    assert [by_id["sec0"].pad, by_id["sec1"].pad, by_id["sec2"].pad] == \
+        [1, None, 2]
 
 
 # --- i campi di djmdCue -----------------------------------------------------

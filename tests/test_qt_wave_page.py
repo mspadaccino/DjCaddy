@@ -16,7 +16,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 
-from qt_app.pages.wave.cue_table import CueTable, view_rows
+from qt_app.pages.wave.cue_table import (_COL_DEL, _COL_HOT,
+                                         _COL_SLOT, CueTable,
+                                         view_rows)
 from qt_app.widgets.wave_review import WaveReview
 
 
@@ -47,7 +49,11 @@ def test_view_rows_sorted_by_time_with_ends_beats_slots():
     # Gli slot rekordbox: frasi sui pad A..H, la coppia vocale su UN loop.
     assert by_id["sec0"]["slot"] == "Hot cue A"
     assert by_id["sec1"]["slot"] == "Hot cue B"
-    assert by_id["vs0"]["slot"] == by_id["ve0"]["slot"] == "Loop"
+    assert by_id["vs0"]["slot"] == by_id["ve0"]["slot"] == "Memory loop"
+    # Le frasi nascono coi pad, le regioni vocali no: è il default che la
+    # colonna Hot ribalta riga per riga.
+    assert by_id["sec0"]["hot"] is True
+    assert by_id["vs0"]["hot"] is False
 
 
 def test_view_rows_moving_a_start_moves_the_previous_end():
@@ -78,7 +84,8 @@ def test_cue_table_rows_and_ids(qtbot):
     # Start in mm:ss, End della prima frase = inizio della seconda.
     assert table.item(0, 3).text() == "00:00.0"
     assert table.item(0, 4).text() == "00:30.0"
-    assert table.item(3, 6).text() == "Hot cue B"
+    assert table.item(3, _COL_SLOT).text() == "Hot cue B"
+    assert table.item(3, _COL_HOT).checkState() == Qt.CheckState.Checked
 
 
 def test_cue_table_start_edit_emits_seconds(qtbot):
@@ -119,7 +126,7 @@ def test_cue_table_play_and_delete_clicks(qtbot):
         table.cellClicked.emit(2, 1)
     assert caught.args == ["ve0"]
     with qtbot.waitSignal(table.delete_clicked) as caught:
-        table.cellClicked.emit(0, 7)
+        table.cellClicked.emit(0, _COL_DEL)
     assert caught.args == ["sec0"]
 
 

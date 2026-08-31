@@ -67,6 +67,10 @@ class WavePage(QWidget):
         self._deleted_vocal: dict[str, set[str]] = {}
         self._starts: dict[str, float] = {}
         self._labels: dict[str, str] = {}
+        # Chi vuole un pad e chi no, per riga: solo le scelte ESPLICITE,
+        # così una riga mai toccata segue il default di `wants_hot` invece
+        # di congelare quello che valeva al primo giro.
+        self._hot: dict[str, bool] = {}
         self._analysis_end: dict[str, float] = {}
         self._shown: list[dict] = []
         self._waves: dict[tuple, tuple] = {}
@@ -148,6 +152,7 @@ class WavePage(QWidget):
         self._table.tag_edited.connect(self._on_tag_edit)
         self._table.start_edited.connect(self._on_start_edit)
         self._table.start_rejected.connect(self._on_bad_start)
+        self._table.hot_toggled.connect(self._on_hot_toggle)
         self._table.setVisible(False)
 
         # Le due spunte di cosa scrivere: vivono nel blocco della scrittura,
@@ -285,7 +290,7 @@ class WavePage(QWidget):
         # Il brano nuovo riparte pulito: cancellazioni ed edit erano suoi.
         self._deleted_rows = set()
         self._deleted_vocal = {}
-        self._starts, self._labels = {}, {}
+        self._starts, self._labels, self._hot = {}, {}, {}
         self._invalidate_preview()
 
         self._say(f"Loaded from {Path(self._track['name']).stem}"
@@ -393,7 +398,8 @@ class WavePage(QWidget):
                 self._analysis_end[rid] = r["end"]
             rows.append({"id": rid, "kind": r["kind"],
                          "tag": self._labels[rid],
-                         "start": self._starts[rid]})
+                         "start": self._starts[rid],
+                         "hot": self._hot.get(rid)})
         return rows
 
     def _refresh_cues(self) -> None:
@@ -417,12 +423,20 @@ class WavePage(QWidget):
             del self._starts[rid]
         for rid in [r for r in self._labels if r.startswith(("vs", "ve"))]:
             del self._labels[rid]
+        for rid in [r for r in self._hot if r.startswith(("vs", "ve"))]:
+            del self._hot[rid]
         if self._track is not None and self._track.get("duration"):
             self._refresh_cues()
 
     def _show_floor(self) -> None:
         self._floor_label.setText(
             f"Vocal threshold (voice/mix dominance): {self._floor:.2f}")
+
+    def _on_hot_toggle(self, rid: str, hot: bool) -> None:
+        """Pad o memory per questa riga: cambia il piano, quindi il preview
+        mostrato non vale più (ci pensa `_refresh_cues`)."""
+        self._hot[rid] = hot
+        self._refresh_cues()
 
     def _on_tag_edit(self, rid: str, label: str) -> None:
         self._labels[rid] = label
