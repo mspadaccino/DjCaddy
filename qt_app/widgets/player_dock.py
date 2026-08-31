@@ -75,6 +75,7 @@ class PlayerDock(QWidget):
         self._player.positionChanged.connect(self._on_position)
         self._player.playbackStateChanged.connect(self._on_playback_state)
         self._player.durationChanged.connect(self._on_duration)
+        self._player.mediaStatusChanged.connect(self._on_media_status)
 
     def _build(self) -> None:
         self.setObjectName("player")
@@ -236,6 +237,10 @@ class PlayerDock(QWidget):
             self._pending_seek = None
             self._player.setPosition(int(seconds * 1000))
         self._on_position(self._player.position())
+
+    def _on_media_status(self, status) -> None:
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self._state.advance()   # la fine di un brano avanza la coda
 
     def _on_playback_state(self, playing) -> None:
         paused = playing != QMediaPlayer.PlaybackState.PlayingState

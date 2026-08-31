@@ -208,6 +208,10 @@ class PlaylistPanel(QWidget):
     # ------------------------------------------------------------------
     def _build(self, wire_table) -> None:
         self._title = QLabel("<b>Playlist</b>")
+        self._play_all = QPushButton("▶ Play all")
+        self._play_all.setToolTip("Plays the whole playlist in order, one "
+                                  "track after another.")
+        self._play_all.clicked.connect(self._on_play_all)
         self._sort = QPushButton("✨ Magic sort")
         self._sort.setToolTip("Reorders the whole playlist so every "
                               "transition stays cheap. Starts from the "
@@ -220,7 +224,7 @@ class PlaylistPanel(QWidget):
         self._reset.clicked.connect(lambda: self._push([], False))
         header = QHBoxLayout()
         header.addWidget(self._title, stretch=1)
-        for button in (self._sort, self._drop, self._reset):
+        for button in (self._play_all, self._sort, self._drop, self._reset):
             header.addWidget(button)
 
         self._empty = _dim(
@@ -439,7 +443,7 @@ class PlaylistPanel(QWidget):
         has = bool(playlist)
         self._empty.setVisible(not has)
         self._split.setVisible(has)
-        for button in (self._sort, self._drop, self._reset,
+        for button in (self._play_all, self._sort, self._drop, self._reset,
                        self._save_m3u8, self._save_xml):
             button.setDisabled(not has)
         self._title.setText(
@@ -498,6 +502,12 @@ class PlaylistPanel(QWidget):
     # ------------------------------------------------------------------
     # i gesti
     # ------------------------------------------------------------------
+    def _on_play_all(self) -> None:
+        frame = self._lib.frame
+        paths = [frame.at[i, "path"] for i in self.indices()]
+        if paths:
+            self._state.play_queue(paths)
+
     def _on_magic_sort(self) -> None:
         playlist = self.indices()
         if len(playlist) >= 3:
