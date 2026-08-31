@@ -51,7 +51,7 @@ class FolderPage(QWidget):
             "audio files only.")
         self._scan = QPushButton("Scan folder")
         self._scan.setStyleSheet(
-            f"QPushButton {{ background: {theme.PRIMARY}; color: white; }}")
+            theme.primary_button())
         self._scan.clicked.connect(self._on_scan)
         self._scan.setEnabled(False)
         top = QHBoxLayout()

@@ -41,6 +41,18 @@ _ROWS_MIME = "application/x-wavecut-rows"
 # Il nome della colonna di spunta delle tabelle `checkable`.
 CHECK_COLUMN = "✓"
 
+# Le righe che mettono DUE file a confronto — i duplicati dei livelli B e C,
+# dove nessuno dei due è "quello giusto" — hanno una casella per file: si
+# prende l'uno O l'altro. `_path` resta il file di sempre (quello che ▶
+# suona e che il doppio clic apre), `_path2` è il compagno.
+CHECK_A_COLUMN = "✓ A"
+CHECK_B_COLUMN = "✓ B"
+
+# Ogni colonna di spunta e il file che governa: è la sola mappa che lega
+# una casella a un percorso, e la leggono delegate, clic e menu.
+CHECK_FIELDS = {CHECK_COLUMN: "_path", CHECK_A_COLUMN: "_path2",
+                CHECK_B_COLUMN: "_path"}
+
 # La colonnina del play, su OGNI tabella: è il gemello del ▶ che
 # `play_table` mette nelle tabelle Streamlit. Un clic lì suona la riga e
 # non tocca la selezione — sentire un brano non è sceglierlo.
@@ -129,10 +141,15 @@ class PandasModel(QAbstractTableModel):
         """Le colonne visibili: quelle col nome che non comincia per `_`."""
         return [c for c in self._frame.columns if not str(c).startswith("_")]
 
-    def path_at(self, row: int) -> str | None:
-        if "_path" in self._frame and 0 <= row < len(self._frame):
-            return str(self._frame["_path"].iloc[row])
-        return None
+    def path_at(self, row: int, field: str = "_path") -> str | None:
+        """Il percorso di una riga. `field` sceglie QUALE: le righe che
+        confrontano due file portano anche `_path2`."""
+        if field not in self._frame or not 0 <= row < len(self._frame):
+            return None
+        value = self._frame[field].iloc[row]
+        if value is None or (not isinstance(value, str) and pd.isna(value)):
+            return None
+        return str(value)
 
     # --- dimensioni e dati ---
     def rowCount(self, parent=QModelIndex()) -> int:
@@ -311,7 +328,14 @@ class CheckDelegate(QStyledItemDelegate):
     un insieme della tabella (per percorso), si toccano SOLO dalla casella,
     e il clic normale resta quello che è: evidenzia la riga su cui si sta,
     senza toccare quello che si è già preso.
+
+    `field` è il file che la casella governa (vedi CHECK_FIELDS): una riga
+    che confronta due file ne ha due, una per ciascuno.
     """
+
+    def __init__(self, field: str = "_path", parent=None) -> None:
+        super().__init__(parent)
+        self._field = field
 
     def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
         _row_ground(painter, option, index)
@@ -323,7 +347,7 @@ class CheckDelegate(QStyledItemDelegate):
         table = self.parent()
         box.state = QStyle.StateFlag.State_Enabled | (
             QStyle.StateFlag.State_On
-            if table.is_row_picked(index.row())
+            if table.is_row_picked(index.row(), self._field)
             else QStyle.StateFlag.State_Off)
         option.widget.style().drawControl(
             QStyle.ControlElement.CE_CheckBox, box, painter, option.widget)
@@ -370,7 +394,9 @@ class TrackTable(QTableView):
     # dati (resizeColumnsToContents) visita OGNI riga, e una tabella da
     # novantamila righe si pianterebbe proprio nel gesto che Qt deve rendere
     # gratis.
-    _WIDTHS = {CHECK_COLUMN: 30, PLAY_COLUMN: 30, "#": 40, "file": 320,
+    _WIDTHS = {CHECK_COLUMN: 30, CHECK_A_COLUMN: 40, CHECK_B_COLUMN: 40,
+               PLAY_COLUMN: 30, "#": 40, "file": 320,
+               "file A": 300, "file B": 300,
                "BPM": 52, "key": 52,
                "energy": 60, "groove": 64, "emotion": 64, "mood": 120,
                "genres": 240, "cost": 56, "sound": 56, "bpm cost": 66,
@@ -392,7 +418,7 @@ class TrackTable(QTableView):
         # `play_table` in Streamlit.
         self._library_menu = library_menu
         self._playable = playable
-        self._check_delegate = CheckDelegate(self) if checkable else None
+        self._check_delegates: dict[str, CheckDelegate] = {}
         self._play_delegate = PlayDelegate(self)
         self._delegates: dict[str, PillDelegate] = {}
         self._genre_colors: dict[str, str] = {}
@@ -438,7 +464,11 @@ class TrackTable(QTableView):
                    genre_colors: dict[str, str] | None = None) -> None:
         """Mostra un frame di `track_frame`, e veste le colonne che conosce."""
         wants_play = self._playable and PLAY_COLUMN not in frame.columns
-        wants_check = self._checkable and CHECK_COLUMN not in frame.columns
+        # La casella la mette la tabella solo se il frame non ne porta già
+        # una sua: le righe a due file le dispongono da sé, ognuna accanto
+        # al file che governa.
+        wants_check = self._checkable and not any(
+            c in frame.columns for c in CHECK_FIELDS)
         if wants_play or wants_check:
             # Su una COPIA: il frame è di chi chiama, e una colonna comparsa
             # di soprassalto in casa sua sarebbe una sorpresa cattiva.
@@ -449,8 +479,12 @@ class TrackTable(QTableView):
                 frame.insert(0, CHECK_COLUMN, "")   # ✓ prima, ▶ subito dopo
         self._model.set_frame(frame)
         if self._checkable:
-            # I presi che il frame nuovo non porta più non sono più presi.
-            still = self._picked & {str(p) for p in frame.get("_path", [])}
+            # I presi che il frame nuovo non porta più non sono più presi —
+            # su entrambe le colonne, o il file di `_path2` cadrebbe a ogni
+            # ridisegno pur restando in tabella.
+            listed = {str(p) for field in ("_path", "_path2")
+                      for p in frame.get(field, [])}
+            still = self._picked & listed
             if still != self._picked:
                 self._picked = still
                 self.selection_paths_changed.emit(self.selected_paths())
@@ -468,9 +502,13 @@ class TrackTable(QTableView):
                      pill_color(n, v, self._genre_colors)), self)
             self.setItemDelegateForColumn(
                 shown.index(name), self._delegates[name])
-        if self._check_delegate is not None and CHECK_COLUMN in shown:
+        for name, field in CHECK_FIELDS.items():
+            if not self._checkable or name not in shown:
+                continue
+            if name not in self._check_delegates:
+                self._check_delegates[name] = CheckDelegate(field, self)
             self.setItemDelegateForColumn(
-                shown.index(CHECK_COLUMN), self._check_delegate)
+                shown.index(name), self._check_delegates[name])
         if PLAY_COLUMN in shown:
             self.setItemDelegateForColumn(
                 shown.index(PLAY_COLUMN), self._play_delegate)
@@ -486,18 +524,26 @@ class TrackTable(QTableView):
         resta la selezione della vista (una riga, ⌘/ctrl per estendere).
         """
         if self._checkable:
-            return [p for p in (self._model.path_at(r)
-                                for r in range(self._model.rowCount()))
-                    if p in self._picked]
+            # Lo stesso file può tornare su più righe (il compagno di un
+            # gruppo di tre copie sta su due righe): una volta sola.
+            out: list[str] = []
+            seen: set[str] = set()
+            for row in range(self._model.rowCount()):
+                for field in ("_path2", "_path"):
+                    path = self._model.path_at(row, field)
+                    if path in self._picked and path not in seen:
+                        seen.add(path)
+                        out.append(path)
+            return out
         rows = sorted({i.row() for i in self.selectionModel().selectedRows()})
         return [p for p in (self._model.path_at(r) for r in rows) if p]
 
-    def is_row_picked(self, row: int) -> bool:
-        return self._model.path_at(row) in self._picked
+    def is_row_picked(self, row: int, field: str = "_path") -> bool:
+        return self._model.path_at(row, field) in self._picked
 
-    def toggle_pick(self, row: int) -> None:
-        """Commuta la spunta di una riga — il solo gesto che tocca i presi."""
-        path = self._model.path_at(row)
+    def toggle_pick(self, row: int, field: str = "_path") -> None:
+        """Commuta la spunta di un file — il solo gesto che tocca i presi."""
+        path = self._model.path_at(row, field)
         if path is None:
             return
         self._picked.symmetric_difference_update({path})
@@ -507,7 +553,11 @@ class TrackTable(QTableView):
     def set_all_picked(self, picked: bool) -> None:
         """Spunta — o toglie la spunta a — ogni riga del frame corrente:
         i bottoni Select all / none, e la spunta di partenza delle tabelle
-        che nascono già tutte scelte (i duplicati certi, la coda dei tag)."""
+        che nascono già tutte scelte (i duplicati certi, la coda dei tag).
+
+        Prende il file di `_path`: dove la riga ne confronta due, Select all
+        vuol dire "tutte le copie", non "tutti e due i file di ogni riga" —
+        che spazzerebbe via anche gli originali."""
         if not self._checkable:
             return
         frame = self._model.frame
@@ -553,8 +603,8 @@ class TrackTable(QTableView):
                 if path:
                     self.play_requested.emit(path)
                 return
-            if self._checkable and name == CHECK_COLUMN:
-                self.toggle_pick(index.row())
+            if self._checkable and name in CHECK_FIELDS:
+                self.toggle_pick(index.row(), CHECK_FIELDS[name])
                 return
         super().mousePressEvent(event)
 
@@ -582,6 +632,15 @@ class TrackTable(QTableView):
             menu.addAction(f"➕ Add to playlist ({len(added)})",
                            lambda: self.add_requested.emit(list(added)))
         menu.addSeparator()
-        menu.addAction("📂 Show in file manager",
-                       lambda: self.reveal_requested.emit(path))
+        other = self._model.path_at(index.row(), "_path2")
+        if other is None:
+            menu.addAction("📂 Show in file manager",
+                           lambda: self.reveal_requested.emit(path))
+        else:
+            # Una riga, due file: il menu deve arrivare a entrambi, o del
+            # compagno non si saprebbe mai dove sta.
+            menu.addAction("📂 Show file A in file manager",
+                           lambda: self.reveal_requested.emit(other))
+            menu.addAction("📂 Show file B in file manager",
+                           lambda: self.reveal_requested.emit(path))
         menu.exec(self.viewport().mapToGlobal(at))

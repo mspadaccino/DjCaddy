@@ -45,7 +45,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.wave_page = WavePage(self.state, self.player)
-        self.tabs.addTab(self.wave_page, "🌊 Wave analysis")
+        self.tabs.addTab(self.wave_page, "🌊 Cue analysis")
         self.tabs.addTab(TagPage(self.state), "🏷️ Tag analysis")
         self.tabs.addTab(FolderPage(self.state), "📁 Folder analysis")
         self.map_page = MapPage(self.state)

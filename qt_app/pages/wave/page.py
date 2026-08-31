@@ -1,23 +1,21 @@
-"""La pagina Wave analysis: un brano, la sua onda, le sue frasi da rivedere.
+"""La pagina Cue analysis: un brano, la sua onda, le sue frasi da rivedere.
 
 Stessa sostanza della pagina Streamlit — analisi (o cache) del singolo
 brano, onda a bande di frequenza con marker e regioni cantate, tabella cue
-correggibile, export CSV/rekordbox, scrittura in djay Pro — con l'audio nel
-lettore in fondo alla finestra invece che in un tag <audio> dentro la
-pagina: l'onda qui sopra e le barre del dock raccontano lo stesso ascolto.
+correggibile, scrittura dei cue nel brano — con l'audio nel lettore in
+fondo alla finestra invece che in un tag <audio> dentro la pagina: l'onda
+qui sopra e le barre del dock raccontano lo stesso ascolto.
 
 Scarti deliberati dalla lettera di Streamlit, come in Fase 3:
 - il cambio di soglia vocale rigenera daccapo start e tag delle righe
   vocali (di là un edit sopravviveva al cambio soglia su un id riciclato,
   cioè finiva su una regione diversa);
-- niente download-button: CSV e XML chiedono dove salvare col dialogo di
-  sistema.
+- niente export CSV né rekordbox XML: una collection di UN brano non serve
+  a nessuno, e i cue si scrivono direttamente nel brano.
 """
 
 from __future__ import annotations
 
-import csv
-import io
 import sys
 from pathlib import Path
 
@@ -32,9 +30,8 @@ from core.analysis.audio_features import ANALYSIS_SR, load_audio
 from core.analysis.cue_export import (DJAY_SLOTS, build_cue_rows,
                                       is_vocal_row, marker_color,
                                       plan_djay_markers)
-from core.analysis.dj_export import build_rekordbox_xml, read_title_artist
 from core.analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
-from core.analysis.models import format_elapsed, format_remaining
+from core.analysis.models import format_elapsed
 from core.analysis.vocals import VOCAL_FLOOR
 from core.analysis.vocals import available as vocals_available
 from core.analysis.vocals import vocal_regions
@@ -93,7 +90,7 @@ class WavePage(QWidget):
 
         self._analyze = QPushButton("Analyze")
         self._analyze.setStyleSheet(
-            f"QPushButton {{ background: {theme.PRIMARY}; color: white; }}")
+            theme.primary_button())
         self._analyze.clicked.connect(self._on_analyze)
         self._force = QCheckBox("Force analysis if exists")
         self._force.setToolTip("Re-analyze even if a <name>_analysis.json "
@@ -153,26 +150,13 @@ class WavePage(QWidget):
         self._table.start_rejected.connect(self._on_bad_start)
         self._table.setVisible(False)
 
+        # Le due spunte di cosa scrivere: vivono nel blocco della scrittura,
+        # perché adesso quello è il solo posto dove le righe vanno a finire.
         self._vocals_only = QCheckBox("Save only vocal tags")
         self._vocals_only.setToolTip(
-            "If checked, CSV/XML export and the djay Pro write only include "
-            "the vocal start/end rows, skipping the phrase tags.")
-        self._vocals_only.toggled.connect(lambda _: self._refresh_export())
-        self._csv = QPushButton("⬇ Save cues (CSV)")
-        self._csv.clicked.connect(self._on_save_csv)
-        self._xml = QPushButton("⬇ Export rekordbox XML")
-        self._xml.setToolTip(
-            "Import directly into rekordbox, or convert to Serato/Traktor/"
-            "djay Pro with a third-party tool (DJ Conversion Utility, MIXO, "
-            "Lexicon).")
-        self._xml.clicked.connect(self._on_save_xml)
-        self._export_row = QWidget()
-        export_row = QHBoxLayout(self._export_row)
-        export_row.setContentsMargins(0, 0, 0, 0)
-        export_row.addWidget(self._vocals_only, stretch=1)
-        export_row.addWidget(self._csv)
-        export_row.addWidget(self._xml)
-        self._export_row.setVisible(False)
+            "If checked, only the vocal start/end rows are written, "
+            "skipping the phrase tags.")
+        self._vocals_only.toggled.connect(lambda _: self._refresh_cues_out())
 
         box = QVBoxLayout(self)
         box.setContentsMargins(8, 8, 8, 8)
@@ -185,19 +169,20 @@ class WavePage(QWidget):
         box.addWidget(self._wave)
         box.addLayout(caption_row)
         box.addWidget(self._table, stretch=1)
-        box.addWidget(self._export_row)
         if sys.platform == "darwin":
             box.addWidget(self._build_djay())
 
     def _build_djay(self) -> QWidget:
         """La scrittura diretta in djay Pro: solo dove djay Pro vive."""
-        self._overwrite = QCheckBox("Overwrite tags for analyzed songs")
+        self._overwrite = QCheckBox("Replace existing cues")
         self._overwrite.setToolTip(
-            "If checked, existing cues/loops on this track in djay Pro are "
-            "replaced by the rows above instead of adding to them. Removing "
-            "is best-effort — a full backup is taken, check the preview.")
+            "Applied by Write cues to track: existing cues/loops on this "
+            "song are replaced by the rows above instead of adding to "
+            "them. Changing it asks for a fresh preview, because the "
+            "preview is computed with it. Removing is best-effort — a full "
+            "backup is taken, check the preview.")
         self._overwrite.toggled.connect(lambda _: self._invalidate_preview())
-        self._preview_btn = QPushButton("Preview djay Pro update")
+        self._preview_btn = QPushButton("Preview cues")
         self._preview_btn.setToolTip(
             f"Phrase starts become hot cues (pad position sets the colour), "
             f"each vocal region becomes one saved loop. Two banks of "
@@ -205,9 +190,9 @@ class WavePage(QWidget):
             "shows where each row lands.")
         self._preview_btn.clicked.connect(self._on_djay_preview)
         self._preview_btn.setEnabled(False)
-        self._write_btn = QPushButton("Write to djay Pro now")
+        self._write_btn = QPushButton("Write cues to track")
         self._write_btn.setStyleSheet(
-            f"QPushButton {{ background: {theme.PRIMARY}; color: white; }}")
+            theme.primary_button())
         self._write_btn.clicked.connect(self._on_djay_write)
         self._write_btn.setVisible(False)
         self._djay_told = dim("")
@@ -219,6 +204,7 @@ class WavePage(QWidget):
         box.setSpacing(6)
         title = QLabel("<b>Update your djay Pro library</b>")
         row = QHBoxLayout()
+        row.addWidget(self._vocals_only)
         row.addWidget(self._overwrite, stretch=1)
         row.addWidget(self._preview_btn)
         row.addWidget(self._write_btn)
@@ -313,8 +299,7 @@ class WavePage(QWidget):
         self._show_floor()
 
         showable = bool(self._track["duration"])
-        for widget in (self._wave, self._caption, self._table,
-                       self._export_row):
+        for widget in (self._wave, self._caption, self._table):
             widget.setVisible(showable)
         if not showable:
             self._say("Duration unavailable: player can't be shown.", _WARN)
@@ -409,7 +394,7 @@ class WavePage(QWidget):
             for r in self._shown])
         self._wave.set_regions(self._regions_live())
         self._invalidate_preview()
-        self._refresh_export()
+        self._refresh_cues_out()
 
     def _on_floor(self, value: int) -> None:
         self._floor = value / 100.0
@@ -469,7 +454,7 @@ class WavePage(QWidget):
                             f"{format_elapsed(duration)}")
 
     # ------------------------------------------------------------------
-    # export
+    # cosa esce dalla tabella
     # ------------------------------------------------------------------
     def _export_rows(self) -> list[dict]:
         if self._vocals_only.isChecked():
@@ -477,64 +462,10 @@ class WavePage(QWidget):
                     if r["kind"] in ("vocal_start", "vocal_end")]
         return list(self._shown)
 
-    def _refresh_export(self) -> None:
-        rows = self._export_rows()
-        self._csv.setEnabled(bool(rows))
-        self._xml.setEnabled(bool(rows))
+    def _refresh_cues_out(self) -> None:
+        """Senza righe non c'è niente da scrivere: il preview si spegne."""
         if hasattr(self, "_preview_btn"):
-            self._preview_btn.setEnabled(bool(rows))
-
-    def _on_save_csv(self) -> None:
-        rows = self._export_rows()
-        if not rows:
-            return
-        duration = self._track.get("duration")
-        stem = Path(self._track["name"]).stem
-        chosen, _ = QFileDialog.getSaveFileName(
-            self, "Save cues (CSV)", str(Path.home() / f"{stem}_cues.csv"),
-            "CSV (*.csv)")
-        if not chosen:
-            return
-        out = io.StringIO()
-        writer = csv.writer(out)
-        writer.writerow(["Tag", "Start", "Beats", "from_start", "remaining"])
-        for r in rows:
-            writer.writerow([
-                r["tag"], r["start"],
-                "" if r["beats"] is None else r["beats"],
-                format_elapsed(r["start"]),
-                format_remaining(r["start"], duration)])
-        try:
-            Path(chosen).write_text(out.getvalue())
-            self._say(f"Cues saved to {chosen}.", _OK)
-        except OSError as trouble:
-            self._say(f"Could not save the CSV: {trouble}", theme.PRIMARY)
-
-    def _on_save_xml(self) -> None:
-        rows = self._export_rows()
-        if not rows:
-            return
-        stem = Path(self._track["name"]).stem
-        chosen, _ = QFileDialog.getSaveFileName(
-            self, "Export cues to rekordbox XML",
-            str(Path.home() / f"{stem}_rekordbox.xml"), "XML (*.xml)")
-        if not chosen:
-            return
-        path = Path(self._track["path"])
-        title, artist = read_title_artist(path)
-        xml = build_rekordbox_xml([{
-            "path": path, "name": title, "artist": artist,
-            "genre": self._track["genre"], "bpm": self._track["bpm"],
-            "duration": self._track.get("duration"),
-            "cues": [{"name": r["tag"], "start": float(r["start"]),
-                      "color": marker_color(r["kind"], r["tag"])}
-                     for r in rows],
-        }])
-        try:
-            Path(chosen).write_text(xml, encoding="utf-8")
-            self._say(f"Rekordbox XML saved to {chosen}.", _OK)
-        except OSError as trouble:
-            self._say(f"Could not save the XML: {trouble}", theme.PRIMARY)
+            self._preview_btn.setEnabled(bool(self._export_rows()))
 
     # ------------------------------------------------------------------
     # djay Pro (solo macOS: i bottoni esistono solo lì)

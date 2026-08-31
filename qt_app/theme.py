@@ -52,6 +52,20 @@ def hint(text: str) -> str:
     grafici e delle tabelle), quindi qui passano tutte."""
     return "<qt>" + text.replace("\n", "<br>") + "</qt>"
 
+
+def primary_button() -> str:
+    """Il foglio del bottone che compie l'azione: rosso, e SPENTO quando è
+    disabilitato.
+
+    Il foglio in linea vince su quello dell'app, quindi la riga `:disabled`
+    va ripetuta qui: senza, un bottone inerte resta rosso pieno e invita a
+    un clic che non fa niente — sembrava che non funzionasse, e invece
+    aspettava la spunta di conferma.
+    """
+    return (f"QPushButton {{ background: {PRIMARY}; color: white; }}"
+            f"QPushButton:disabled {{ background: {RAISED};"
+            f" color: {FADED}; }}")
+
 _QSS = f"""
 QMainWindow, QWidget {{
     background: {BACKGROUND};
@@ -90,6 +104,7 @@ QPushButton {{
 }}
 QPushButton:hover {{ background: #33343f; }}
 QPushButton:pressed {{ background: {PRIMARY}; }}
+QPushButton:disabled {{ background: {RAISED}; color: {FADED}; }}
 
 QSplitter::handle {{ background: {BACKGROUND}; }}
 QSplitter::handle:horizontal {{ width: 6px; }}

@@ -3,8 +3,12 @@
 Stessa gerarchia della pagina Streamlit: A (stesso MD5, stessa cartella —
 spuntati in partenza), B (stesso file in cartelle diverse — spunte da
 mettere, perché lì si disfa un ordine che magari serve), C (nomi simili,
-contenuti diversi — solo informativo), più i gruppi ROTTI, identici perché
-ugualmente vuoti, esclusi da tutto.
+contenuti diversi), più i gruppi ROTTI, identici perché ugualmente vuoti,
+esclusi da tutto.
+
+Nei livelli B e C la riga mette a confronto DUE file e la casella è una per
+ciascuno: `keep` è una proposta, non una decisione (vedi `DuplicateGroup`),
+e chi dei due se ne va lo dice l'utente — anche il presunto originale.
 """
 
 from __future__ import annotations
@@ -25,7 +29,8 @@ from core.analysis.folder_scan import human_size
 from qt_app import theme
 from qt_app.pages.common import ConfirmBar, dim, reveal_in_files
 from qt_app.state import AppState
-from qt_app.widgets.track_table import TrackTable
+from qt_app.widgets.track_table import (CHECK_A_COLUMN, CHECK_B_COLUMN,
+                                        TrackTable)
 from qt_app.workers import Progress, run_in_pool
 
 
@@ -35,19 +40,45 @@ def duplicate_rows(groups, full_paths: bool = False) -> pd.DataFrame:
     Con `full_paths` le due copie sono mostrate per intero invece che come
     nome più una cartella sola: nei livelli B e C stanno in cartelle
     DIVERSE, e vedere solo quella di una delle due non dice dove sia
-    l'altra — che è proprio l'informazione che serve per decidere.
+    l'altra — che è proprio l'informazione che serve per decidere. Lì la
+    riga porta anche una casella per file (`✓ A` sul presunto originale,
+    `✓ B` sulla copia): si mette in quarantena l'uno o l'altro, e la
+    proposta di `keep` resta una proposta.
     """
-    pair = (["stays", "moves if ticked"] if full_paths
+    pair = ([CHECK_A_COLUMN, "file A", CHECK_B_COLUMN, "file B"] if full_paths
             else ["folder", "keep", "duplicate"])
     return pd.DataFrame(
-        [{**({"stays": str(g.keep), "moves if ticked": str(dup)}
+        [{**({CHECK_A_COLUMN: "", "file A": str(g.keep),
+              CHECK_B_COLUMN: "", "file B": str(dup)}
              if full_paths else
              {"folder": str(g.folder), "keep": g.keep.name,
               "duplicate": dup.name}),
           "size": human_size(g.size), "copies": g.copies,
-          "md5": (g.md5 or "")[:12], "_path": str(dup), "_bytes": g.size}
+          "md5": (g.md5 or "")[:12], "_path": str(dup),
+          **({"_path2": str(g.keep)} if full_paths else {}),
+          "_bytes": g.size}
          for g in groups for dup in g.duplicates],
-        columns=[*pair, "size", "copies", "md5", "_path", "_bytes"])
+        columns=[*pair, "size", "copies", "md5", "_path",
+                 *(["_path2"] if full_paths else []), "_bytes"])
+
+
+def files_and_bytes(frame: pd.DataFrame,
+                    only: set[str] | None = None) -> tuple[list[str], int]:
+    """I file distinti di una tabella e quanto pesano in tutto.
+
+    Una riga ne porta uno (livello A) o due (B e C), e lo stesso file torna
+    su più righe quando il gruppo ha tre copie: contarlo due volte gonfierebbe
+    lo spazio che si libera. Con `only` si contano solo i percorsi dati.
+    """
+    seen: dict[str, int] = {}
+    if not len(frame) or "_path" not in frame:
+        return [], 0
+    for _, row in frame.iterrows():
+        for field in ("_path2", "_path"):
+            path = row.get(field)
+            if isinstance(path, str) and (only is None or path in only):
+                seen.setdefault(path, int(row["_bytes"]))
+    return list(seen), sum(seen.values())
 
 
 class _Section(QWidget):
@@ -86,20 +117,15 @@ class _Section(QWidget):
         self.table.set_all_picked(preselect and bool(len(rows)))
 
     def chosen(self) -> tuple[list[Path], int]:
-        picked = set(self.table.selected_paths())
-        frame = self.table.model_.frame
-        if not len(frame) or "_path" not in frame:
-            return [], 0
-        rows = frame[frame["_path"].isin(picked)]
-        return ([Path(p) for p in rows["_path"]],
-                int(rows["_bytes"].sum()) if len(rows) else 0)
+        picked, freed = files_and_bytes(self.table.model_.frame,
+                                        set(self.table.selected_paths()))
+        return [Path(p) for p in picked], freed
 
     def _on_picked(self, _paths) -> None:
-        frame = self.table.model_.frame
         chosen, freed = self.chosen()
-        total = int(frame["_bytes"].sum()) if "_bytes" in frame else 0
+        listed, total = files_and_bytes(self.table.model_.frame)
         self._count.setText(
-            f"{len(chosen):,} of {len(frame):,} selected · "
+            f"{len(chosen):,} of {len(listed):,} selected · "
             f"{human_size(freed)} would be freed "
             f"(of {human_size(total)} in this section)")
         self.changed.emit()
@@ -119,7 +145,7 @@ class DuplicatesPanel(QWidget):
 
         self._find = QPushButton("Find duplicates")
         self._find.setStyleSheet(
-            f"QPushButton {{ background: {theme.PRIMARY}; color: white; }}")
+            theme.primary_button())
         self._find.clicked.connect(self._on_find)
         self._find.setEnabled(False)
         self._bar = QProgressBar()
@@ -140,23 +166,17 @@ class DuplicatesPanel(QWidget):
             state, "Byte-identical copies sitting in different folders — "
                    "often deliberate. Nothing is ticked to begin with, "
                    "because this is the section where a folder layout you "
-                   "rely on would be undone. The copy kept is the one on "
-                   "the left.")
-        for section in (self._level_a, self._level_b):
+                   "rely on would be undone. The two files are the same "
+                   "bytes, so tick whichever of the pair you want to move: "
+                   "right-click shows either one in the file manager.")
+        self._level_c = _Section(
+            state, "These are NOT the same file: different edits, remixes "
+                   "or rips that happen to be named alike. Nothing is "
+                   "ticked, and here a tick loses a version you do not "
+                   "have elsewhere — right-click shows either file in the "
+                   "file manager, and look at the sizes before choosing.")
+        for section in (self._level_a, self._level_b, self._level_c):
             section.changed.connect(self._refresh_plan)
-
-        c_note = dim("Informational only — these are NOT the same file: "
-                     "different edits, remixes or rips that happen to be "
-                     "named alike. ▶ plays either one.")
-        self._level_c = TrackTable(library_menu=False)
-        self._level_c.play_requested.connect(state.play)
-        self._level_c.row_activated.connect(state.play)
-        self._level_c.reveal_requested.connect(reveal_in_files)
-        c_box = QWidget()
-        c_lay = QVBoxLayout(c_box)
-        c_lay.setContentsMargins(0, 0, 0, 0)
-        c_lay.addWidget(c_note)
-        c_lay.addWidget(self._level_c, stretch=1)
 
         self._broken_note = dim("")
         self._broken = TrackTable(library_menu=False)
@@ -171,7 +191,7 @@ class DuplicatesPanel(QWidget):
         self._levels = QTabWidget()
         self._levels.addTab(self._level_a, "A · same folder")
         self._levels.addTab(self._level_b, "B · other folders")
-        self._levels.addTab(c_box, "C · similar name")
+        self._levels.addTab(self._level_c, "C · similar name")
         self._levels.addTab(broken_box, "⚠ broken")
         self._levels.setVisible(False)
 
@@ -267,8 +287,9 @@ class DuplicatesPanel(QWidget):
             duplicate_rows(report.other_folder, full_paths=True),
             preselect=False)
         table_c = duplicate_rows(report.similar_name, full_paths=True)
-        self._level_c.set_tracks(
-            table_c.drop(columns=["md5"]) if len(table_c) else table_c)
+        self._level_c.set_rows(
+            table_c.drop(columns=["md5"]) if len(table_c) else table_c,
+            preselect=False)
         self._levels.setTabText(
             0, f"A · same folder ({len(report.same_folder)})")
         self._levels.setTabText(
@@ -305,7 +326,9 @@ class DuplicatesPanel(QWidget):
             return
         chosen_a, bytes_a = self._level_a.chosen()
         chosen_b, bytes_b = self._level_b.chosen()
-        plan = build_quarantine_plan(chosen_a + chosen_b, self._root)
+        chosen_c, bytes_c = self._level_c.chosen()
+        plan = build_quarantine_plan(chosen_a + chosen_b + chosen_c,
+                                     self._root)
         self._plan_told.setVisible(True)
         self._confirm.setVisible(bool(plan))
         if not plan:
@@ -317,9 +340,10 @@ class DuplicatesPanel(QWidget):
             return
         self._plan_told.setText(
             f"{len(plan):,} files ticked, freeing "
-            f"{human_size(bytes_a + bytes_b)} — {len(chosen_a):,} from A "
-            f"({human_size(bytes_a)}), {len(chosen_b):,} from B "
-            f"({human_size(bytes_b)}). They move into "
+            f"{human_size(bytes_a + bytes_b + bytes_c)} — {len(chosen_a):,} "
+            f"from A ({human_size(bytes_a)}), {len(chosen_b):,} from B "
+            f"({human_size(bytes_b)}), {len(chosen_c):,} from C "
+            f"({human_size(bytes_c)}). They move into "
             f"{self._root / QUARANTINE_DIRNAME}, keeping their folder "
             "structure so you can see where each came from and put it "
             "back.")
@@ -330,7 +354,9 @@ class DuplicatesPanel(QWidget):
     def _on_quarantine(self) -> None:
         chosen_a, _ = self._level_a.chosen()
         chosen_b, _ = self._level_b.chosen()
-        plan = build_quarantine_plan(chosen_a + chosen_b, self._root)
+        chosen_c, _ = self._level_c.chosen()
+        plan = build_quarantine_plan(chosen_a + chosen_b + chosen_c,
+                                     self._root)
         if not plan:
             return
 

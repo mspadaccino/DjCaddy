@@ -197,7 +197,7 @@ class RunPanel(QWidget):
             lambda _: self._refresh_eta())
         self._analyze = QPushButton("Analyze")
         self._analyze.setStyleSheet(
-            f"QPushButton {{ background: {theme.PRIMARY}; color: white; }}")
+            theme.primary_button())
         self._analyze.clicked.connect(self._on_analyze)
         batch_row = QHBoxLayout()
         batch_row.addWidget(QLabel("How many to analyze now"))
@@ -218,7 +218,7 @@ class RunPanel(QWidget):
         self._results.setVisible(False)
         self._save = QPushButton("💾 Save tags")
         self._save.setStyleSheet(
-            f"QPushButton {{ background: {theme.PRIMARY}; color: white; }}")
+            theme.primary_button())
         self._save.clicked.connect(self._on_save)
         self._save.setVisible(False)
         self._results.selection_paths_changed.connect(

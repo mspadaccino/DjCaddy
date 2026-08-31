@@ -1,4 +1,4 @@
-"""La pagina Wave analysis (Fase 4)."""
+"""La pagina Cue analysis (Fase 4)."""
 
 from .page import WavePage
 

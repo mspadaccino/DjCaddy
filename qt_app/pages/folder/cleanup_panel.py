@@ -45,7 +45,7 @@ class JunkPanel(QWidget):
 
         self._find = QPushButton("Find sidecar files")
         self._find.setStyleSheet(
-            f"QPushButton {{ background: {theme.PRIMARY}; color: white; }}")
+            theme.primary_button())
         self._find.clicked.connect(self._on_find)
         self._find.setEnabled(False)
         self._told = dim(
@@ -177,7 +177,7 @@ class UnreadablePanel(QWidget):
 
         self._check = QPushButton("Check audio files")
         self._check.setStyleSheet(
-            f"QPushButton {{ background: {theme.PRIMARY}; color: white; }}")
+            theme.primary_button())
         self._check.clicked.connect(self._on_check)
         self._check.setEnabled(False)
         self._told = dim("")
