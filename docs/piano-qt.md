@@ -1,9 +1,28 @@
 # Piano: Wavecut Desktop (Qt6) in parallel run con Streamlit
 
-Stato: **approvato in linea di principio, da implementare a fasi**. Ogni fase è
-pensata per una sessione di lavoro a sé, con criteri di verifica espliciti:
-una sessione futura può prendere in mano una fase leggendo solo questo
-documento e il codice.
+Stato al 31/08/2026: **Fasi 0–4 completate e su `main`** — repo ristrutturato
+(`core/` + `streamlit_app/` + `qt_app/`), `core/viz` estratto con snapshot
+test, app Qt con le quattro pagine a parità funzionale, parallel run
+operativo. L'esito sul campo conferma la scommessa: l'app Qt è nettamente
+più performante di Streamlit. **Restano la Fase 5 (packaging) e la Fase 6
+(confronto misurato)**, rimandate a dopo.
+
+Scostamenti dal piano, in meglio:
+
+- la pagina Wave è diventata **"Cue analysis"**: oltre alla revisione della
+  waveform, gli hot/memory cue confermati si scrivono **direttamente nella
+  libreria di rekordbox 6/7** (`core/analysis/rekordbox_write.py`, via
+  pyrekordbox in un gruppo poetry a sé — `--without rekordbox` per farne a
+  meno), superando il vecchio giro djay Pro/XML;
+- il Chain Maker in Qt si chiama **"Build a set"**;
+- nota per la Fase 5: al bundle si aggiunge la dipendenza opzionale
+  pyrekordbox/sqlcipher, e le pagine che dipendono da gruppi assenti devono
+  dirlo invece di rompersi (già così a runtime).
+
+Ogni fase è pensata per una sessione di lavoro a sé, con criteri di verifica
+espliciti: una sessione futura può prendere in mano una fase (ora la 5 o la
+6) leggendo solo questo documento e il codice. Il resto del documento è il
+piano come approvato, lasciato intatto come riferimento.
 
 ## Obiettivo
 

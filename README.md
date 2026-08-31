@@ -1,59 +1,81 @@
-# dj-library-tools
+# Wavecut
 
-Local tool (macOS) to analyze an mp3/flac library and prepare DJ work in
-**djay Pro**:
+Local tool to analyze an mp3/flac library and prepare DJ sets:
 
-- automatic classification by **genre/vibe**,
-- organization into `Genre/Vibe` folders,
-- identification of suggested **phrase boundaries** for manually placing hot cues.
+- automatic classification by **genre/vibe** and tag writing (Essentia models),
+- the whole library as a **2D map** — points that sound alike sit together —
+  with playlists drawn as paths across it,
+- suggested **phrase boundaries** reviewed by ear on the waveform, then
+  written as **hot/memory cues straight into the rekordbox library**,
+- folder scanning, duplicate hunting and quarantine.
 
-> **Note on cue points.** djay Pro stores cue points and loops in its own
-> internal database, not in the file tags, and does not expose an import for
-> external cues. So this tool **does not write hot cues into djay Pro**: it
-> produces *suggested* timestamps that you confirm by ear in the review app and
-> then place manually in djay Pro — or export them as **rekordbox XML** (see
-> below) and use a third-party converter to reach djay Pro, Serato or Traktor.
+## Two apps, one core
 
-## Architecture
+The same tool ships as **two applications over one shared core**, in
+deliberate parallel run:
 
-A **shared analysis engine** (`core/analysis/`, pure Python module) imported by both
-the batch CLI and the Streamlit app — no duplicated logic.
+| | entry point | what it is |
+|---|---|---|
+| **Qt desktop app** | `poetry run python -m qt_app.main` | the primary app: native PySide6/Qt6, noticeably faster — an interaction updates only the widgets it touches, instead of re-running a whole script |
+| **Streamlit app** | `poetry run streamlit run streamlit_app/app.py` | the original, kept alive as reference and fallback |
+
+Both apps read and write **the same data** — the map store, the analysis
+sidecars, the caches — so they can be used interchangeably on the same
+library. Both offer the same four sections (Map, Cue analysis, Tag analysis,
+Folder analysis) and the same persistent player: waveform preview with the
+played portion colored, click on the waveform to seek.
+
+The Qt app targets macOS and Windows 11. One asymmetry is structural:
+**Essentia has no Windows wheels**, so *building* the map and tagging run on
+macOS only; *using* an existing map (playlists, set building, the board, the
+player, folder analysis) works everywhere.
+
+The migration plan, its decisions and their trade-offs are in
+[docs/piano-qt.md](docs/piano-qt.md). Packaging into a standalone installer
+(PyInstaller) is the one phase not done yet.
+
+## Repository layout
+
+```
+core/
+├── analysis/        # the engine: pure Python, no UI — imported by both apps and the CLIs
+└── viz/             # shared presentation: Plotly figure builders, palettes,
+│                    #   table columns, board/wheel payloads — functions that
+│                    #   return data, never widgets
+│   └── frontend/    # the two HTML components (playlist board, Camelot wheel)
+│                    #   used by both apps
+qt_app/              # the desktop app: pages, widgets, AppState (Qt signals),
+│                    #   background workers
+streamlit_app/       # the original app: app.py + views/
+tests/               # pytest; Qt pages under pytest-qt; figure snapshot tests
+cli.py, map_cli.py, energy_cli.py, mood_cli.py, tag_cli.py, zoo_cli.py
+```
+
+Key engine modules (`core/analysis/`):
 
 | Module | Responsibility |
 | --- | --- |
-| `core/analysis/tags.py` | read the genre tag via mutagen (ID3 for mp3, Vorbis comment for flac) |
-| `core/analysis/audio_features.py` | audio loading (librosa) + BPM and RMS in a single pass |
-| `core/analysis/vibe.py` | tempo buckets + percentile energy (two-pass) → vibe |
-| `core/analysis/structure.py` | structural segmentation (Foote novelty over self-similarity) → phrase boundaries |
-| `core/analysis/sections.py` | section classification (Intro/Build-up/Drop/Breakdown/Outro) from energy arc and bass presence |
-| `core/analysis/vocals.py` | vocal detection via source separation (Demucs): sung regions + 🎤 flag per section |
-| `core/analysis/waveform.py` | frequency-band colored waveform (djay Pro style) |
-| `core/analysis/dj_export.py` | export section cues to rekordbox XML (the hub format for third-party DJ software converters) |
-| `core/analysis/cache.py` | per-file cache (key = path, valid by mtime+size) |
-| `core/analysis/engine.py` | orchestration: two-pass, cache, organize plan |
-| `core/analysis/map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) feeding the genre/mood heads, over twelve 10 s windows spread across the track; BPM and key from tags or Essentia; groove from onset regularity |
-| `core/analysis/map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
-| `core/analysis/energy.py` | the four raw energy measures, and the library-wide ranking that turns them into a 1–10 |
-| `core/analysis/mood_scale.py` | the words of the mood onto one dark→bright axis (valence), by rank or by the model's real weights |
-| `energy_cli.py` | measure the four energy fields on tracks already on the map — re-reads the audio, resumable |
-| `mood_cli.py` | re-score valence from the stored embeddings — no audio, minutes instead of hours |
-| `zoo_cli.py` | try the model zoo's other four Discogs-EffNet heads (aggressive, relaxed, party, danceability) on the stored embeddings. Reports only — writes nothing, to no file and no tag |
-| `core/analysis/map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
-| `core/analysis/mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
-| `core/analysis/mood_scale.py` | the mood labels read as one scale, dark to bright: the height a playlist takes on the board, and which of a track's moods tells it apart |
-| `core/analysis/graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, and the roster of what comes next |
-| `core/analysis/map_job.py` | the map build as a long, resumable background job |
-| `cli.py` | entry point 1 — batch CLI |
-| `streamlit_app/app.py` | entry point 2 — Wavecut review app (Streamlit) |
-| `map_cli.py` | build the map in the background (long job, resumable) |
-
-**Audio loading.** Each file is loaded **once** (22050 Hz, mono); BPM/RMS are
-computed on the first 60 s of that signal, segmentation over the whole track.
-
-**Vibe.** BPM → tempo bucket (`Warm-Up`/`Groove`/`Peak-Time`/
-`High-Energy-Tempo`); RMS → 33/66 percentiles relative to the library →
-`Low`/`Mid`/`High`. Final vibe e.g. `Peak-Time-High`. Buckets and percentiles
-are configured in `core/analysis/vibe.py`.
+| `engine.py` | orchestration: two-pass analysis, cache, organize plan |
+| `audio_features.py` | audio loading (librosa) + BPM and RMS in a single pass |
+| `structure.py` | structural segmentation (Foote novelty over self-similarity) → phrase boundaries |
+| `sections.py` | section classification (Intro/Build-up/Drop/Breakdown/Outro) from energy arc and bass presence |
+| `vocals.py` | vocal detection via source separation (Demucs): sung regions + 🎤 flag per section |
+| `waveform.py` | frequency-band colored waveform (red = lows, green = mids, blue = highs) |
+| `vibe.py`, `tags.py`, `cache.py` | tempo/energy buckets → vibe; tag reading via mutagen; per-file cache |
+| `map_profile.py` | acoustic profile of a track: Discogs-EffNet embedding (1280-D) feeding the genre/mood heads; BPM and key from tags or Essentia; groove from onset regularity |
+| `map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
+| `map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
+| `map_job.py` | the map build as a long, resumable background job |
+| `mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
+| `graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, the roster of what comes next |
+| `energy.py` | the four raw energy measures, and the library-wide ranking that turns them into a 1–10 |
+| `mood_scale.py` | the mood words onto one dark→bright axis (valence), by rank or by the model's real weights |
+| `essentia_tags.py`, `tag_job.py` | genre/mood inference and the batch tagging job |
+| `duplicates.py`, `folder_scan.py` | duplicate hunting, quarantine plan, folder contents |
+| `cue_export.py` | phrase sections and vocal regions → cue rows, and their mapping onto pads |
+| `rekordbox_write.py` | hot/memory cues written into rekordbox 6/7's encrypted `master.db` (via pyrekordbox) |
+| `dj_export.py` | export to rekordbox XML and M3U8 |
+| `djay_write.py` | the djay Pro twin of `rekordbox_write` — kept for the app it was written for |
 
 ## Setup
 
@@ -70,64 +92,37 @@ Python dependencies with Poetry (Python ^3.11):
 poetry install
 ```
 
-## Usage
+That installs everything, both apps included. The optional groups are exits,
+not choices you must make:
 
-### Batch CLI
+| group | drop it with | what you lose |
+|---|---|---|
+| `essentia` | `--without essentia` | map building and tagging (no wheel for your Python? this keeps the rest alive) |
+| `rekordbox` | `--without rekordbox` | writing cues into rekordbox's database (the Cue page says so instead of breaking) |
+| `streamlit` | `--without streamlit` | the Streamlit app |
+| `qt` | `--without qt` | the Qt app |
+
+## Running
 
 ```bash
-# report to stdout only
-poetry run python cli.py ~/Music/dj
-
-# report to file + dry-run of the organization (copy, not move)
-poetry run python cli.py ~/Music/dj --dest ~/Music/master --report report.csv --dry-run
-
-# actually organize into Genre/Vibe (without overwriting existing files)
-poetry run python cli.py ~/Music/dj --dest ~/Music/master
+poetry run python -m qt_app.main
 ```
-
-The report (CSV or JSON) contains, per track: path, genre, BPM, vibe and the
-suggested phrase-boundary timestamps. The cache avoids re-analyzing files that
-were already processed: use `--no-cache` to force re-analysis.
-
-### Streamlit app — Wavecut (review)
 
 ```bash
 poetry run streamlit run streamlit_app/app.py
 ```
 
-**Night mode.** The ⋮ menu at the top right switches between *System*, *Light*
-and *Dark*. The dark side is the app's own, defined in `.streamlit/config.toml`:
-near-black page, warm amber accent, and the same `#0e1117` the map, the playlist
-board and the Camelot wheel already paint themselves with — so the charts have
-no seam around them. They follow the switch at the first rerun after it, since
-the theme is a frontend choice and Python learns about it only when the script
-runs again.
+```bash
+poetry run pytest
+```
 
-Pick a **single track** (path field or “Browse…”, the files are already on
-disk), run the analysis. Each analysis saves a **sidecar** `<name>_analysis.json`
-next to the track: on a later reload, if that file exists and *Force analysis if
-exists* is off, the results are **loaded from it** without re-analyzing (no
-Demucs). Then review the **frequency-band colored waveform** (djay Pro style:
-red = lows, green = mids, blue = highs) with the **section tags** overlaid
-(Intro/Build-up/Drop/Breakdown/Outro). For each tag a **slider** moves the
-section start and a menu changes its label; the waveform and the downloadable
-report update live. A synced player lets you scrub the waveform and listen from
-any point to confirm by ear.
+The tests cover the pure logic (buckets/percentiles, cache, novelty,
+sections, vocal regions, the stores and jobs), the shared figures (snapshot
+tests: the extracted builders must produce the same figure JSON), and the Qt
+pages via pytest-qt. The end-to-end audio analysis should be tried on a
+**small subset** of files before running on the whole library.
 
-> Section classification is **heuristic** (rules on energy and bass, thresholds
-> in `core/analysis/sections.py`): meant as a starting point to correct by ear, not
-> as ground truth. Ambiguous sections are labeled `Groove`. Consecutive sections
-> of the same type are **merged**: each tag marks a **phrase change**, so you can
-> anticipate in djay Pro what's coming next.
-
-**Vocal detection** uses Demucs (source separation) to isolate the vocal stem:
-the **sung regions** appear as pink bands on the waveform (the parts not to
-overlap with other vocals while mixing) and sections with vocals get the 🎤 flag.
-It is accurate but **heavy**: it downloads a model on first run and runs a neural
-network on each track. It is optional — skip it with `--no-vocals` (CLI) or by
-unchecking the box in the app; if Demucs is not installed the flag stays manual.
-
-### Streamlit app — Map
+## Map
 
 The library as one picture: every track is a point, and points that sound
 alike sit together. It answers the question a folder cannot — *what do I play
@@ -165,9 +160,10 @@ network. BPM and key are read from the **file's own tags** when they are there
 `RhythmExtractor2013` and `KeyExtractor`, on a **30-second window of their
 own** at the centre of the track — the embedding windows are too short for a
 tempo detector to find bars in — since both are properties of the whole track
-and measuring them twelve times does not improve them. The key is converted to its **Camelot** code. Groove is not a
-model output either: it is `1 − (spread of the gaps between onsets)`, a
-hand-computed statistic — the danceability coefficient of the spec. Read
+and measuring them twelve times does not improve them. The key is converted
+to its **Camelot** code. Groove is not a model output either: it is
+`1 − (spread of the gaps between onsets)`, a hand-computed statistic — the
+danceability coefficient of the spec. Read
 [What each number means](#what-each-number-means) before trusting its name:
 it measures how *uniform* the spacing of attacks is, which is not the same
 thing as groove, and on produced music it behaves in ways its label does not
@@ -218,25 +214,26 @@ genre name has already thrown away.
 - **box-select a group** and let **magic sort** order it: the cheapest path
   that visits every track once (an open travelling-salesman problem, solved
   nearest-neighbour then 2-opt), so each track melts into the next;
-- **grow a set one track at a time** in the Chain Maker, below;
+- **grow a set one track at a time** in the set builder, below;
 - export the result as **M3U8** or **rekordbox XML**.
 
-Both the selection and the Chain Maker write to the same **playlist**, which
+Both the selection and the set builder write to the same **playlist**, which
 is why it has a section of its own below them rather than living inside
 either — and why the board that draws a set as cards lives down there too.
 
-#### The Chain Maker
+### Building a set
 
-Magic sort answers *put these in the best order*. This answers the other
-question — *what comes next?* — one track at a time, which is how a set is
-actually decided.
+Magic sort answers *put these in the best order*. The set builder answers the
+other question — *what comes next?* — one track at a time, which is how a set
+is actually decided.
 
-**Two tables give the orders.** On the left the chain as it stands; on the right the candidates that mix out of whichever
-track you are standing on, ranked by the same transition cost. Tick one or
-several, add them, and they go on **one behind the other** — ticking three
-means "then these three", not three branches off the same track. Both tables
-carry the same columns: BPM, key, groove, the folder the file came from, and
-the **signed shift** against the previous track.
+**Two tables give the orders.** On the left the chain as it stands; on the
+right the candidates that mix out of whichever track you are standing on,
+ranked by the same transition cost. Tick one or several, add them, and they
+go on **one behind the other** — ticking three means "then these three", not
+three branches off the same track. Both tables carry the same columns: BPM,
+key, groove, the folder the file came from, and the **signed shift** against
+the previous track.
 
 That shift is the thing the cost cannot tell you. A cost is a distance and
 has no sign: from a track at 118 BPM, one at 122 and one at 114 score the
@@ -245,7 +242,22 @@ warm for rising and cool for falling. It is deliberately **not** in the
 ranking — a set climbs, holds and lets go, and sorting by direction would be
 choosing which of the three on the DJ's behalf.
 
-#### The board
+The set builder has **its own filters**, not the map's: a clickable **Camelot
+wheel** (two rings, major outside and minor inside, the way the players draw
+it, because harmonic mixing is a question about neighbours and a list of
+twenty-four codes hides exactly the adjacency that matters), plus genres, BPM
+and groove ranges. Tracks already in the chain are never filtered away —
+a filter is about what to propose next, not about breaking a chain someone
+has built.
+
+**Copies are one entry.** A track filed in four folders has the same tempo
+and key in all four, so it has the same cost from anywhere and would take
+four of the nine slots. They are gathered under one row marked `×4`, and
+putting one down blocks the rest — a set should not take the same record
+twice. Which copy is a real question, so the roster names them by folder and
+lets you choose rather than picking for you.
+
+### The board
 
 **The board draws the playlist, not the chain**, and it sits in the playlist
 section for that reason: a set is assembled from several places — an M3U8
@@ -264,20 +276,7 @@ does not move. Cards can be dragged off the rule and stay off it; picking a
 measure again puts everything back, and the bin under a selected card takes
 that track out of the playlist.
 
-**Copies are one entry.** A track filed in four folders has the same tempo
-and key in all four, so it has the same cost from anywhere and would take
-four of the nine slots. They are gathered under one row marked `×4`, and
-putting one down blocks the rest — a set should not take the same record
-twice. Which copy is a real question, so the roster names them by folder and
-lets you choose rather than picking for you.
-
-The Chain Maker has **its own filters**, not the map's: a clickable **Camelot
-wheel** (two rings, major outside and minor inside, the way the players draw
-it, because harmonic mixing is a question about neighbours and a list of
-twenty-four codes hides exactly the adjacency that matters), plus genres, BPM
-and groove ranges. Tracks already in the chain are never filtered away —
-a filter is about what to propose next, not about breaking a chain someone
-has built.
+### Points, size and the running job
 
 The **size of a point** carries a number you choose — BPM, groove (how
 regular the onsets are) or loudness (integrated LUFS) — scaled between the
@@ -287,11 +286,11 @@ you can actually read, which is why the map stays in two dimensions: a third
 axis would cost the lasso and the box (Plotly has neither in 3D) and would
 have to be read by rotating the scene.
 
-While the background job runs, the page shows its progress **live** (a
-fragment that re-reads the job's state file every two seconds, without
-redrawing the map) and can **pause**, **resume** or **stop** it — signals go
-to the whole process group, so the parallel workers stop too — or open a
-**Terminal** on `tail -f` of its log.
+While the background job runs, the page shows its progress **live** — both
+apps re-read the job's state file every couple of seconds without redrawing
+the map — and can **pause**, **resume** or **stop** it (signals go to the
+whole process group, so the parallel workers stop too) or open a **Terminal**
+on `tail -f` of its log.
 
 ```bash
 # build the map for a folder, then project it (hours on a whole library,
@@ -325,10 +324,92 @@ interruptible), plus the X/Y of the projection.
 > with a single label. The defaults are 0.15 for genres and 0.05 for moods
 > (the same values the tagging already uses); both are settings.
 
+## Cue analysis
+
+One track at a time: validate the suggested phrase boundaries by ear, then
+turn them into cues.
+
+Pick a track (path field or file browser), run the analysis. Each analysis
+saves a **sidecar** `<name>_analysis.json` next to the track: on a later
+load, if that file exists and *Force analysis* is off, the results come
+**from it** without re-analyzing (no Demucs). Then review the
+**frequency-band colored waveform** (red = lows, green = mids, blue = highs)
+with the **section tags** overlaid (Intro/Build-up/Drop/Breakdown/Outro):
+move a section start, change its label, and the waveform updates live. The
+synced player scrubs from any point to confirm by ear.
+
+> Section classification is **heuristic** (rules on energy and bass,
+> thresholds in `core/analysis/sections.py`): a starting point to correct by
+> ear, not ground truth. Ambiguous sections are labeled `Groove`; consecutive
+> sections of the same type are **merged**, so each tag marks a **phrase
+> change**.
+
+**Vocal detection** uses Demucs (source separation) to isolate the vocal
+stem: the **sung regions** appear as bands on the waveform (the parts not to
+overlap with other vocals while mixing) and sections with vocals get the 🎤
+flag. It is accurate but **heavy**: it downloads a model on first run and
+runs a neural network on each track. It is optional — skip it with
+`--no-vocals` (CLI) or by unchecking the box in the app.
+
+**From sections to cues.** Every phrase boundary and every vocal region
+start/end becomes a row in the **cue table**. Nothing is assigned on its own:
+you tick, row by row, which cues become **hot cues** (pads A–H, eight in
+rekordbox) and which become **memory cues** — what does not fit on a pad is
+not lost, it goes alongside as a memory cue.
+
+**Writing into rekordbox.** The confirmed cues are written **directly into
+rekordbox 6/7's library** (`master.db`, encrypted with SQLCipher — opened by
+`pyrekordbox`, which also refuses to commit while rekordbox is running and
+keeps the sync sequence numbers honest). A backup of the database is taken
+before writing, one per day. No XML round-trip, no converter: the cues appear
+on the waveform in rekordbox with their labels. The XML export below remains
+for everything else.
+
+## Tag analysis
+
+Genre and mood written into the files' own tags, with the Essentia models.
+The starting point is not a registry of what was attempted but the **files**:
+the app reads what they contain now, and whoever has incomplete tags becomes
+the work queue — on 400 tracks a registry gave as done, 30 were no longer at
+that path. The batch job runs with progress, pause and resume; a breakdown
+shows what the library carries. `tag_cli.py` does the same from the terminal.
+
+## Folder analysis
+
+What is in a folder, and which files repeat. Two separate operations, not by
+accident: the scan is fast and can be redone at will; the duplicate hunt
+reads the candidate files in full and takes minutes on a real library, so it
+only runs when asked. Duplicates can be moved into a **quarantine** folder
+according to a reviewable plan, instead of being deleted.
+
+## Batch CLI
+
+```bash
+# report to stdout only
+poetry run python cli.py ~/Music/dj
+
+# report to file + dry-run of the organization (copy, not move)
+poetry run python cli.py ~/Music/dj --dest ~/Music/master --report report.csv --dry-run
+
+# actually organize into Genre/Vibe (without overwriting existing files)
+poetry run python cli.py ~/Music/dj --dest ~/Music/master
+```
+
+The report (CSV or JSON) contains, per track: path, genre, BPM, vibe and the
+suggested phrase-boundary timestamps. The cache avoids re-analyzing files
+that were already processed: use `--no-cache` to force re-analysis.
+
+The other CLIs work on tracks already in the map store: `energy_cli.py`
+measures the four energy fields (re-reads the audio, resumable),
+`mood_cli.py` re-scores valence from the stored embeddings (no audio, minutes
+instead of hours), `zoo_cli.py` tries the model zoo's other Discogs-EffNet
+heads (aggressive, relaxed, party, danceability) — reports only, writes
+nothing.
+
 ## What each number means
 
 Every measure a track carries, what it is computed from, and what it does
-**not** say. The app shows the same explanations on the `?` of each column.
+**not** say. The apps show the same explanations on each column's tooltip.
 
 ### From the tags, or from the signal when the tags are silent
 
@@ -403,7 +484,7 @@ levels, 25 of 27 within one level, r = +0.96. Removing `energy_pulse` triples
 the error.
 
 Where you see it: an `energy` column in every table (red, 1–10, between the
-BPM and the groove), a `Δenergy` in the Chain Maker's two tables written in
+BPM and the groove), a `Δenergy` in the set builder's two tables written in
 **steps** rather than ranks (`+2` is two deciles up, which is how you decide
 whether the set is lifting), one of the point-size options on the map, one of
 the board's height axes, and the default vertical axis of the quadrant chart.
@@ -579,19 +660,17 @@ by ear in the app.
 **`lufs`** is the integrated loudness of the analysed windows *before*
 normalisation. It describes the master, not the music.
 
-## Exporting cues to other DJ software
+## Getting cues into other DJ software
 
-Section tags can be exported as a **rekordbox XML** collection — the format
+The native path is the one above: the Cue analysis page writes hot and
+memory cues **directly into the rekordbox library**. For everything else,
+section tags can be exported as a **rekordbox XML** collection — the format
 most DJ software converters accept as input:
 
 ```bash
 # whole library, one collection.xml with all tracks' cues
 poetry run python cli.py ~/Music/dj --rekordbox-xml collection.xml
 ```
-
-In the app, a single track's **confirmed** sections (after you've adjusted the
-sliders/labels) can be downloaded the same way from the "Export cues to
-rekordbox XML" button.
 
 - **rekordbox**: the XML is a *library*, not a playlist file, and its
   `File ▸ Import ▸ Import Playlist` will not even let you select an `.xml`.
@@ -603,18 +682,6 @@ rekordbox XML" button.
 - **Serato / Traktor / djay Pro**: rekordbox XML is the format that
   third-party converters — [DJ Conversion Utility](https://atgr-production-team.sellfy.store/p/emuy/),
   [MIXO](https://www.mixo.dj/), [Lexicon](https://www.lexicondj.com/) — accept
-  to produce a library those apps can import. This tool does not talk to those
-  converters directly; you run them yourself on the exported XML.
-
-There is no verified way to write cues straight into Serato's file tags or into
-djay Pro's own database from here — see the note on cue points above.
-
-## Tests
-
-```bash
-poetry run pytest
-```
-
-The tests cover the pure logic (buckets/percentiles, cache, novelty, sections,
-vocal regions). The end-to-end audio analysis should be tried on a **small
-subset** of files before running on the whole library.
+  to produce a library those apps can import. (`core/analysis/djay_write.py`,
+  which wrote cues into djay Pro's own database, is kept for that app but is
+  no longer the main path.)
