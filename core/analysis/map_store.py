@@ -351,7 +351,7 @@ class MapStore:
 
         Serve perché un brano sulla mappa è riconosciuto dal suo percorso
         assoluto, e un disco nuovo ne cambia la prima parte
-        (`/Volumes/Crucial X9/…` diventa `/Volumes/Altro/…`). Senza questo,
+        (`/Volumes/Disco/…` diventa `/Volumes/Altro/…`). Senza questo,
         una libreria spostata è una libreria SCONOSCIUTA: le righe vecchie
         restano a indicare file che non esistono più e ogni brano viene
         rianalizzato da capo.

@@ -24,19 +24,19 @@ from core.analysis.models import (SECTION_LABELS, VOCAL_END, VOCAL_START,
 TAG_OPTIONS = list(SECTION_LABELS) + [VOCAL_START, VOCAL_END]
 
 _HEADERS = ["#", "▶", "Tag", "Start (mm:ss)", "End (mm:ss)", "Beats",
-            "djay slot", "🗑"]
+            "slot", "🗑"]
 _TIPS = {
     "End (mm:ss)": "Dove finisce la frase, solo come riferimento: NON "
-                   "diventa un cue in djay Pro. Le sezioni sono contigue, "
-                   "quindi coincide con l'inizio della frase successiva. "
+                   "diventa un cue. Le sezioni sono contigue, quindi "
+                   "coincide con l'inizio della frase successiva. "
                    "Le righe vocali hanno la loro fine nella riga gemella.",
     "Beats": "Lunghezza della frase in battiti, ricalcolata dalla fine "
              "corrente.",
-    "djay slot": "Dove finisce questa riga in djay Pro: gli INIZI di frase "
-                 "sui pad hot-cue 1-8 (la posizione decide il colore), le "
-                 "regioni vocali sugli slot loop 1-8 (inizio e fine nello "
-                 "stesso slot). Assegnati in ordine di tempo. Vuoto = non "
-                 "viene scritta.",
+    "slot": "Dove finisce questa riga una volta scritta: gli INIZI di frase "
+            "sui pad hot-cue 1-8 (la posizione decide il colore), le "
+            "regioni vocali sugli slot loop 1-8 (inizio e fine nello "
+            "stesso slot). Assegnati in ordine di tempo. Vuoto = non "
+            "viene scritta.",
     "Start (mm:ss)": "Formato mm:ss o mm:ss.d, es. 1:07.3",
 }
 _COL_PLAY, _COL_TAG, _COL_START, _COL_DEL = 1, 2, 3, 7

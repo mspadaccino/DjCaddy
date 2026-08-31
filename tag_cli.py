@@ -9,7 +9,7 @@ libreria intera sono giorni.
 
 Esempi:
     # tutto quello che manca, con il parallelismo di default
-    poetry run python tag_cli.py "/Volumes/Crucial X9/DJSet"
+    poetry run python tag_cli.py "/percorso/della/libreria"
 
     # una prova da cinquanta brani prima di lanciarlo sul serio
     poetry run python tag_cli.py ~/Music --limit 50

@@ -8,7 +8,7 @@ nella mappa, poi eventualmente ricalcola la proiezione UMAP.
 
 Esempi:
     # tutto quello che manca, e alla fine riproietta
-    poetry run python map_cli.py "/Volumes/Crucial X9/DJSet" --project
+    poetry run python map_cli.py "/percorso/della/libreria" --project
 
     # una prova da cinquanta brani prima di lanciarlo sul serio
     poetry run python map_cli.py ~/Music --limit 50

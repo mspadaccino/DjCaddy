@@ -32,7 +32,7 @@ PLAYABLE = {
 
 
 def pick_folder(state_key: str, label: str = "Folder",
-                placeholder: str = "/Volumes/Crucial X9/DJSet") -> Path | None:
+                placeholder: str = "Select library root") -> Path | None:
     """Campo di testo più il selettore di cartelle nativo del Mac.
 
     Streamlit non ha un dialogo di cartelle — il browser non dà accesso al

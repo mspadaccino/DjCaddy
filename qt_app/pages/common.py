@@ -124,7 +124,7 @@ class FolderRow(QWidget):
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._edit = QLineEdit()
-        self._edit.setPlaceholderText("/Volumes/Crucial X9/DJSet")
+        self._edit.setPlaceholderText("Select library root")
         self._edit.returnPressed.connect(self._on_typed)
         browse = QPushButton("📁 Browse…")
         browse.clicked.connect(self._on_browse)

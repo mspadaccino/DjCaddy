@@ -186,7 +186,7 @@ class WavePage(QWidget):
         self._preview_btn.setToolTip(
             f"Phrase starts become hot cues (pad position sets the colour), "
             f"each vocal region becomes one saved loop. Two banks of "
-            f"{DJAY_SLOTS}, handed out in time order — the djay slot column "
+            f"{DJAY_SLOTS}, handed out in time order — the slot column "
             "shows where each row lands.")
         self._preview_btn.clicked.connect(self._on_djay_preview)
         self._preview_btn.setEnabled(False)
@@ -202,7 +202,7 @@ class WavePage(QWidget):
         box = QVBoxLayout(block)
         box.setContentsMargins(0, 6, 0, 0)
         box.setSpacing(6)
-        title = QLabel("<b>Update your djay Pro library</b>")
+        title = QLabel("<b>Write the cues into your library</b>")
         row = QHBoxLayout()
         row.addWidget(self._vocals_only)
         row.addWidget(self._overwrite, stretch=1)
@@ -522,7 +522,7 @@ class WavePage(QWidget):
         cues, loops = preview["cues"], preview["loops"]
         verb = ("would replace" if preview["overwrite"]
                 else "would be added to")
-        told = [f"Track found in djay Pro ({len(res.cues_before)} existing "
+        told = [f"Track found in your library ({len(res.cues_before)} existing "
                 f"cue(s), {len(res.loops_before)} existing loop(s)). "
                 f"{len(cues)} hot cue(s) and {len(loops)} loop(s) {verb} "
                 "them."]
@@ -531,8 +531,8 @@ class WavePage(QWidget):
         told.extend(f"Loop {lr.slot + 1} → {format_elapsed(lr.start)}–"
                     f"{format_elapsed(lr.end)}" for lr in loops)
         if plan.dropped:
-            told.append(f"⚠ {len(plan.dropped)} row(s) don't fit: djay Pro "
-                        f"only has {DJAY_SLOTS} hot-cue pads and "
+            told.append(f"⚠ {len(plan.dropped)} row(s) don't fit: there "
+                        f"are only {DJAY_SLOTS} hot-cue pads and "
                         f"{DJAY_SLOTS} loop slots.")
         if plan.unpaired:
             told.append(f"⚠ {len(plan.unpaired)} vocal marker(s) have no "
