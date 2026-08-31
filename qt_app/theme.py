@@ -13,6 +13,7 @@ che renderà l'app uguale su macOS e Win11.
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -123,8 +124,16 @@ QLabel#dim {{ color: {FADED}; }}
 
 
 def apply_theme(app: QApplication) -> None:
-    """Veste l'applicazione: stile Fusion, palette scura, QSS."""
+    """Veste l'applicazione: schema scuro, stile Fusion, palette, QSS."""
     app.setStyle("Fusion")
+
+    # La barra del titolo la disegna il sistema e non guarda la QPalette:
+    # su un Mac in modalità chiara restava una striscia bianca sopra le
+    # schede, con la finestra tutta scura sotto. Dichiarare lo schema (Qt
+    # 6.8+) è il modo previsto per dirlo al sistema, e su macOS diventa
+    # l'aspetto della finestra, cornice compresa. Prima della palette:
+    # cambiando schema Qt ne installa una sua, e la nostra deve venire dopo.
+    app.styleHints().setColorScheme(Qt.ColorScheme.Dark)
 
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor(BACKGROUND))

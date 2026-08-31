@@ -4,8 +4,8 @@
 
 Le tab sono le stesse sezioni, nello stesso ordine, del menu Streamlit; il
 lettore sta sotto di tutte, fuori dalle tab, che è come st.bottom lo tiene
-su ogni pagina. Dalla Fase 4 le pagine sono tutte vere, e si apre su Wave
-analysis come il menu di là.
+su ogni pagina. Si apre sulla mappa: è da lì che si parte a cercare, e le
+altre schede lavorano su un brano che di solito si è scelto lì.
 """
 
 from __future__ import annotations
@@ -44,12 +44,14 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
+        # La mappa per prima: è da lì che si parte a cercare, e le altre
+        # schede lavorano su un brano che di solito si è scelto lì.
+        self.map_page = MapPage(self.state)
+        self.tabs.addTab(self.map_page, "🗺️ Map")
         self.wave_page = WavePage(self.state, self.player)
         self.tabs.addTab(self.wave_page, "🌊 Cue analysis")
         self.tabs.addTab(TagPage(self.state), "🏷️ Tag analysis")
         self.tabs.addTab(FolderPage(self.state), "📁 Folder analysis")
-        self.map_page = MapPage(self.state)
-        self.tabs.addTab(self.map_page, "🗺️ Map")
 
         central = QWidget()
         layout = QVBoxLayout(central)
