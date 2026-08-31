@@ -15,8 +15,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHeaderView,
                                QStyledItemDelegate, QTableWidget,
                                QTableWidgetItem)
 
-from core.analysis.cue_export import (PHRASE_START, phrase_ends,
-                                      plan_rekordbox_markers, wants_hot)
+from core.analysis.cue_export import (PHRASE_START, VOCAL_END_KIND,
+                                      phrase_ends, plan_rekordbox_markers,
+                                      twin_of, wants_hot)
 from core.analysis.models import (SECTION_LABELS, VOCAL_END, VOCAL_START,
                                   format_elapsed, parse_mmss)
 
@@ -33,11 +34,13 @@ _TIPS = {
                    "Le righe vocali hanno la loro fine nella riga gemella.",
     "Beats": "Lunghezza della frase in battiti, ricalcolata dalla fine "
              "corrente.",
-    "Hot": "Spuntata, questa riga chiede uno degli 8 pad hot cue (A-H); "
-           "spenta diventa un memory cue, che non ha numero e non si "
-           "esaurisce mai. È una RICHIESTA: i pad sono otto, quindi la nona "
-           "riga spuntata scende a memory da sola — la colonna qui accanto "
-           "dice sempre dove finisce davvero.",
+    "Hot": "Di partenza nessuna riga è spuntata: quello che l'analisi "
+           "trova nasce memory cue, che non ha numero e ci sta sempre. "
+           "Spuntala per chiedere uno degli 8 pad (A-H): una frase diventa "
+           "un hot cue, una regione vocale un loop su pad. È una "
+           "RICHIESTA — i pad sono otto, quindi la nona spuntata scende a "
+           "memory da sola, e la colonna qui accanto dice sempre dove la "
+           "riga finisce davvero.",
     "slot": "Dove finisce questa riga una volta scritta: gli INIZI di frase "
             "sui pad hot-cue 1-8 (la posizione decide il colore), le "
             "regioni vocali sugli slot loop 1-8 (inizio e fine nello "
@@ -67,6 +70,12 @@ def view_rows(rows: list[dict], bpm: float | None,
         {"id": r["id"], "kind": r["kind"], "start": r["start"],
          "hot": r.get("hot")}
         for r in ordered])
+    # Una regione vocale è UN loop su due righe: la fine mostra la spunta
+    # dell'inizio, o la casella direbbe "no" sotto uno slot che dice "sì".
+    asked = {r["id"]: wants_hot(r) for r in ordered}
+    for r in ordered:
+        if r["kind"] == VOCAL_END_KIND:
+            asked[r["id"]] = asked.get(twin_of(r["id"]), False)
     beat_seconds = (60.0 / bpm) if bpm else None
     out = []
     for r in ordered:
@@ -75,7 +84,7 @@ def view_rows(rows: list[dict], bpm: float | None,
                  if r["kind"] == PHRASE_START and beat_seconds
                  and end is not None else None)
         out.append({**r, "end": end, "beats": beats,
-                    "hot": wants_hot(r),
+                    "hot": asked[r["id"]],
                     "slot": plan.slot_label.get(r["id"], "")})
     return out
 

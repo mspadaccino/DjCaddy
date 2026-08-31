@@ -47,13 +47,22 @@ def test_view_rows_sorted_by_time_with_ends_beats_slots():
     assert by_id["sec0"]["beats"] == 60.0
     assert by_id["vs0"]["beats"] is None
     # Gli slot rekordbox: frasi sui pad A..H, la coppia vocale su UN loop.
-    assert by_id["sec0"]["slot"] == "Hot cue A"
-    assert by_id["sec1"]["slot"] == "Hot cue B"
+    # Niente nasce sui pad: i pad si chiedono spuntando Hot.
+    assert by_id["sec0"]["slot"] == "Memory cue"
+    assert by_id["sec1"]["slot"] == "Memory cue"
     assert by_id["vs0"]["slot"] == by_id["ve0"]["slot"] == "Memory loop"
-    # Le frasi nascono coi pad, le regioni vocali no: è il default che la
-    # colonna Hot ribalta riga per riga.
-    assert by_id["sec0"]["hot"] is True
+    assert by_id["sec0"]["hot"] is False
     assert by_id["vs0"]["hot"] is False
+
+
+def test_view_rows_a_ticked_region_shows_ticked_on_both_its_rows():
+    """Una regione vocale è UN loop su due righe: la fine porta la spunta
+    dell'inizio, o la casella direbbe "no" sotto uno slot che dice "sì"."""
+    shown = view_rows([{**r, "hot": r["id"] == "vs0"} for r in rows()],
+                      bpm=120.0, analysis_end={"sec1": 60.0})
+    by_id = {r["id"]: r for r in shown}
+    assert by_id["vs0"]["hot"] is by_id["ve0"]["hot"] is True
+    assert by_id["vs0"]["slot"] == by_id["ve0"]["slot"] == "Hot loop A"
 
 
 def test_view_rows_moving_a_start_moves_the_previous_end():
@@ -84,8 +93,8 @@ def test_cue_table_rows_and_ids(qtbot):
     # Start in mm:ss, End della prima frase = inizio della seconda.
     assert table.item(0, 3).text() == "00:00.0"
     assert table.item(0, 4).text() == "00:30.0"
-    assert table.item(3, _COL_SLOT).text() == "Hot cue B"
-    assert table.item(3, _COL_HOT).checkState() == Qt.CheckState.Checked
+    assert table.item(3, _COL_SLOT).text() == "Memory cue"
+    assert table.item(3, _COL_HOT).checkState() == Qt.CheckState.Unchecked
 
 
 def test_cue_table_start_edit_emits_seconds(qtbot):

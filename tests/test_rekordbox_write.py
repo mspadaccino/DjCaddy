@@ -31,20 +31,19 @@ def plan_of(n_phrases: int, regions=(), hot=None):
 
 # --- il piano ---------------------------------------------------------------
 
-def test_first_eight_phrases_take_the_pads():
-    plan = plan_of(8)
-    assert [m.pad for m in plan.markers] == [1, 2, 3, 4, 5, 6, 7, 8]
-    assert plan.slot_label["sec0"] == "Hot cue A"
-    assert plan.slot_label["sec7"] == "Hot cue H"
-
-
-def test_beyond_the_pads_nothing_is_dropped():
-    """È il guadagno vero rispetto a djay: i memory cue non hanno un numero
-    da esaurire, quindi la nona frase non si perde."""
+def test_nothing_takes_a_pad_on_its_own():
+    """Il default: quello che l'analisi trova nasce memory cue. I pad sono
+    otto e li assegna chi sa come si mixa il brano, non l'ordine del tempo."""
     plan = plan_of(11)
-    pads = [m.pad for m in plan.markers]
-    assert pads == [1, 2, 3, 4, 5, 6, 7, 8, None, None, None]
-    assert plan.slot_label["sec8"] == "Memory cue"
+    assert all(m.pad is None for m in plan.markers)
+    assert set(plan.slot_label.values()) == {"Memory cue"}
+
+
+def test_nothing_is_dropped_either():
+    """È il guadagno rispetto a djay: i memory cue non hanno un numero da
+    esaurire, quindi anche l'undicesima frase c'è."""
+    plan = plan_of(11)
+    assert len(plan.markers) == 11
     assert all(label for label in plan.slot_label.values())
 
 
@@ -53,7 +52,7 @@ def test_a_vocal_region_becomes_one_memory_loop():
     loops = [m for m in plan.markers if m.end is not None]
     assert len(loops) == 1
     assert (loops[0].start, loops[0].end) == (45.0, 61.5)
-    assert loops[0].pad is None       # i loop non rubano un pad alle frasi
+    assert loops[0].pad is None
     assert plan.slot_label["vs0"] == plan.slot_label["ve0"] == "Memory loop"
 
 
@@ -72,39 +71,36 @@ def test_markers_come_out_in_time_order():
 
 # --- pad o memory, riga per riga --------------------------------------------
 
-def test_a_phrase_can_be_pushed_down_to_memory():
-    """La colonna Hot spenta: la frase non vuole un pad, e quel pad resta
-    per una riga più avanti nel brano."""
-    plan = plan_of(3, hot={"sec0": False})
+def test_a_ticked_phrase_becomes_a_hot_cue():
+    """Spuntata, la frase sale su un pad: da memory che era."""
+    plan = plan_of(3, hot={"sec1": True})
     by_id = {m.row_id: m for m in plan.markers}
-    assert by_id["sec0"].pad is None
-    assert plan.slot_label["sec0"] == "Memory cue"
-    assert [by_id["sec1"].pad, by_id["sec2"].pad] == [1, 2]
+    assert [by_id["sec0"].pad, by_id["sec1"].pad, by_id["sec2"].pad] == \
+        [None, 1, None]
+    assert plan.slot_label["sec1"] == "Hot cue A"
 
 
-def test_a_vocal_region_can_be_lifted_onto_a_pad():
-    """Un loop salvato su pad: rekordbox lo sa fare, e la spunta lo chiede."""
+def test_a_ticked_vocal_region_becomes_a_loop_on_a_pad():
+    """Rekordbox i loop salvati sui pad li sa fare, e la spunta li chiede."""
     plan = plan_of(1, [(45.0, 61.5)], hot={"vs0": True})
     loop = [m for m in plan.markers if m.end is not None][0]
-    assert loop.pad == 2                      # dopo sec0, che è a 0 s
-    assert plan.slot_label["vs0"] == "Hot loop B"
-    assert plan.slot_label["ve0"] == "Hot loop B"
+    assert loop.pad == 1                  # sec0 non è spuntata: il pad è libero
+    assert plan.slot_label["vs0"] == plan.slot_label["ve0"] == "Hot loop A"
 
 
-def test_the_ninth_asked_pad_falls_back_to_memory():
+def test_the_pads_go_in_time_order_not_in_ticking_order():
+    plan = plan_of(3, hot={"sec2": True, "sec0": True})
+    by_id = {m.row_id: m for m in plan.markers}
+    assert [by_id["sec0"].pad, by_id["sec2"].pad] == [1, 2]
+
+
+def test_the_ninth_ticked_row_falls_back_to_memory():
     """La spunta è una richiesta, non una promessa: i pad sono otto."""
-    plan = plan_of(9)
+    plan = plan_of(9, hot={f"sec{i}": True for i in range(9)})
     by_id = {m.row_id: m for m in plan.markers}
     assert by_id["sec7"].pad == RB_HOT_CUES
     assert by_id["sec8"].pad is None
     assert plan.slot_label["sec8"] == "Memory cue"
-
-
-def test_the_pads_go_in_time_order_not_in_row_order():
-    plan = plan_of(3, hot={"sec1": False})
-    by_id = {m.row_id: m for m in plan.markers}
-    assert [by_id["sec0"].pad, by_id["sec1"].pad, by_id["sec2"].pad] == \
-        [1, None, 2]
 
 
 # --- i campi di djmdCue -----------------------------------------------------
@@ -150,14 +146,15 @@ def test_a_label_longer_than_the_column_is_cut():
 def test_only_the_free_pads_are_used():
     """Due cue sullo stesso Kind sono un pad solo sul controller: chi non
     trova posto scende a memory cue invece di sovrapporsi."""
-    markers = plan_of(4).markers
+    markers = plan_of(4, hot={f"sec{i}": True for i in range(4)}).markers
     fitted = fit_to_free_pads(markers, taken={1, 2, 3, 5, 6})
     assert [m.pad for m in fitted] == [4, 7, 8, None]
     assert [m.row_id for m in fitted] == ["sec0", "sec1", "sec2", "sec3"]
 
 
 def test_with_every_pad_taken_everything_becomes_memory():
-    fitted = fit_to_free_pads(plan_of(3).markers,
+    plan = plan_of(3, hot={f"sec{i}": True for i in range(3)})
+    fitted = fit_to_free_pads(plan.markers,
                               taken=set(range(1, RB_HOT_CUES + 1)))
     assert [m.pad for m in fitted] == [None, None, None]
 
@@ -193,4 +190,5 @@ def test_refuses_a_loop_that_ends_before_it_starts():
 
 
 def test_accepts_the_plan_the_page_builds():
-    check_markers(plan_of(11, [(45.0, 61.5), (120.0, 138.0)]).markers)
+    check_markers(plan_of(11, [(45.0, 61.5), (120.0, 138.0)],
+                          hot={"sec0": True, "vs0": True}).markers)

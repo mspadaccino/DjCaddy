@@ -202,33 +202,45 @@ class RekordboxPlan:
     unpaired: list[str]
 
 
-def default_hot(kind: str) -> bool:
-    """Se una riga nasce come hot cue o come memory cue.
+def twin_of(row_id: str) -> str:
+    """L'altra metà di una regione vocale: `ve3` ↔ `vs3`.
 
-    Gli inizi di frase sì: sono i punti su cui si salta, ed è per quelli
-    che i pad esistono. Le regioni vocali no: diventano loop, e un loop su
-    un pad toglie il posto a una frase. Resta una PROPOSTA — la colonna
-    Hot della tabella la ribalta riga per riga.
+    Le due righe sono un loop solo, quindi la scelta del pad è una sola e
+    vale per entrambe — chi la legge deve poter passare dall'una all'altra
+    senza rifare la regola in casa.
     """
-    return kind == PHRASE_START
+    if row_id.startswith("vs"):
+        return "ve" + row_id[2:]
+    if row_id.startswith("ve"):
+        return "vs" + row_id[2:]
+    return row_id
 
 
 def wants_hot(row: dict) -> bool:
-    """Cosa chiede questa riga: la scelta dell'utente, o il default."""
-    value = row.get("hot")
-    return default_hot(row["kind"]) if value is None else bool(value)
+    """Se questa riga chiede uno degli otto pad hot cue.
+
+    Di default NO, per tutto: quello che l'analisi trova — frasi e regioni
+    vocali — nasce memory cue. I memory cue non hanno numero e ci stanno
+    tutti, mentre i pad sono otto e sono un posto che si assegna sapendo
+    come si mixa QUEL brano: una cosa che l'analisi non sa e l'utente sì.
+    La spunta della colonna Hot è l'unico modo per prenderne uno.
+    """
+    return bool(row.get("hot"))
 
 
 def plan_rekordbox_markers(rows) -> RekordboxPlan:
     """Assegna i marcatori di rekordbox alle righe, in ordine cronologico.
 
-    Ogni riga dice se vuole un pad (`hot`, vedi `wants_hot`): chi lo vuole
-    prende un pad in ordine di tempo, finché ce n'è. I pad sono otto e non
-    di più, quindi la spunta è una RICHIESTA: la nona riga spuntata scende
-    a memory cue invece di scavalcare la prima, e la colonna slot lo dice.
-    Chi non lo vuole è memory cue da subito — e i memory cue non hanno un
-    numero da esaurire, quindi non si scarta mai niente (è la differenza
-    con `plan_djay_markers`, dove oltre l'ottavo slot si perdeva la riga).
+    Senza spunte non c'è nessun hot cue: tutto nasce memory (`wants_hot`).
+    Chi la spunta prende un pad in ordine di tempo, finché ce n'è — i pad
+    sono otto e non di più, quindi la spunta è una RICHIESTA: la nona riga
+    spuntata scende a memory invece di scavalcare la prima, e la colonna
+    slot lo dice. Una frase spuntata è un hot cue, una regione vocale
+    spuntata è un loop su pad.
+
+    Non si scarta mai niente, perché i memory cue non hanno un numero da
+    esaurire — è la differenza con `plan_djay_markers`, dove oltre
+    l'ottavo slot la riga si perdeva.
 
     Le fini di frase non diventano marcatori: le sezioni sono contigue,
     quindi la fine di una cade sull'inizio della successiva e sarebbe un

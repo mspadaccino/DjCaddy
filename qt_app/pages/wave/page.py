@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (QCheckBox, QFileDialog, QHBoxLayout, QLabel,
 from core.analysis.audio_features import ANALYSIS_SR, load_audio
 from core.analysis.cue_export import (RB_HOT_CUES, build_cue_rows,
                                       is_vocal_row, marker_color,
-                                      plan_rekordbox_markers)
+                                      plan_rekordbox_markers, twin_of)
 from core.analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
 from core.analysis.rekordbox_write import available as rekordbox_available
 from core.analysis.models import format_elapsed
@@ -193,10 +193,12 @@ class WavePage(QWidget):
         self._replace.toggled.connect(lambda _: self._invalidate_preview())
         self._preview_btn = QPushButton("Preview cues")
         self._preview_btn.setToolTip(
-            f"Phrase starts become hot cues on the {RB_HOT_CUES} pads (A-H) "
-            "in time order, and memory cues once the pads run out — so "
-            "nothing is dropped. Each vocal region becomes a saved loop. "
-            "The slot column shows where every row lands.")
+            "Everything the analysis finds is written as a memory cue "
+            "(each vocal region as a memory loop) — nothing is dropped, "
+            "because memory cues have no number to run out of. Tick Hot in "
+            f"the table to claim one of the {RB_HOT_CUES} pads (A-H): a "
+            "phrase becomes a hot cue, a vocal region a loop on a pad. The "
+            "slot column shows where every row lands.")
         self._preview_btn.clicked.connect(self._on_preview)
         self._preview_btn.setEnabled(False)
         self._write_btn = QPushButton("Write cues to track")
@@ -434,8 +436,13 @@ class WavePage(QWidget):
 
     def _on_hot_toggle(self, rid: str, hot: bool) -> None:
         """Pad o memory per questa riga: cambia il piano, quindi il preview
-        mostrato non vale più (ci pensa `_refresh_cues`)."""
-        self._hot[rid] = hot
+        mostrato non vale più (ci pensa `_refresh_cues`).
+
+        La spunta sulla FINE di una regione vocale vale per la regione: il
+        loop è uno, e la scelta la porta la riga d'inizio — spuntarla lì e
+        vederla tornare vuota sarebbe un comando che non risponde.
+        """
+        self._hot[twin_of(rid) if rid.startswith("ve") else rid] = hot
         self._refresh_cues()
 
     def _on_tag_edit(self, rid: str, label: str) -> None:
