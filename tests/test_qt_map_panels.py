@@ -18,8 +18,8 @@ from core.analysis.map_profile import EMBEDDING_DIM, TrackProfile
 from core.analysis.map_store import MapStore
 from core.analysis.mixing import TransitionCost
 from qt_app.pages.map.library import library_frame
-from qt_app.pages.map.playlist_panel import (double_marks, playlist_doubles,
-                                             playlist_rows)
+from qt_app.pages.map.playlist_panel import (appended, double_marks,
+                                             playlist_doubles, playlist_rows)
 from qt_app.pages.map.set_builder import numbered_rows
 
 
@@ -76,6 +76,31 @@ def test_playlist_rows_track_missing_a_chapter_stays_blank():
     table = playlist_rows(frame, cost_of(frame), [0, 1], common={},
                           ch_lookup={0: "Intro"})
     assert table.at[1, "chapter"] == []
+
+
+# --- l'aggiunta in coda: chi c'è già non rientra, e si racconta ---
+
+def test_appended_skips_what_is_already_there_and_tells():
+    merged, skipped = appended(["/a/one.mp3", "/b/two.mp3"],
+                               ["/b/two.mp3", "/c/three.mp3"])
+    assert merged == ["/a/one.mp3", "/b/two.mp3", "/c/three.mp3"]
+    assert skipped == ["/b/two.mp3"]
+
+
+def test_appended_catches_the_double_inside_the_same_batch():
+    """La stessa mandata può portare due volte lo stesso file (un m3u8 che
+    lo elenca due volte): la seconda copia non entra e va nel resoconto —
+    una volta sola, anche se i tentativi erano tre."""
+    merged, skipped = appended([], ["/a/x.mp3", "/a/x.mp3", "/b/y.mp3",
+                                    "/a/x.mp3"])
+    assert merged == ["/a/x.mp3", "/b/y.mp3"]
+    assert skipped == ["/a/x.mp3"]
+
+
+def test_appended_stays_silent_when_everything_is_new():
+    merged, skipped = appended(["/a/one.mp3"], ["/b/two.mp3"])
+    assert merged == ["/a/one.mp3", "/b/two.mp3"]
+    assert skipped == []
 
 
 # --- i possibili doppioni della playlist ---

@@ -72,6 +72,30 @@ def playlist_rows(frame: pd.DataFrame, cost: TransitionCost,
     return pd.DataFrame(listed, columns=order)
 
 
+# Quante righe del resoconto dei saltati stanno nella finestra: oltre, la
+# lista intera passa dietro «Show Details…» — un dialogo alto uno schermo
+# non è più un resoconto.
+SKIPPED_SHOWN = 12
+
+
+def appended(current: list[str], incoming: list[str]
+             ) -> tuple[list[str], list[str]]:
+    """La coda dopo l'aggiunta, e i saltati perché già presenti.
+
+    La playlist non tiene lo stesso file due volte: chi arriva e c'è già —
+    da prima, o perché la stessa mandata lo porta due volte — non entra di
+    nuovo e finisce nel resoconto, una volta sola, nell'ordine d'arrivo.
+    """
+    merged = list(current)
+    skipped: list[str] = []
+    for path in incoming:
+        if path not in merged:
+            merged.append(path)
+        elif path not in skipped:
+            skipped.append(path)
+    return merged, skipped
+
+
 # Sopra questa somiglianza (coseno sugli embedding, la stessa misura di
 # «Sounds like it») due brani della playlist si segnalano come lo stesso
 # pezzo sotto nomi diversi. Alta apposta: verso 0.9 si pescano i vicini di
@@ -346,14 +370,34 @@ class PlaylistPanel(QWidget):
         self._table.clear_picks()
 
     def append(self, indices: list[int]) -> None:
-        """In coda a quello che c'è già, saltando chi c'è già."""
+        """In coda a quello che c'è già, saltando chi c'è già — e i saltati
+        si raccontano: un'aggiunta assorbita in silenzio lascia il dubbio
+        che non sia successo niente, o peggio che sia entrato un doppione."""
         frame = self._lib.frame
-        current = list(self._state.playlist)
-        for i in indices:
-            path = frame.at[i, "path"]
-            if path not in current:
-                current.append(path)
-        self._push(current, False)
+        merged, skipped = appended(list(self._state.playlist),
+                                   [frame.at[i, "path"] for i in indices])
+        self._push(merged, False)
+        if skipped:
+            self._tell_skipped(skipped)
+
+    def _tell_skipped(self, skipped: list[str]) -> None:
+        """Il resoconto dei file già in playlist: quali sono e a che riga
+        stanno. DOPO il push apposta, così i numeri detti sono quelli che
+        la tabella mostra dietro la finestra."""
+        paths = [self._lib.frame.at[i, "path"] for i in self.indices()]
+        lines = [(f"#{paths.index(p) + 1} · " if p in paths else "")
+                 + Path(p).name for p in skipped]
+        box = QMessageBox(self)
+        box.setWindowTitle("Already in the playlist")
+        box.setText(f"{len(skipped)} track(s) already in the playlist — "
+                    "not added again.")
+        shown = lines[:SKIPPED_SHOWN]
+        if len(lines) > SKIPPED_SHOWN:
+            shown.append(f"…and {len(lines) - SKIPPED_SHOWN} more — see "
+                         "the details below.")
+            box.setDetailedText("\n".join(lines))
+        box.setInformativeText("\n".join(shown))
+        box.exec()
 
     def replace(self, indices: list[int]) -> None:
         frame = self._lib.frame
