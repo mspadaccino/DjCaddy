@@ -36,7 +36,7 @@ from qt_app.widgets.player_dock import PlayerDock
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Wavecut")
+        self.setWindowTitle("DjCaddy")
         self.state = AppState(self)
         # Il lettore nasce prima delle pagine: la pagina Wave gli si
         # aggancia (posizione e salti) fin dal costruttore.
@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
 
 
 def main() -> int:
-    QApplication.setApplicationName("Wavecut")
+    QApplication.setApplicationName("DjCaddy")
     app = QApplication(sys.argv)
     apply_theme(app)
     window = MainWindow()

@@ -65,7 +65,7 @@ def build_rekordbox_xml(tracks: list[dict]) -> str:
     sintetici.
     """
     root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
-    ET.SubElement(root, "PRODUCT", Name="Wavecut", Version="1.0", Company="Wavecut")
+    ET.SubElement(root, "PRODUCT", Name="DjCaddy", Version="1.0", Company="DjCaddy")
     collection = ET.SubElement(root, "COLLECTION", Entries=str(len(tracks)))
 
     track_keys = []
@@ -104,7 +104,7 @@ def build_rekordbox_xml(tracks: list[dict]) -> str:
 
     playlists = ET.SubElement(root, "PLAYLISTS")
     root_node = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")
-    playlist_node = ET.SubElement(root_node, "NODE", Name="Wavecut", Type="1",
+    playlist_node = ET.SubElement(root_node, "NODE", Name="DjCaddy", Type="1",
                                   Entries=str(len(track_keys)))
     for key in track_keys:
         ET.SubElement(playlist_node, "TRACK", Key=key)

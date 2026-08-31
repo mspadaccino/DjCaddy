@@ -39,7 +39,7 @@ _SHIM = """
       window.postMessage({type: "streamlit:render", args: payload}, "*");
     }
   }
-  window.__wavecut_render = function (payload) { queued = payload; flush(); };
+  window.__djcaddy_render = function (payload) { queued = payload; flush(); };
   window.addEventListener("message", function (event) {
     var data = event.data || {};
     if (!data.isStreamlitMessage) return;
@@ -91,7 +91,7 @@ class ComponentView(QWebEngineView):
         # il componentReady trova l'ascoltatore già al suo posto. MainWorld
         # perché lo shim e la pagina devono vedersi (stesso window).
         shim = QWebEngineScript()
-        shim.setName("wavecut-shim")
+        shim.setName("djcaddy-shim")
         shim.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
         shim.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         shim.setSourceCode(qwebchannel_source() + _SHIM)
@@ -105,7 +105,7 @@ class ComponentView(QWebEngineView):
         di più payload in attesa vale l'ultimo."""
         self._payload = payload
         self.page().runJavaScript(
-            f"window.__wavecut_render({json.dumps(payload)})")
+            f"window.__djcaddy_render({json.dumps(payload)})")
 
     def _on_event(self, data: dict) -> None:
         kind = data.get("type")

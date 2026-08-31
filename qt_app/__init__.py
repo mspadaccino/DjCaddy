@@ -1,7 +1,7 @@
-"""L'app desktop Qt6 di Wavecut, in parallel run con quella Streamlit.
+"""DjCaddy, l'app desktop Qt6.
 
-Le due app leggono gli stessi store e disegnano le stesse figure: la logica
-sta in `core/`, qui c'è solo il vestito Qt — finestre, widget, segnali.
+La logica sta in `core/`, qui c'è solo il vestito Qt — finestre, widget,
+segnali.
 Si avvia con:
 
     poetry run python -m qt_app.main

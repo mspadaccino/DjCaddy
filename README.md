@@ -1,4 +1,4 @@
-# Wavecut
+# DjCaddy
 
 Local tool to analyze an mp3/flac library and prepare DJ sets:
 
@@ -9,28 +9,20 @@ Local tool to analyze an mp3/flac library and prepare DJ sets:
   written as **hot/memory cues straight into the rekordbox library**,
 - folder scanning, duplicate hunting and quarantine.
 
-## Two apps, one core
+## The app
 
-The same tool ships as **two applications over one shared core**, in
-deliberate parallel run:
+DjCaddy is a native desktop app (PySide6/Qt6) with four sections — Map, Cue
+analysis, Tag analysis, Folder analysis — over one persistent player:
+waveform preview with the played portion colored, click on the waveform to
+seek. An interaction updates only the widgets it touches, which is what
+keeps it responsive on a 90,000-track library.
 
-| | entry point | what it is |
-|---|---|---|
-| **Qt desktop app** | `poetry run python -m qt_app.main` | the primary app: native PySide6/Qt6, noticeably faster — an interaction updates only the widgets it touches, instead of re-running a whole script |
-| **Streamlit app** | `poetry run streamlit run streamlit_app/app.py` | the original, kept alive as reference and fallback |
+It targets macOS and Windows 11. One asymmetry is structural: **Essentia has
+no Windows wheels**, so *building* the map and tagging run on macOS only;
+*using* an existing map (playlists, set building, the board, the player,
+folder analysis) works everywhere.
 
-Both apps read and write **the same data** — the map store, the analysis
-sidecars, the caches — so they can be used interchangeably on the same
-library. Both offer the same four sections (Map, Cue analysis, Tag analysis,
-Folder analysis) and the same persistent player: waveform preview with the
-played portion colored, click on the waveform to seek.
-
-The Qt app targets macOS and Windows 11. One asymmetry is structural:
-**Essentia has no Windows wheels**, so *building* the map and tagging run on
-macOS only; *using* an existing map (playlists, set building, the board, the
-player, folder analysis) works everywhere.
-
-The migration plan, its decisions and their trade-offs are in
+The design decisions and their trade-offs are recorded in
 [docs/piano-qt.md](docs/piano-qt.md). Packaging into a standalone installer
 (PyInstaller) is the one phase not done yet.
 
@@ -38,15 +30,13 @@ The migration plan, its decisions and their trade-offs are in
 
 ```
 core/
-├── analysis/        # the engine: pure Python, no UI — imported by both apps and the CLIs
-└── viz/             # shared presentation: Plotly figure builders, palettes,
+├── analysis/        # the engine: pure Python, no UI — imported by the app and the CLIs
+└── viz/             # presentation logic: Plotly figure builders, palettes,
 │                    #   table columns, board/wheel payloads — functions that
 │                    #   return data, never widgets
 │   └── frontend/    # the two HTML components (playlist board, Camelot wheel)
-│                    #   used by both apps
 qt_app/              # the desktop app: pages, widgets, AppState (Qt signals),
 │                    #   background workers
-streamlit_app/       # the original app: app.py + views/
 tests/               # pytest; Qt pages under pytest-qt; figure snapshot tests
 cli.py, map_cli.py, energy_cli.py, mood_cli.py, tag_cli.py, zoo_cli.py
 ```
@@ -75,7 +65,6 @@ Key engine modules (`core/analysis/`):
 | `cue_export.py` | phrase sections and vocal regions → cue rows, and their mapping onto pads |
 | `rekordbox_write.py` | hot/memory cues written into rekordbox 6/7's encrypted `master.db` (via pyrekordbox) |
 | `dj_export.py` | export to rekordbox XML and M3U8 |
-| `djay_write.py` | the djay Pro twin of `rekordbox_write` — kept for the app it was written for |
 
 ## Setup
 
@@ -92,24 +81,18 @@ Python dependencies with Poetry (Python ^3.11):
 poetry install
 ```
 
-That installs everything, both apps included. The optional groups are exits,
-not choices you must make:
+That installs everything. The optional groups are exits, not choices you
+must make:
 
 | group | drop it with | what you lose |
 |---|---|---|
 | `essentia` | `--without essentia` | map building and tagging (no wheel for your Python? this keeps the rest alive) |
 | `rekordbox` | `--without rekordbox` | writing cues into rekordbox's database (the Cue page says so instead of breaking) |
-| `streamlit` | `--without streamlit` | the Streamlit app |
-| `qt` | `--without qt` | the Qt app |
 
 ## Running
 
 ```bash
 poetry run python -m qt_app.main
-```
-
-```bash
-poetry run streamlit run streamlit_app/app.py
 ```
 
 ```bash
@@ -286,8 +269,8 @@ you can actually read, which is why the map stays in two dimensions: a third
 axis would cost the lasso and the box (Plotly has neither in 3D) and would
 have to be read by rotating the scene.
 
-While the background job runs, the page shows its progress **live** — both
-apps re-read the job's state file every couple of seconds without redrawing
+While the background job runs, the page shows its progress **live** — the
+app re-reads the job's state file every couple of seconds without redrawing
 the map — and can **pause**, **resume** or **stop** it (signals go to the
 whole process group, so the parallel workers stop too) or open a **Terminal**
 on `tail -f` of its log.
@@ -409,7 +392,7 @@ nothing.
 ## What each number means
 
 Every measure a track carries, what it is computed from, and what it does
-**not** say. The apps show the same explanations on each column's tooltip.
+**not** say. The app shows the same explanations on each column's tooltip.
 
 ### From the tags, or from the signal when the tags are silent
 
@@ -679,9 +662,7 @@ poetry run python cli.py ~/Music/dj --rekordbox-xml collection.xml
   appear under the `rekordbox xml` tree in the sidebar, to drag into your own
   collection. (For a playlist alone, with no BPM or cues, the **M3U8** export
   is what Import Playlist accepts.)
-- **Serato / Traktor / djay Pro**: rekordbox XML is the format that
-  third-party converters — [DJ Conversion Utility](https://atgr-production-team.sellfy.store/p/emuy/),
-  [MIXO](https://www.mixo.dj/), [Lexicon](https://www.lexicondj.com/) — accept
-  to produce a library those apps can import. (`core/analysis/djay_write.py`,
-  which wrote cues into djay Pro's own database, is kept for that app but is
-  no longer the main path.)
+- **Serato / Traktor**: rekordbox XML is the format that third-party
+  converters — [MIXO](https://www.mixo.dj/),
+  [Lexicon](https://www.lexicondj.com/) — accept to produce a library those
+  apps can import.

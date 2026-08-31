@@ -123,15 +123,15 @@ def backup_database(db_path: Path, when: date | None = None) -> Path:
     """Copia `master.db` accanto all'originale, una volta al giorno.
 
     Il nome porta la data: se la copia di oggi c'è già la si tiene, perché
-    la prima copia del giorno è quella "prima che Wavecut toccasse niente"
+    la prima copia del giorno è quella "prima che DjCaddy toccasse niente"
     — ed è quella che si vuole per tornare indietro. Delle più vecchie
     restano le ultime `BACKUPS_KEPT`.
     """
     stamp = (when or date.today()).isoformat()
-    backup = db_path.with_name(f"{db_path.name}.wavecut-{stamp}.bak")
+    backup = db_path.with_name(f"{db_path.name}.djcaddy-{stamp}.bak")
     if not backup.exists():
         shutil.copy2(db_path, backup)
-    old = sorted(db_path.parent.glob(f"{db_path.name}.wavecut-*.bak"))
+    old = sorted(db_path.parent.glob(f"{db_path.name}.djcaddy-*.bak"))
     for stale in old[:-BACKUPS_KEPT]:
         stale.unlink(missing_ok=True)
     return backup

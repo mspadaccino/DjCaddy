@@ -1,6 +1,6 @@
 """Genere e mood dai modelli Essentia, scritti nei tag del file.
 
-Porta dentro Wavecut quello che faceva `tag_music.py` del progetto
+Porta dentro DjCaddy quello che faceva `tag_music.py` del progetto
 Essentia-to-Metadata: embedding Discogs-EffNet, poi due classificatori
 (genere a 400 classi, mood MTG-Jamendo), poi scrittura nei tag.
 

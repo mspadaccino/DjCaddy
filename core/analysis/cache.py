@@ -17,7 +17,13 @@ CACHE_VERSION = 8  # v8: inviluppo vocale in cache (soglia regolabile a review-t
 
 
 def default_cache_path() -> Path:
-    return Path.home() / ".cache" / "dj-library-tools" / "analysis.json"
+    # Come default_store_dir in map_store: percorso nuovo, e si ripiega sul
+    # vecchio dove la cartella non è ancora stata spostata.
+    new = Path.home() / ".cache" / "djcaddy" / "analysis.json"
+    old = Path.home() / ".cache" / "dj-library-tools" / "analysis.json"
+    if not new.exists() and old.exists():
+        return old
+    return new
 
 
 def _stat(filepath: Path) -> tuple[float, int]:

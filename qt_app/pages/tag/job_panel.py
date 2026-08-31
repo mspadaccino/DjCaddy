@@ -125,7 +125,7 @@ class JobPanel(QWidget):
         if self._root is None:
             return
         settings, workers = self._current_settings()
-        log = Path(tempfile.gettempdir()) / "wavecut_tag_job.log"
+        log = Path(tempfile.gettempdir()) / "djcaddy_tag_job.log"
         command = [sys.executable, str(TAG_CLI_PATH), str(self._root),
                    "--workers", str(workers),
                    "--genre-format", settings.genre_format,

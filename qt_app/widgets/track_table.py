@@ -36,7 +36,7 @@ from qt_app import theme
 # delegate e per chi copia.
 PILLS_ROLE = Qt.ItemDataRole.UserRole + 1
 
-_ROWS_MIME = "application/x-wavecut-rows"
+_ROWS_MIME = "application/x-djcaddy-rows"
 
 # Il nome della colonna di spunta delle tabelle `checkable`.
 CHECK_COLUMN = "✓"

@@ -40,7 +40,15 @@ _KEEP = object()
 
 
 def default_store_dir() -> Path:
-    return Path.home() / ".cache" / "dj-library-tools" / "map"
+    # La casa nuova porta il nome dell'app. Se non esiste ancora e quella
+    # vecchia sì (una macchina dove la cartella non è stata spostata), si
+    # continua a leggere lì: la mappa vale ore di calcolo, non si abbandona
+    # per un rename.
+    new = Path.home() / ".cache" / "djcaddy" / "map"
+    old = Path.home() / ".cache" / "dj-library-tools" / "map"
+    if not new.exists() and old.exists():
+        return old
+    return new
 
 
 def _key(path) -> str:

@@ -78,10 +78,10 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
     var began = performance.now();
     Plotly.react(document.getElementById("map"), data, layout, config)
       .then(function (gd) {
-        if (!gd._wavecut_wired) {
+        if (!gd._djcaddy_wired) {
           // Una volta sola: il div sopravvive alle react successive, e
           // gli ascoltatori con lui.
-          gd._wavecut_wired = true;
+          gd._djcaddy_wired = true;
           gd.on("plotly_click", function (e) {
             var hit = indices(e.points);
             if (hit.length) tell({type: "click", index: hit[0]});
@@ -97,11 +97,11 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
       });
   }
 
-  window.wavecut = {
+  window.djcaddy = {
     render: function (spec) {
       // Lo zoom, il pan e le voci spente in legenda restano dove sono a
       // ogni aggiornamento: è il contratto di uirevision.
-      spec.layout.uirevision = "wavecut";
+      spec.layout.uirevision = "djcaddy";
       base = {data: spec.data, layout: spec.layout,
               notes: (spec.layout.annotations || [])};
       react(spec.data, spec.layout);
@@ -164,7 +164,7 @@ class PlotlyView(QWebEngineView):
         if not self._ready:
             self._queued = spec
             return
-        self.page().runJavaScript(f"window.wavecut.render({spec})")
+        self.page().runJavaScript(f"window.djcaddy.render({spec})")
 
     def set_overlays(self, figure) -> None:
         """Aggiorna i soli tracciati di contorno sopra l'ultima figura di
@@ -174,7 +174,7 @@ class PlotlyView(QWebEngineView):
         if not self._ready:
             self._queued_overlays = spec
             return
-        self.page().runJavaScript(f"window.wavecut.overlays({spec})")
+        self.page().runJavaScript(f"window.djcaddy.overlays({spec})")
 
     def _on_event(self, data: dict) -> None:
         kind = data.get("type")
@@ -182,10 +182,10 @@ class PlotlyView(QWebEngineView):
             self._ready = True
             if self._queued is not None:
                 spec, self._queued = self._queued, None
-                self.page().runJavaScript(f"window.wavecut.render({spec})")
+                self.page().runJavaScript(f"window.djcaddy.render({spec})")
             if self._queued_overlays is not None:
                 spec, self._queued_overlays = self._queued_overlays, None
-                self.page().runJavaScript(f"window.wavecut.overlays({spec})")
+                self.page().runJavaScript(f"window.djcaddy.overlays({spec})")
         elif kind == "click":
             self.point_clicked.emit(int(data["index"]))
         elif kind == "selected":

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Accanto al codice, come faceva lo script originale col suo tracking.
-DEFAULT_TRACKING_FILE = Path(__file__).resolve().parent.parent.parent / ".wavecut_tag_progress.txt"
+DEFAULT_TRACKING_FILE = Path(__file__).resolve().parent.parent.parent / ".djcaddy_tag_progress.txt"
 
 
 @dataclass

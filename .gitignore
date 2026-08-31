@@ -13,7 +13,7 @@ dist/
 *.dj_cache.json
 
 # Elenco dei brani gia' taggati (dati: si copia a mano, non si committa)
-.wavecut_tag_progress.txt
+.djcaddy_tag_progress.txt
 
 # Report generati dall'analisi
 report.csv
@@ -36,5 +36,5 @@ test_mp3/
 
 # Streamlit
 .streamlit/secrets.toml
-.wavecut_tag_job.json
-.wavecut_map_job.json
+.djcaddy_tag_job.json
+.djcaddy_map_job.json

@@ -34,7 +34,7 @@ from .tag_job import JobState, load_state  # noqa: F401  (riesportato per la pag
 # Radice del repo: core/analysis/map_job.py -> core/analysis -> core -> radice.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-DEFAULT_MAP_STATE_FILE = PROJECT_ROOT / ".wavecut_map_job.json"
+DEFAULT_MAP_STATE_FILE = PROJECT_ROOT / ".djcaddy_map_job.json"
 
 # Percorso di map_cli.py, che resta in root: unica definizione, così chi
 # lancia il job (la pagina Map) non se lo ricalcola per conto suo.
@@ -42,7 +42,7 @@ MAP_CLI_PATH = PROJECT_ROOT / "map_cli.py"
 
 # Dove finisce quello che il job stampa. Una sola definizione, perché la usano
 # in due: chi lancia il job e chi ci apre sopra un terminale.
-DEFAULT_MAP_LOG = Path(tempfile.gettempdir()) / "wavecut_map_job.log"
+DEFAULT_MAP_LOG = Path(tempfile.gettempdir()) / "djcaddy_map_job.log"
 
 
 def build_queue(folder: Path, store: MapStore) -> list[Path]:

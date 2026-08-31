@@ -66,7 +66,7 @@ def test_build_rekordbox_xml_structure_and_escaping():
     assert marks[1].get("Start") == "32.500"
     assert marks[1].get("Red") == "224"        # colore del Drop tradotto in RGB
 
-    playlist_tracks = root.findall(".//PLAYLISTS//NODE[@Name='Wavecut']/TRACK")
+    playlist_tracks = root.findall(".//PLAYLISTS//NODE[@Name='DjCaddy']/TRACK")
     assert [t.get("Key") for t in playlist_tracks] == ["1"]
 
 

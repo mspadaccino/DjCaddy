@@ -486,10 +486,10 @@ class PlaylistPanel(QWidget):
 
     def _on_save_m3u8(self) -> None:
         self._save(build_m3u8(self._tracks_for_export()),
-                   "wavecut_playlist.m3u8", "Save the playlist",
+                   "djcaddy_playlist.m3u8", "Save the playlist",
                    "Playlist (*.m3u8)")
 
     def _on_save_xml(self) -> None:
         self._save(build_rekordbox_xml(self._tracks_for_export()),
-                   "wavecut_library.xml", "Save the rekordbox library",
+                   "djcaddy_library.xml", "Save the rekordbox library",
                    "rekordbox XML (*.xml)")
