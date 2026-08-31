@@ -83,9 +83,17 @@ def duplicate_rows(groups, full_paths: bool = False,
         size_a, size_b = g.file_sizes.get(a), g.file_sizes.get(b)
         hash_a, hash_b = g.file_hashes.get(a), g.file_hashes.get(b)
         same_size = size_a is not None and size_a == size_b
+        shown_a = human_size(size_a) if size_a is not None else "?"
+        shown_b = human_size(size_b) if size_b is not None else "?"
+        if (size_a is not None and size_b is not None
+                and not same_size and shown_a == shown_b):
+            # Due size diverse al byte arrotondate allo stesso "10.1 MB"
+            # sembrano un "same size" sbagliato: qui, e solo qui, i byte
+            # esatti — è successo davvero, con uno sfogo comprensibile.
+            shown_a, shown_b = f"{size_a:,} B", f"{size_b:,} B"
         return {
-            "size A": human_size(size_a) if size_a is not None else "?",
-            "size B": human_size(size_b) if size_b is not None else "?",
+            "size A": shown_a,
+            "size B": shown_b,
             "same size": same_size,
             "same name": a.name == b.name,
             "same hash": bool(same_size and hash_a is not None

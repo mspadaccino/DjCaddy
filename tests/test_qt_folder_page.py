@@ -164,6 +164,30 @@ def test_duplicate_rows_compare_different_sizes_skips_the_hash():
     assert row["same name"]                     # stesso nome "a.mp3"
 
 
+def test_duplicate_rows_ambiguous_rounding_shows_exact_bytes():
+    """Il caso "Drama - Big Ballin'": size diverse al byte (~20 KB) che si
+    arrotondano entrambe a "10.1 MB" — a schermo sembrano uguali accanto a
+    un same size False, e sembra un bug. Qui, e solo qui, i byte esatti."""
+    table = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 10587351, "/y/a.mp3": 10567022},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"})],
+        full_paths=True, compare=True)
+    row = table.iloc[0]
+    assert human_size(10587351) == human_size(10567022)     # il caso ambiguo
+    assert row["size A"] == "10,587,351 B"
+    assert row["size B"] == "10,567,022 B"
+    assert not row["same size"]
+
+    # Size davvero uguali: il display resta quello arrotondato di sempre.
+    same = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 10587351, "/y/a.mp3": 10587351},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "aaa"})],
+        full_paths=True, compare=True).iloc[0]
+    assert same["size A"] == human_size(10587351)
+
+
 def test_duplicate_rows_compare_same_size_different_hash():
     """Stessa dimensione ma contenuto diverso: decide l'hash, non la size —
     è esattamente il caso dei due "ditty - paperboy" con lo stesso nome."""
