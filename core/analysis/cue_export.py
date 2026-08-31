@@ -23,6 +23,10 @@ VOCAL_KINDS = (VOCAL_START_KIND, VOCAL_END_KIND)
 # djay Pro: 8 pad hot-cue e 8 slot loop, due banchi indipendenti.
 DJAY_SLOTS = 8
 
+# rekordbox: 8 pad hot-cue (A..H) e basta — ma i memory cue non hanno
+# numero, quindi quello che non entra nei pad non si perde, ci va accanto.
+RB_HOT_CUES = 8
+
 
 def build_cue_rows(sections, vocal_regions, bpm: float | None = None) -> list[dict]:
     """Costruisce le righe cue di default per un brano.
@@ -167,3 +171,93 @@ def plan_djay_markers(rows) -> DjayPlan:
                if r["id"] in wanted and not slot_label[r["id"]]
                and r["id"] not in unpaired]
     return DjayPlan(cues, loops, slot_label, dropped, unpaired)
+
+
+@dataclass
+class RekordboxMarker:
+    """Un marcatore da scrivere in rekordbox.
+
+    `pad` 1-8 è un hot cue (i pad A..H); `pad` None è un memory cue, che
+    non ha numero e di cui rekordbox non ha un tetto. `end` distingue un
+    cue da un loop: se c'è, il marcatore è un loop da `start` a `end`.
+    """
+    row_id: str
+    start: float
+    end: float | None
+    label: str
+    pad: int | None
+
+
+@dataclass
+class RekordboxPlan:
+    """Come le righe della tabella finiscono nella libreria di rekordbox.
+
+    `slot_label`: {row_id: "Hot cue A" / "Memory cue" / "Loop"} per la
+    colonna della tabella. `unpaired`: righe vocali rimaste senza gemella.
+    Non c'è una lista di scartati come per djay: in rekordbox non si scarta
+    niente, oltre l'ottavo pad si continua in memory cue.
+    """
+    markers: list[RekordboxMarker]
+    slot_label: dict[str, str]
+    unpaired: list[str]
+
+
+def plan_rekordbox_markers(rows) -> RekordboxPlan:
+    """Assegna i marcatori di rekordbox alle righe, in ordine cronologico.
+
+    Gli INIZI di frase diventano cue: i primi otto sui pad A..H, gli altri
+    memory cue. Le fini di frase no, per la stessa ragione di djay: le
+    sezioni sono contigue, quindi la fine di una cade sull'inizio della
+    successiva e sarebbe un doppione.
+
+    Le regioni vocali diventano loop di memoria — servono entrambi gli
+    estremi, e uno solo non è una regione. Loop e cue NON si contendono i
+    pad qui, perché i loop nascono già memory: in rekordbox i pad sono otto
+    in tutto, e spenderli in loop vorrebbe dire non avere più dove mettere
+    le frasi.
+
+    A differenza di `plan_djay_markers` non scarta niente: è il vantaggio
+    dei memory cue, che non hanno un numero da esaurire.
+
+    `rows`: iterabile di dict con id, kind, start, label.
+    """
+    rows = list(rows)
+    by_id = {r["id"]: r for r in rows}
+    markers: list[RekordboxMarker] = []
+    slot_label: dict[str, str] = {}
+    unpaired: list[str] = []
+
+    phrases = sorted((r for r in rows if r["kind"] == PHRASE_START),
+                     key=lambda r: r["start"])
+    for i, r in enumerate(phrases):
+        pad = i + 1 if i < RB_HOT_CUES else None
+        markers.append(RekordboxMarker(r["id"], r["start"], None,
+                                       r.get("label") or r.get("tag") or "",
+                                       pad))
+        slot_label[r["id"]] = (f"Hot cue {chr(ord('A') + i)}" if pad
+                               else "Memory cue")
+
+    regions = []
+    for r in rows:
+        if r["kind"] != VOCAL_START_KIND:
+            continue
+        end_row = by_id.get("ve" + r["id"][2:])
+        if end_row is None or end_row["start"] <= r["start"]:
+            unpaired.append(r["id"])
+            continue
+        regions.append((r, end_row))
+    for r in rows:
+        if r["kind"] == VOCAL_END_KIND and "vs" + r["id"][2:] not in by_id:
+            unpaired.append(r["id"])
+
+    regions.sort(key=lambda pair: pair[0]["start"])
+    for start_row, end_row in regions:
+        markers.append(RekordboxMarker(
+            start_row["id"], start_row["start"], end_row["start"],
+            start_row.get("label") or start_row.get("tag") or "", None))
+        slot_label[start_row["id"]] = slot_label[end_row["id"]] = "Loop"
+
+    for r in rows:
+        slot_label.setdefault(r["id"], "")
+    markers.sort(key=lambda m: m.start)
+    return RekordboxPlan(markers, slot_label, unpaired)

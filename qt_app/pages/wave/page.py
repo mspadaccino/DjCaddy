@@ -16,7 +16,6 @@ Scarti deliberati dalla lettera di Streamlit, come in Fase 3:
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -27,10 +26,11 @@ from PySide6.QtWidgets import (QCheckBox, QFileDialog, QHBoxLayout, QLabel,
                                QWidget)
 
 from core.analysis.audio_features import ANALYSIS_SR, load_audio
-from core.analysis.cue_export import (DJAY_SLOTS, build_cue_rows,
+from core.analysis.cue_export import (RB_HOT_CUES, build_cue_rows,
                                       is_vocal_row, marker_color,
-                                      plan_djay_markers)
+                                      plan_rekordbox_markers)
 from core.analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
+from core.analysis.rekordbox_write import available as rekordbox_available
 from core.analysis.models import format_elapsed
 from core.analysis.vocals import VOCAL_FLOOR
 from core.analysis.vocals import available as vocals_available
@@ -169,48 +169,60 @@ class WavePage(QWidget):
         box.addWidget(self._wave)
         box.addLayout(caption_row)
         box.addWidget(self._table, stretch=1)
-        if sys.platform == "darwin":
-            box.addWidget(self._build_djay())
+        box.addWidget(self._build_write())
 
-    def _build_djay(self) -> QWidget:
-        """La scrittura diretta in djay Pro: solo dove djay Pro vive."""
-        self._overwrite = QCheckBox("Replace existing cues")
-        self._overwrite.setToolTip(
-            "Applied by Write cues to track: existing cues/loops on this "
-            "song are replaced by the rows above instead of adding to "
-            "them. Changing it asks for a fresh preview, because the "
-            "preview is computed with it. Removing is best-effort — a full "
-            "backup is taken, check the preview.")
-        self._overwrite.toggled.connect(lambda _: self._invalidate_preview())
+    def _build_write(self) -> QWidget:
+        """Il blocco che porta i cue nella libreria di rekordbox.
+
+        Non è più legato a macOS come il vecchio blocco djay: rekordbox sta
+        anche su Windows, e `rekordbox_write.available()` dice da sé se su
+        questo computer si può scrivere e altrimenti perché no.
+        """
+        self._replace = QCheckBox("Replace existing cues")
+        self._replace.setToolTip(
+            "Applied by Write cues to track: the cues and loops rekordbox "
+            "already has on this song are removed and the rows above take "
+            "their place — pads included. Off, the new ones join what is "
+            "there, taking only the free pads. Changing it asks for a "
+            "fresh preview, because the preview is computed with it.")
+        self._replace.toggled.connect(lambda _: self._invalidate_preview())
         self._preview_btn = QPushButton("Preview cues")
         self._preview_btn.setToolTip(
-            f"Phrase starts become hot cues (pad position sets the colour), "
-            f"each vocal region becomes one saved loop. Two banks of "
-            f"{DJAY_SLOTS}, handed out in time order — the slot column "
-            "shows where each row lands.")
-        self._preview_btn.clicked.connect(self._on_djay_preview)
+            f"Phrase starts become hot cues on the {RB_HOT_CUES} pads (A-H) "
+            "in time order, and memory cues once the pads run out — so "
+            "nothing is dropped. Each vocal region becomes a saved loop. "
+            "The slot column shows where every row lands.")
+        self._preview_btn.clicked.connect(self._on_preview)
         self._preview_btn.setEnabled(False)
         self._write_btn = QPushButton("Write cues to track")
-        self._write_btn.setStyleSheet(
-            theme.primary_button())
-        self._write_btn.clicked.connect(self._on_djay_write)
+        self._write_btn.setStyleSheet(theme.primary_button())
+        self._write_btn.clicked.connect(self._on_write)
         self._write_btn.setVisible(False)
-        self._djay_told = dim("")
-        self._djay_told.setVisible(False)
+        self._write_told = dim("")
+        self._write_told.setVisible(False)
 
         block = QWidget()
         box = QVBoxLayout(block)
         box.setContentsMargins(0, 6, 0, 0)
         box.setSpacing(6)
-        title = QLabel("<b>Write the cues into your library</b>")
+        title = QLabel("<b>Write the cues into your rekordbox library</b>")
         row = QHBoxLayout()
         row.addWidget(self._vocals_only)
-        row.addWidget(self._overwrite, stretch=1)
+        row.addWidget(self._replace, stretch=1)
         row.addWidget(self._preview_btn)
         row.addWidget(self._write_btn)
         box.addWidget(title)
         box.addLayout(row)
-        box.addWidget(self._djay_told)
+        box.addWidget(self._write_told)
+
+        can, why = rekordbox_available()
+        if not can:
+            # Meglio dirlo da fermi che scoprirlo al primo clic.
+            self._preview_btn.setEnabled(False)
+            self._preview_btn.setToolTip(why)
+            self._say_write(f"Cues cannot be written here: {why}",
+                            theme.FADED)
+        self._writable = can
         return block
 
     # ------------------------------------------------------------------
@@ -465,10 +477,11 @@ class WavePage(QWidget):
     def _refresh_cues_out(self) -> None:
         """Senza righe non c'è niente da scrivere: il preview si spegne."""
         if hasattr(self, "_preview_btn"):
-            self._preview_btn.setEnabled(bool(self._export_rows()))
+            self._preview_btn.setEnabled(
+                bool(self._export_rows()) and self._writable)
 
     # ------------------------------------------------------------------
-    # djay Pro (solo macOS: i bottoni esistono solo lì)
+    # la scrittura nella libreria di rekordbox
     # ------------------------------------------------------------------
     def _invalidate_preview(self) -> None:
         """Ogni edit cambia il piano: il preview mostrato non vale più."""
@@ -476,104 +489,87 @@ class WavePage(QWidget):
             return
         self._preview = None
         self._write_btn.setVisible(False)
-        self._djay_told.setVisible(False)
+        self._write_told.setVisible(False)
 
-    def _djay_plan(self):
-        from core.analysis.djay_write import CuePoint, LoopRegion
-        plan = plan_djay_markers([
-            {"id": r["id"], "kind": r["kind"], "start": float(r["start"])}
+    def _marker_plan(self):
+        return plan_rekordbox_markers([
+            {"id": r["id"], "kind": r["kind"], "start": float(r["start"]),
+             "label": r["tag"]}
             for r in self._export_rows()])
-        cues = [CuePoint(time=start, pad=pad) for _, pad, start in plan.cues]
-        loops = [LoopRegion(start=start, end=end, slot=slot)
-                 for _, slot, start, end in plan.loops]
-        return plan, cues, loops
 
-    def _on_djay_preview(self) -> None:
+    def _on_preview(self) -> None:
         if self._track is None:
             return
-        from core.analysis.djay_write import preview_write
-        plan, cues, loops = self._djay_plan()
-        overwrite = self._overwrite.isChecked()
+        from core.analysis.rekordbox_write import preview_write
+        plan = self._marker_plan()
+        replace = self._replace.isChecked()
         path = Path(self._track["path"])
         self._preview_btn.setEnabled(False)
 
         def _job():
-            return preview_write(path, cues, overwrite=overwrite,
-                                 new_loops=loops)
+            return preview_write(path, plan.markers, replace=replace)
 
         def _done(result) -> None:
             self._preview_btn.setEnabled(True)
-            self._preview = {"result": result, "cues": cues, "loops": loops,
-                             "overwrite": overwrite}
-            self._show_preview(plan)
+            self._preview = {"result": result, "markers": plan.markers,
+                             "replace": replace}
+            self._show_preview(plan, result)
 
         def _failed(trouble: Exception) -> None:
             self._preview_btn.setEnabled(True)
-            self._djay_told.setText(str(trouble))
-            self._djay_told.setStyleSheet(f"color: {theme.PRIMARY};")
-            self._djay_told.setVisible(True)
+            self._say_write(str(trouble), theme.PRIMARY)
 
         run_in_pool(_job, _done, _failed)
 
-    def _show_preview(self, plan) -> None:
-        from core.analysis.djay_write import is_djay_running
-        preview = self._preview
-        res = preview["result"]
-        cues, loops = preview["cues"], preview["loops"]
-        verb = ("would replace" if preview["overwrite"]
-                else "would be added to")
-        told = [f"Track found in your library ({len(res.cues_before)} existing "
-                f"cue(s), {len(res.loops_before)} existing loop(s)). "
-                f"{len(cues)} hot cue(s) and {len(loops)} loop(s) {verb} "
-                "them."]
-        told.extend(f"Cue {c.pad + 1} → {format_elapsed(c.time)}"
-                    for c in cues)
-        told.extend(f"Loop {lr.slot + 1} → {format_elapsed(lr.start)}–"
-                    f"{format_elapsed(lr.end)}" for lr in loops)
-        if plan.dropped:
-            told.append(f"⚠ {len(plan.dropped)} row(s) don't fit: there "
-                        f"are only {DJAY_SLOTS} hot-cue pads and "
-                        f"{DJAY_SLOTS} loop slots.")
+    def _say_write(self, text: str, color: str | None = None) -> None:
+        self._write_told.setText(text)
+        self._write_told.setStyleSheet(f"color: {color};" if color else "")
+        self._write_told.setVisible(True)
+
+    def _show_preview(self, plan, res) -> None:
+        from core.analysis.rekordbox_write import is_rekordbox_running
+        verb = "replace" if self._preview["replace"] else "join"
+        told = [f"«{res.title}» is in your rekordbox library "
+                f"({res.cues_before} cue(s), {res.loops_before} loop(s) "
+                f"already there). {res.written} marker(s) would {verb} "
+                f"them: {res.hot_cues} hot cue(s), {res.memory_cues} "
+                f"memory cue(s), {res.loops} loop(s)."]
+        if res.pads_taken and res.memory_cues:
+            told.append(
+                f"Pads {', '.join(chr(ord('A') + p - 1) for p in res.pads_taken)} "
+                "are already used by rekordbox, so what did not fit on a "
+                "free pad becomes a memory cue — nothing is dropped. Tick "
+                "Replace existing cues to take the pads back.")
         if plan.unpaired:
             told.append(f"⚠ {len(plan.unpaired)} vocal marker(s) have no "
                         "matching start/end and can't become a loop.")
-        if preview["overwrite"]:
-            told.append("⚠ Overwrite is unverified for the removing case — "
-                        "a full backup is still taken, check this preview "
-                        "carefully.")
-        if is_djay_running():
-            told.append("⚠ djay Pro appears to be running — quit it before "
-                        "writing, to avoid conflicts with its own "
-                        "auto-save.")
-        self._djay_told.setText("\n".join(told))
-        self._djay_told.setStyleSheet("")
-        self._djay_told.setVisible(True)
+        if is_rekordbox_running():
+            told.append("⚠ rekordbox is running — quit it before writing, "
+                        "or its own save will overwrite this.")
+        self._say_write("\n".join(told))
         self._write_btn.setVisible(True)
 
-    def _on_djay_write(self) -> None:
+    def _on_write(self) -> None:
         if self._preview is None or self._track is None:
             return
-        from core.analysis.djay_write import write_new_cues
+        from core.analysis.rekordbox_write import write_cues
         preview, self._preview = self._preview, None
         path = Path(self._track["path"])
         self._write_btn.setEnabled(False)
 
         def _job():
-            return write_new_cues(path, preview["cues"],
-                                  overwrite=preview["overwrite"],
-                                  new_loops=preview["loops"])
+            return write_cues(path, preview["markers"],
+                              replace=preview["replace"])
 
         def _done(result) -> None:
             self._write_btn.setEnabled(True)
             self._write_btn.setVisible(False)
-            self._djay_told.setText(f"{result.message} Backup saved to: "
-                                    f"{result.backup_path}")
-            self._djay_told.setStyleSheet(f"color: {_OK};")
+            self._say_write(f"{result.message} Backup of the library: "
+                            f"{result.backup_path}", _OK)
 
         def _failed(trouble: Exception) -> None:
             self._write_btn.setEnabled(True)
-            self._djay_told.setText(f"Write failed, nothing was changed: "
-                                    f"{trouble}")
-            self._djay_told.setStyleSheet(f"color: {theme.PRIMARY};")
+            self._say_write(f"Write failed, nothing was changed: {trouble}",
+                            theme.PRIMARY)
 
         run_in_pool(_job, _done, _failed)

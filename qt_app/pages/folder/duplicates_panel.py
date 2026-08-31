@@ -335,7 +335,7 @@ class DuplicatesPanel(QWidget):
             self._plan_told.setText(
                 "Nothing ticked yet — select the files to move in the "
                 "tables above. Quarantine keeps the original folder "
-                "structure, nothing is deleted: check djay Pro still sees "
+                "structure, nothing is deleted: check rekordbox still sees "
                 "everything, then empty the folder yourself.")
             return
         self._plan_told.setText(

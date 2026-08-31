@@ -27,6 +27,14 @@ streamlit = "^1.37"
 [tool.poetry.group.qt.dependencies]
 pyside6 = { version = "^6.11", python = ">=3.11,<3.15" }
 
+# La scrittura dei cue nella libreria di rekordbox (core/analysis/rekordbox_write.py).
+# Gruppo a sé come essentia: `poetry install --without rekordbox` lascia in
+# piedi tutto il resto, e la pagina dei cue lo dice invece di rompersi.
+# pyrekordbox porta con sé sqlcipher3-wheels, che è ciò che apre il
+# master.db cifrato di rekordbox 6/7.
+[tool.poetry.group.rekordbox.dependencies]
+pyrekordbox = "^0.4.4"
+
 # Essentia sta in un gruppo suo ma NON opzionale: `poetry install` la prende,
 # come tutto il resto. Il gruppo serve solo da via d'uscita, perche' su PyPI
 # esiste unicamente come pre-release e solo per certe versioni di Python

@@ -196,7 +196,7 @@ class PlaylistPanel(QWidget):
         adding.clicked.connect(self._on_add_files)
         loading = QPushButton("📂 Load playlist…")
         loading.setToolTip("The .m3u8 this page exports, or one saved by "
-                           "rekordbox, Serato, Traktor, djay… Only the "
+                           "rekordbox, Serato, Traktor… Only the "
                            "track order is read.")
         loading.clicked.connect(self._on_load)
         self._save_m3u8 = QPushButton("⬇ Save as playlist (M3U8)")

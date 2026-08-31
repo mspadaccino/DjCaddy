@@ -44,10 +44,10 @@ def test_view_rows_sorted_by_time_with_ends_beats_slots():
     # Beats solo sulle frasi: 30 s a 120 BPM sono 60 battiti.
     assert by_id["sec0"]["beats"] == 60.0
     assert by_id["vs0"]["beats"] is None
-    # Gli slot djay: frasi sui pad, la coppia vocale su UN loop.
-    assert by_id["sec0"]["slot"] == "Cue 1"
-    assert by_id["sec1"]["slot"] == "Cue 2"
-    assert by_id["vs0"]["slot"] == by_id["ve0"]["slot"] == "Loop 1"
+    # Gli slot rekordbox: frasi sui pad A..H, la coppia vocale su UN loop.
+    assert by_id["sec0"]["slot"] == "Hot cue A"
+    assert by_id["sec1"]["slot"] == "Hot cue B"
+    assert by_id["vs0"]["slot"] == by_id["ve0"]["slot"] == "Loop"
 
 
 def test_view_rows_moving_a_start_moves_the_previous_end():
@@ -78,7 +78,7 @@ def test_cue_table_rows_and_ids(qtbot):
     # Start in mm:ss, End della prima frase = inizio della seconda.
     assert table.item(0, 3).text() == "00:00.0"
     assert table.item(0, 4).text() == "00:30.0"
-    assert table.item(3, 6).text() == "Cue 2"
+    assert table.item(3, 6).text() == "Hot cue B"
 
 
 def test_cue_table_start_edit_emits_seconds(qtbot):

@@ -90,7 +90,7 @@ class TagPage(QWidget):
                            "inside it, subfolders included. Analysis writes "
                            "genre and mood into the file tags — the mood "
                            "goes into the default comment field, the one "
-                           "djay Pro actually displays.")
+                           "rekordbox actually displays.")
         if sys.platform == "win32" and not available():
             self._status.setText(
                 "Analysis needs the Mac: essentia-tensorflow has no Windows "
@@ -110,7 +110,7 @@ class TagPage(QWidget):
         self._with_genre = Metric("With genre")
         self._with_comment = Metric(
             "With comment", "Only the default comment counts — the one "
-                            "djay Pro shows.")
+                            "rekordbox shows.")
         self._complete = Metric("Complete")
         numbers = QHBoxLayout()
         for metric in (self._read_told, self._with_genre,

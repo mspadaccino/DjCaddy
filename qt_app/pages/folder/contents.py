@@ -14,8 +14,8 @@ from pathlib import Path
 import pandas as pd
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QTableView,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QPushButton,
+                               QTableView, QVBoxLayout, QWidget)
 
 from core.analysis.folder_scan import (AUDIO_FORMATS, NOT_JUNK, delete_files,
                                        human_size)
@@ -85,6 +85,23 @@ class ContentsPanel(QWidget):
             lambda _: self._refresh_doomed())
         self._other_files.setVisible(False)
 
+        # I due bottoni della scelta in blocco, come nei duplicati: una
+        # cartella di copertine da buttare sono centinaia di righe, e
+        # spuntarle a una a una non è un gesto.
+        self._pick_all = QPushButton("Select all")
+        self._pick_all.clicked.connect(
+            lambda: self._other_files.set_all_picked(True))
+        self._pick_none = QPushButton("Select none")
+        self._pick_none.clicked.connect(
+            lambda: self._other_files.set_all_picked(False))
+        self._pick_row = QWidget()
+        pick_all_row = QHBoxLayout(self._pick_row)
+        pick_all_row.setContentsMargins(0, 0, 0, 0)
+        pick_all_row.addWidget(self._pick_all)
+        pick_all_row.addWidget(self._pick_none)
+        pick_all_row.addStretch(1)
+        self._pick_row.setVisible(False)
+
         self._doomed_told = dim("")
         self._doomed_told.setVisible(False)
         self._confirm = ConfirmBar("Delete them", primary=True)
@@ -101,6 +118,7 @@ class ContentsPanel(QWidget):
         box.addWidget(self._told)
         box.addWidget(self._warn)
         box.addWidget(self._audio_files, stretch=2)
+        box.addWidget(self._pick_row)
         box.addWidget(self._other_files, stretch=2)
         box.addWidget(self._doomed_told)
         box.addWidget(self._confirm)
@@ -148,6 +166,7 @@ class ContentsPanel(QWidget):
             self._told.setVisible(False)
             self._audio_files.setVisible(False)
             self._other_files.setVisible(False)
+            self._pick_row.setVisible(False)
             return
         listed = self._scan.files_with_extension(self._ext)
         listed_bytes = sum(f.size for f in listed)
@@ -163,6 +182,7 @@ class ContentsPanel(QWidget):
             self._audio_files.set_tracks(table)
             self._audio_files.setVisible(True)
             self._other_files.setVisible(False)
+            self._pick_row.setVisible(False)
         else:
             self._told.setText(
                 f"{len(listed):,} files, {human_size(listed_bytes)} in "
@@ -178,6 +198,7 @@ class ContentsPanel(QWidget):
             self._other_files.set_tracks(table)
             self._other_files.set_all_picked(False)
             self._other_files.setVisible(True)
+            self._pick_row.setVisible(bool(len(table)))
             self._audio_files.setVisible(False)
             self._refresh_doomed()
 

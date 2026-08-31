@@ -1,9 +1,9 @@
 """La tabella cue: frasi e marcatori vocali, correggibili al posto giusto.
 
 `view_rows` è la parte pura — dalle righe correnti (id, kind, tag, start)
-alle righe da mostrare in ordine di tempo, con fine, battiti e slot djay
+alle righe da mostrare in ordine di tempo, con fine, battiti e slot
 ricalcolati — e usa le stesse regole di core della pagina Streamlit
-(`phrase_ends`, `plan_djay_markers`): la colonna deve dire le stesse cose
+(`phrase_ends`, `plan_rekordbox_markers`): la colonna deve dire le stesse
 di là. `CueTable` la disegna: Tag a tendina, Start editabile in mm:ss,
 il ▶ che suona la riga e il 🗑 che la toglie.
 """
@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHeaderView,
                                QStyledItemDelegate, QTableWidget,
                                QTableWidgetItem)
 
-from core.analysis.cue_export import PHRASE_START, phrase_ends, plan_djay_markers
+from core.analysis.cue_export import (PHRASE_START, phrase_ends,
+                                      plan_rekordbox_markers)
 from core.analysis.models import (SECTION_LABELS, VOCAL_END, VOCAL_START,
                                   format_elapsed, parse_mmss)
 
@@ -49,13 +50,14 @@ def view_rows(rows: list[dict], bpm: float | None,
     `rows`: [{id, kind, tag, start}] — il tag e lo start sono quelli DOPO
     gli edit. Ritorna le stesse righe ordinate per start con in più `end`
     (le frasi: l'inizio della successiva, l'ultima la fine rilevata),
-    `beats` (solo le frasi, dal BPM) e `slot` (l'etichetta djay).
+    `beats` (solo le frasi, dal BPM) e `slot` (dove finisce la riga
+    in rekordbox).
     """
     ordered = sorted(rows, key=lambda r: r["start"])
     kinds = {r["id"]: r["kind"] for r in ordered}
     starts = {r["id"]: r["start"] for r in ordered}
     ends = phrase_ends(kinds, starts, analysis_end)
-    plan = plan_djay_markers([
+    plan = plan_rekordbox_markers([
         {"id": r["id"], "kind": r["kind"], "start": r["start"]}
         for r in ordered])
     beat_seconds = (60.0 / bpm) if bpm else None

@@ -63,7 +63,7 @@ class FolderPage(QWidget):
             "Count what a folder actually contains, then look for "
             "duplicates. No audio file is ever deleted here: what you tick "
             f"is MOVED to a `{QUARANTINE_DIRNAME}/` folder that you empty "
-            "yourself once djay Pro still looks right.")
+            "yourself once rekordbox still looks right.")
 
         self._files = Metric("Files")
         self._audio = Metric("Audio files")

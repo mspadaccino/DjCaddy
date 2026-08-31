@@ -100,11 +100,11 @@ class SettingsBox(QWidget):
         self.confidence_tags.setChecked(True)
         self.confidence_tags.setToolTip(
             "Percentages in a SEPARATE field (ESSENTIA_GENRE / "
-            "ESSENTIA_MOOD), beside the tag itself. djay Pro does not "
+            "ESSENTIA_MOOD), beside the tag itself. rekordbox does not "
             "display these.")
         self.confidence_in_comment = QCheckBox("Percentages in the comment")
         self.confidence_in_comment.setToolTip(
-            'Puts them in the comment djay Pro actually shows: "Happy 87%; '
+            'Puts them in the comment rekordbox actually shows: "Happy 87%; '
             'Deep 62%" instead of "Happy; Deep".')
 
         self.overwrite = QCheckBox("Overwrite tags that are already there")
