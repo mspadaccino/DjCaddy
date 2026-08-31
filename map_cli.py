@@ -23,6 +23,7 @@ volta dopo riparte da lì.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -35,6 +36,13 @@ from core.analysis.map_job import DEFAULT_MAP_STATE_FILE, run_job
 from core.analysis.map_profile import ProfileSettings, default_workers
 from core.analysis.map_projection import ProjectionSettings, project
 from core.analysis.map_store import MapStore, default_store_dir
+
+
+def _under(path, root: str) -> bool:
+    """Se `path` sta dentro `root`. Il confronto è sul confine di cartella:
+    senza, "/Volumes/X9" prenderebbe dentro anche "/Volumes/X9 Backup"."""
+    path = os.path.abspath(str(path))
+    return path == root or path.startswith(root + os.sep)
 
 
 def _human(seconds: float) -> str:
@@ -109,6 +117,44 @@ def fields(store: MapStore) -> None:
               f"  {int((half & (across >= 0.5)).sum()):>8,} chiari")
 
 
+def prune(store: MapStore, radice: Path, parser) -> None:
+    """Toglie dalla mappa i brani spariti dal disco sotto `radice`.
+
+    La radice va nominata, e dev'essere raggiungibile. Non è una comodità:
+    "il file non c'è" a disco staccato è vero per OGNI riga, e un lancio
+    distratto svuoterebbe la mappa intera — mezzo giga di embedding e le ore
+    di analisi che ci sono dietro. Nominarla e verificarla trasforma
+    l'incidente in un messaggio d'errore, e per la stessa ragione la
+    potatura resta un comando a parte invece di stare dentro il job.
+
+    Le righe fuori dalla radice non si guardano nemmeno: una libreria su un
+    secondo disco, montato o no, non c'entra con questa potatura.
+    """
+    if not radice.is_dir():
+        parser.error(
+            f"{radice} non è raggiungibile. A disco staccato ogni brano "
+            "risulterebbe sparito e la potatura svuoterebbe la mappa: monta "
+            "la libreria e rilancia")
+    root = os.path.abspath(radice)
+    doomed = [row["path"] for row in store.rows
+              if _under(row["path"], root) and not os.path.exists(row["path"])]
+    if not doomed:
+        print(f"Sotto {root} non manca niente: {len(store):,} righe intatte.")
+        return
+
+    print(f"Spariti dal disco, sotto {root}:")
+    for path in doomed:
+        print(f"  {path}")
+    print(f"\n{len(doomed):,} righe su {len(store):,}. Toglierle riscrive "
+          "righe, embedding e coordinate; le posizioni dei brani che restano "
+          "non cambiano, quindi non serve riproiettare.")
+    if input("Procedo? [s/N] ").strip().lower() not in ("s", "si", "sì"):
+        print("Lasciata com'è.")
+        return
+    removed = store.remove(doomed)
+    print(f"Tolte {removed:,}. Sulla mappa restano {len(store):,} brani.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Costruisce la mappa acustica della libreria.")
@@ -126,6 +172,9 @@ def main() -> None:
     parser.add_argument("--relocate", nargs=2, metavar=("VECCHIO", "NUOVO"),
                         help="La libreria ha cambiato posto: aggiorna i "
                              "percorsi sulla mappa invece di rianalizzarla")
+    parser.add_argument("--prune", type=Path, metavar="RADICE",
+                        help="Toglie dalla mappa i brani spariti dal disco "
+                             "sotto RADICE, che dev'essere raggiungibile")
     parser.add_argument("--neighbors", type=int, default=ProjectionSettings.n_neighbors)
     parser.add_argument("--min-dist", type=float, default=ProjectionSettings.min_dist)
     parser.add_argument("--genre-threshold", type=float,
@@ -158,6 +207,10 @@ def main() -> None:
         elif moved:
             print("  Tutte ritrovate al nuovo indirizzo: la prossima analisi "
                   "le salta.")
+        return
+
+    if args.prune:
+        prune(MapStore.load(args.store), args.prune, parser)
         return
 
     if args.project_only:
