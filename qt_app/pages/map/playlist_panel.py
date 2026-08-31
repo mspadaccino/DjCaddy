@@ -145,11 +145,12 @@ def double_marks(paths: list[str], vectors: np.ndarray | None,
                  ) -> tuple[dict[str, tuple[QColor, str]], str | None]:
     """Le tinte dei sospetti per `TrackTable.set_marks`, e il resoconto.
 
-    path -> (tinta, tooltip): arancio per lo stesso pezzo sotto altro nome,
-    viola per due file che suonano quasi identici — dove valgono entrambi
-    veste il nome, che è il segnale più forte, e il tooltip li dice tutti.
-    Il resoconto è la riga sotto la tabella, None quando non c'è niente da
-    segnalare.
+    path -> (tinta, tooltip), SOLO per le copie in eccesso: la prima
+    occorrenza di ogni gruppo resta pulita, così «via tutto il tinto» è un
+    gesto sicuro — di ogni pezzo ne resta una. Arancio per lo stesso pezzo
+    sotto altro nome, viola per chi suona quasi identico a una riga
+    precedente; dove valgono entrambi veste il nome, che è il segnale più
+    forte. Il resoconto è la riga sotto la tabella, None quando tace.
     """
     groups, pairs = playlist_doubles(paths, vectors, twin_min)
     noted: dict[int, tuple[QColor, list[str]]] = {}
@@ -158,26 +159,36 @@ def double_marks(paths: list[str], vectors: np.ndarray | None,
         noted.setdefault(n, (tint, []))[1].append(line)
 
     for g in groups:
-        for n in g:
-            others = ", ".join(f"#{m + 1}" for m in g if m != n)
-            note(n, theme.TWIN_NAME_ROW,
-                 f"Reads as the same song as {others} — same name once "
-                 "track numbers and (mix) notes are stripped.")
+        keeper = g[0]
+        for n in g[1:]:
+            if paths[n] == paths[keeper]:
+                # Lo STESSO file due volte (un m3u8 mandato via replace può
+                # portarcelo): la tinta è per percorso, quindi veste
+                # entrambe le righe — e la spunta le toglie entrambe.
+                # Meglio dirlo che fingere una prima occorrenza pulita.
+                note(n, theme.TWIN_NAME_ROW,
+                     "This exact file is listed more than once — a tick "
+                     "removes every row of it.")
+            else:
+                note(n, theme.TWIN_NAME_ROW,
+                     f"Copy of #{keeper + 1} — same song name once track "
+                     "numbers and (mix) notes are stripped.")
     for a, b, score in pairs:
-        for n, other in ((a, b), (b, a)):
-            note(n, theme.TWIN_SOUND_ROW,
-                 f"Sounds nearly identical to #{other + 1} "
-                 f"(similarity {score:.3f}).")
+        note(b, theme.TWIN_SOUND_ROW,
+             f"Sounds nearly identical to #{a + 1} "
+             f"(similarity {score:.3f}).")
     if not noted:
         return {}, None
     marks = {paths[n]: (tint, theme.hint("<br>".join(lines)))
              for n, (tint, lines) in noted.items()}
-    named = sum(len(g) for g in groups)
-    parts = ([f"{named} row(s) share a song name"] if named else []) + \
-        ([f"{len(noted) - named} sound nearly identical"] if
-         len(noted) > named else [])
+    named = sum(len(g) - 1 for g in groups)
+    parts = ([f"{named} repeat a song name from an earlier row"]
+             if named else []) + \
+        ([f"{len(noted) - named} sound nearly identical to an earlier row"]
+         if len(noted) > named else [])
     told = ("🎭 Possible doubles — " + ", ".join(parts)
-            + ". The tinted rows: hover one for its partner.")
+            + ". Tinted = the extra copy, the first take stays clean; "
+            "hover one for its partner.")
     return marks, told
 
 
@@ -250,12 +261,15 @@ class PlaylistPanel(QWidget):
         # resto del racconto sta nelle tinte delle righe e nei loro tooltip.
         self._doubles = _dim("")
         self._doubles.setToolTip(theme.hint(
-            "Orange rows: the playlist reads as holding the same song "
-            "twice — different files, same name once numbering and (mix) "
-            "notes are stripped. Violet rows: two files that sound nearly "
-            "identical, whatever their names. A tint is a question, not a "
-            "verdict: hover it for the partner, listen, then tick what you "
-            "don't want twice and 🗑 Remove ticked."))
+            "Orange rows: the same song is already in the playlist at an "
+            "earlier row — same name once numbering and (mix) notes are "
+            "stripped. Violet rows: they sound nearly identical to an "
+            "earlier row, whatever the names. Only the extra copies are "
+            "tinted, the first occurrence stays clean: dropping every "
+            "tinted row keeps one take of each. Still a question, not a "
+            "verdict — hover a tinted row for its partner, listen, then "
+            "tick what goes and 🗑 Remove ticked. If the better file is "
+            "the tinted one, drop the clean row by hand instead."))
         self._doubles.setVisible(False)
 
         # Il Chapter Builder: creare, applicare, rifare.

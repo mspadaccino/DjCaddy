@@ -139,19 +139,45 @@ def test_playlist_doubles_name_group_absorbs_its_own_sound_pair():
     assert [(a, b) for a, b, _ in pairs] == [(0, 2), (1, 2)]
 
 
-def test_double_marks_tint_name_over_sound_and_write_the_summary():
+def test_double_marks_tint_only_the_extra_copies():
+    """La prima occorrenza resta pulita: «via tutto il tinto» deve essere
+    un gesto sicuro — di ogni pezzo ne resta una. Dove nome e suono valgono
+    insieme veste il nome, che è il segnale più forte."""
     from qt_app import theme
 
     paths = ["/a/07 Foo - Bar.mp3", "/b/Foo - Bar (edit).mp3",
              "/c/Totally Else.mp3"]
     marks, told = double_marks(paths, np.ones((3, 4)))
-    assert marks[paths[0]][0] is theme.TWIN_NAME_ROW
+    assert paths[0] not in marks               # il keeper non si tinge
     assert marks[paths[1]][0] is theme.TWIN_NAME_ROW
     assert marks[paths[2]][0] is theme.TWIN_SOUND_ROW
-    assert "#2" in marks[paths[0]][1]          # il compagno per nome
-    assert "#1" in marks[paths[2]][1]          # uno dei gemelli per suono
-    assert "2 row(s) share a song name" in told
-    assert "1 sound nearly identical" in told
+    assert "Copy of #1" in marks[paths[1]][1]
+    assert "#1" in marks[paths[2]][1] and "#2" in marks[paths[2]][1]
+    assert "1 repeat a song name from an earlier row" in told
+    assert "1 sound nearly identical to an earlier row" in told
+
+
+def test_double_marks_leave_the_first_take_of_a_trio_clean():
+    paths = ["/a/Foo - Bar.mp3", "/b/07 Foo - Bar.mp3",
+             "/c/Foo - Bar (club mix).mp3"]
+    marks, told = double_marks(paths, None)
+    assert paths[0] not in marks
+    assert set(marks) == {paths[1], paths[2]}
+    # Entrambe le copie puntano al keeper, non l'una all'altra.
+    assert "Copy of #1" in marks[paths[1]][1]
+    assert "Copy of #1" in marks[paths[2]][1]
+    assert "2 repeat a song name from an earlier row" in told
+
+
+def test_double_marks_tell_the_exact_repeat_apart():
+    """Lo stesso identico file due volte (un m3u8 via replace può
+    portarcelo): la tinta è per percorso e veste entrambe le righe, e la
+    spunta le toglie entrambe — il tooltip lo dice invece di fingere una
+    prima occorrenza pulita che non c'è."""
+    paths = ["/a/x.mp3", "/b/y.mp3", "/a/x.mp3"]
+    marks, told = double_marks(paths, None)
+    assert set(marks) == {"/a/x.mp3"}
+    assert "every row" in marks["/a/x.mp3"][1]
 
 
 def test_double_marks_stay_silent_on_a_clean_playlist():
