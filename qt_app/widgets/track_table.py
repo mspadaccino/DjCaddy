@@ -58,6 +58,17 @@ CHECK_FIELDS = {CHECK_COLUMN: "_path", CHECK_A_COLUMN: "_path2",
 # non tocca la selezione — sentire un brano non è sceglierlo.
 PLAY_COLUMN = "▶"
 
+# Le righe a due file (vedi CHECK_A_COLUMN/CHECK_B_COLUMN) hanno bisogno di
+# suonare l'uno O l'altro: un solo ▶ legato a `_path` lascerebbe file A
+# muto per sempre. Stessa idea delle caselle, un ▶ per file.
+PLAY_A_COLUMN = "▶ A"
+PLAY_B_COLUMN = "▶ B"
+
+# Ogni colonna di play e il file che suona: la legge il clic in
+# `mousePressEvent`, come CHECK_FIELDS per le caselle.
+PLAY_FIELDS = {PLAY_COLUMN: "_path", PLAY_A_COLUMN: "_path2",
+               PLAY_B_COLUMN: "_path"}
+
 
 def pill_color(column: str, value: str,
                genres: dict[str, str] | None = None) -> str | None:
@@ -395,7 +406,8 @@ class TrackTable(QTableView):
     # novantamila righe si pianterebbe proprio nel gesto che Qt deve rendere
     # gratis.
     _WIDTHS = {CHECK_COLUMN: 30, CHECK_A_COLUMN: 40, CHECK_B_COLUMN: 40,
-               PLAY_COLUMN: 30, "#": 40, "file": 320,
+               PLAY_COLUMN: 30, PLAY_A_COLUMN: 40, PLAY_B_COLUMN: 40,
+               "#": 40, "file": 320,
                "file A": 300, "file B": 300,
                "BPM": 52, "key": 52,
                "energy": 60, "groove": 64, "emotion": 64, "mood": 120,
@@ -463,7 +475,8 @@ class TrackTable(QTableView):
     def set_tracks(self, frame: pd.DataFrame,
                    genre_colors: dict[str, str] | None = None) -> None:
         """Mostra un frame di `track_frame`, e veste le colonne che conosce."""
-        wants_play = self._playable and PLAY_COLUMN not in frame.columns
+        wants_play = self._playable and not any(
+            c in frame.columns for c in PLAY_FIELDS)
         # La casella la mette la tabella solo se il frame non ne porta già
         # una sua: le righe a due file le dispongono da sé, ognuna accanto
         # al file che governa.
@@ -509,9 +522,10 @@ class TrackTable(QTableView):
                 self._check_delegates[name] = CheckDelegate(field, self)
             self.setItemDelegateForColumn(
                 shown.index(name), self._check_delegates[name])
-        if PLAY_COLUMN in shown:
-            self.setItemDelegateForColumn(
-                shown.index(PLAY_COLUMN), self._play_delegate)
+        for name in PLAY_FIELDS:
+            if name in shown:
+                self.setItemDelegateForColumn(
+                    shown.index(name), self._play_delegate)
         for name, width in self._WIDTHS.items():
             if name in shown:
                 self.setColumnWidth(shown.index(name), width)
@@ -547,6 +561,17 @@ class TrackTable(QTableView):
         if path is None:
             return
         self._picked.symmetric_difference_update({path})
+        self.viewport().update()
+        self.selection_paths_changed.emit(self.selected_paths())
+
+    def set_picked(self, paths: set[str]) -> None:
+        """Rimpiazza le spunte con l'insieme dato — la base di un bottone
+        di selezione filtrata (es. "stessa size e nome"): sostituisce la
+        scelta come fanno Select all/none, non la somma a quella di prima.
+        """
+        if not self._checkable:
+            return
+        self._picked = set(paths)
         self.viewport().update()
         self.selection_paths_changed.emit(self.selected_paths())
 
@@ -598,8 +623,8 @@ class TrackTable(QTableView):
             name = (self._model.headerData(index.column(),
                                            Qt.Orientation.Horizontal)
                     if index.isValid() else None)
-            if name == PLAY_COLUMN:
-                path = self._model.path_at(index.row())
+            if name in PLAY_FIELDS:
+                path = self._model.path_at(index.row(), PLAY_FIELDS[name])
                 if path:
                     self.play_requested.emit(path)
                 return
@@ -623,22 +648,28 @@ class TrackTable(QTableView):
         # ovunque — il tasto destro fuori dalla selezione parla di quella riga.
         picked = self.selected_paths()
         added = picked if path in picked else [path]
+        # Una riga, due file: il menu deve arrivare a entrambi, o del
+        # compagno non si saprebbe mai dove sta (né si potrebbe suonarlo).
+        other = self._model.path_at(index.row(), "_path2")
         menu = QMenu(self)
-        menu.addAction("▶ Play",
-                       lambda: self.play_requested.emit(path))
+        if other is None:
+            menu.addAction("▶ Play",
+                           lambda: self.play_requested.emit(path))
+        else:
+            menu.addAction("▶ Play A",
+                           lambda: self.play_requested.emit(other))
+            menu.addAction("▶ Play B",
+                           lambda: self.play_requested.emit(path))
         if self._library_menu:
             menu.addAction("◎ Use as seed",
                            lambda: self.seed_requested.emit(path))
             menu.addAction(f"➕ Add to playlist ({len(added)})",
                            lambda: self.add_requested.emit(list(added)))
         menu.addSeparator()
-        other = self._model.path_at(index.row(), "_path2")
         if other is None:
             menu.addAction("📂 Show in file manager",
                            lambda: self.reveal_requested.emit(path))
         else:
-            # Una riga, due file: il menu deve arrivare a entrambi, o del
-            # compagno non si saprebbe mai dove sta.
             menu.addAction("📂 Show file A in file manager",
                            lambda: self.reveal_requested.emit(other))
             menu.addAction("📂 Show file B in file manager",

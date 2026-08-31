@@ -16,21 +16,26 @@ pytest.importorskip("pytestqt", reason="gruppo poetry `qt` non installato")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from core.analysis.duplicates import LEVEL_SAME_FOLDER, DuplicateGroup
-from core.analysis.folder_scan import ScannedFile, TrackDuration
+from core.analysis.folder_scan import ScannedFile, TrackDuration, human_size
 from qt_app.pages.folder.contents import listed_rows
 from qt_app import theme
 from qt_app.pages.common import ConfirmBar
-from qt_app.pages.folder.duplicates_panel import _Section, duplicate_rows
+from qt_app.pages.folder.duplicates_panel import (_Section, duplicate_rows,
+                                                   files_and_bytes)
 from qt_app.state import AppState
-from qt_app.widgets.track_table import CHECK_A_COLUMN, CHECK_B_COLUMN
+from qt_app.widgets.track_table import (CHECK_A_COLUMN, CHECK_B_COLUMN,
+                                        PLAY_A_COLUMN, PLAY_B_COLUMN)
 from qt_app.pages.folder.filtering_panel import filter_reasons
 
 
-def group(keep: str, duplicates: list[str],
-          size: int = 1000) -> DuplicateGroup:
-    return DuplicateGroup(level=LEVEL_SAME_FOLDER, size=size,
-                          md5="abcdef0123456789", keep=Path(keep),
-                          duplicates=[Path(d) for d in duplicates])
+def group(keep: str, duplicates: list[str], size: int = 1000,
+          file_sizes: dict[str, int] | None = None,
+          file_hashes: dict[str, str | None] | None = None) -> DuplicateGroup:
+    return DuplicateGroup(
+        level=LEVEL_SAME_FOLDER, size=size, md5="abcdef0123456789",
+        keep=Path(keep), duplicates=[Path(d) for d in duplicates],
+        file_sizes={Path(k): v for k, v in (file_sizes or {}).items()},
+        file_hashes={Path(k): v for k, v in (file_hashes or {}).items()})
 
 
 # --- le righe dei duplicati -------------------------------------------------
@@ -52,8 +57,9 @@ def test_duplicate_rows_full_paths_for_other_folders():
     file, perché `keep` è una proposta e non una decisione."""
     table = duplicate_rows([group("/x/a.mp3", ["/y/a.mp3"])],
                            full_paths=True)
-    assert list(table.columns[:4]) == [CHECK_A_COLUMN, "file A",
-                                       CHECK_B_COLUMN, "file B"]
+    assert list(table.columns[:6]) == [
+        CHECK_A_COLUMN, PLAY_A_COLUMN, "file A",
+        CHECK_B_COLUMN, PLAY_B_COLUMN, "file B"]
     assert table.at[0, "file A"] == str(Path("/x/a.mp3"))
     assert table.at[0, "file B"] == str(Path("/y/a.mp3"))
     assert table.at[0, "_path2"] == str(Path("/x/a.mp3"))
@@ -109,6 +115,194 @@ def test_select_all_takes_the_copies_not_the_originals(qtbot):
 def test_duplicate_rows_empty_keeps_columns():
     assert len(duplicate_rows([])) == 0
     assert "duplicate" in duplicate_rows([]).columns
+
+
+def test_duplicate_rows_compare_columns_come_last():
+    """Le colonne del confronto — livello C, dove i due file NON sono
+    byte-identici — stanno in fondo, size A e size B vicine per il
+    paragone a vista."""
+    table = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 2000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"})],
+        full_paths=True, compare=True)
+    visible = [c for c in table.columns if not c.startswith("_")]
+    assert visible[-5:] == ["size A", "size B", "same size", "same hash",
+                            "same name"]
+
+
+def test_duplicate_rows_compare_different_sizes_skips_the_hash():
+    """Il caso vero del livello C: stesso nome, contenuto diverso. Le
+    dimensioni bastano a dire che non sono lo stesso file — l'hash non va
+    nemmeno guardato."""
+    table = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 2000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"})],
+        full_paths=True, compare=True)
+    row = table.iloc[0]
+    assert row["size A"] == human_size(1000)
+    assert row["size B"] == human_size(2000)
+    assert not row["same size"]
+    assert not row["same hash"]
+    assert row["same name"]                     # stesso nome "a.mp3"
+
+
+def test_duplicate_rows_compare_same_size_different_hash():
+    """Stessa dimensione ma contenuto diverso: decide l'hash, non la size —
+    è esattamente il caso dei due "ditty - paperboy" con lo stesso nome."""
+    table = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 1000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"})],
+        full_paths=True, compare=True)
+    row = table.iloc[0]
+    assert row["same size"]
+    assert not row["same hash"]
+
+
+def test_duplicate_rows_compare_missing_hash_is_not_claimed_equal():
+    """Se l'hash di un file non è mai stato calcolato (dimensione unica nel
+    resto della libreria), "same hash" non deve dire True per mancanza di
+    prova contraria."""
+    table = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 1000},
+              file_hashes={"/x/a.mp3": None, "/y/a.mp3": None})],
+        full_paths=True, compare=True)
+    assert not table.iloc[0]["same hash"]
+
+
+def test_duplicate_rows_without_compare_has_no_extra_columns():
+    """Il livello B non ha chiesto queste colonne: `compare` di default
+    resta spento e non le aggiunge."""
+    table = duplicate_rows([group("/x/a.mp3", ["/y/a.mp3"])],
+                           full_paths=True)
+    assert "size A" not in table.columns
+    assert "same hash" not in table.columns
+
+
+def test_duplicate_rows_compare_shows_every_pair_in_a_trio():
+    """Un gruppo di TRE file dallo stesso nome (non solo due): la tabella
+    deve portare ogni coppia, non solo ciascuno contro il presunto
+    originale — altrimenti "y" uguale a "z" non si vedrebbe mai, solo che
+    entrambi sono diversi da "x"."""
+    table = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3", "/z/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 1000,
+                         "/z/a.mp3": 2000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "aaa",
+                          "/z/a.mp3": "ccc"})],
+        full_paths=True, compare=True)
+    assert len(table) == 3                        # le 3 coppie di un trio
+    pairs = set(zip(table["file A"], table["file B"]))
+    assert pairs == {
+        (str(Path("/x/a.mp3")), str(Path("/y/a.mp3"))),
+        (str(Path("/x/a.mp3")), str(Path("/z/a.mp3"))),
+        (str(Path("/y/a.mp3")), str(Path("/z/a.mp3"))),
+    }
+    xy = table[(table["file A"] == str(Path("/x/a.mp3")))
+              & (table["file B"] == str(Path("/y/a.mp3")))].iloc[0]
+    assert xy["same hash"]                        # x e y sono lo stesso file
+    xz = table[(table["file A"] == str(Path("/x/a.mp3")))
+              & (table["file B"] == str(Path("/z/a.mp3")))].iloc[0]
+    assert not xz["same size"]                    # z è più grande
+
+
+def test_files_and_bytes_does_not_inflate_the_smaller_file():
+    """Il livello C può accostare due file di size diversa nella stessa
+    riga: prima del fix entrambi pesavano come il più grande del gruppo
+    (`g.size`), sovrastimando lo spazio liberato dal più piccolo."""
+    table = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 5000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"})],
+        full_paths=True, compare=True)
+    _, total = files_and_bytes(table)
+    assert total == 1000 + 5000                  # non 2 * 5000 (il max)
+
+
+def test_files_and_bytes_gives_each_file_of_a_trio_its_own_size():
+    """Stesso bug, versione a tre file: x e y pesano 1000, z pesa 2000 —
+    prima del fix tutti e tre avrebbero pesato 2000 (il max del gruppo),
+    sovrastimando il totale di 2000 byte."""
+    table = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3", "/z/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 1000,
+                         "/z/a.mp3": 2000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "aaa",
+                          "/z/a.mp3": "ccc"})],
+        full_paths=True, compare=True)
+    listed, total = files_and_bytes(table)
+    assert set(listed) == {str(Path("/x/a.mp3")), str(Path("/y/a.mp3")),
+                           str(Path("/z/a.mp3"))}
+    assert total == 1000 + 1000 + 2000
+
+
+def test_files_and_bytes_unaffected_for_byte_identical_levels():
+    """Nei livelli A e B i due file di una riga sono byte-identici per
+    costruzione: `_bytes2` non aggiunge nulla di nuovo lì, resta `g.size`
+    come prima del fix."""
+    table = duplicate_rows([group("/x/a.mp3", ["/y/a.mp3"], size=4000)],
+                           full_paths=True)          # niente compare: livello B
+    _, total = files_and_bytes(table)
+    assert total == 4000 + 4000
+
+
+def test_select_matching_button_only_shows_where_it_means_something(qtbot):
+    """"Select same size + name" ha senso solo dove ci sono quelle colonne
+    — il livello Similar. Su A e B, senza `compare`, deve restare nascosto:
+    `isHidden()` legge lo stato esplicito del widget, non serve mostrare
+    la finestra per verificarlo offscreen."""
+    section = _Section(AppState(), "nota")
+    qtbot.addWidget(section)
+    assert section._match.isHidden()             # niente righe caricate
+
+    section.set_rows(duplicate_rows([group("/x/a.mp3", ["/y/a.mp3"])],
+                                    full_paths=True), preselect=False)
+    assert section._match.isHidden()              # livello B: niente compare
+
+    section.set_rows(duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 1000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"})],
+        full_paths=True, compare=True), preselect=False)
+    assert not section._match.isHidden()           # livello Similar: c'è
+
+
+def test_select_matching_picks_only_same_size_and_name_pairs(qtbot):
+    """Su tre coppie — uguali per size e nome, uguali solo per nome,
+    diverse — il bottone deve prendere SOLO la prima."""
+    section = _Section(AppState(), "nota")
+    qtbot.addWidget(section)
+    groups = [
+        group("/x/a.mp3", ["/y/a.mp3"],           # stessa size, stesso nome
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 1000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"}),
+        group("/p/b.mp3", ["/q/b (2024 remaster).mp3"],   # size diversa
+              file_sizes={"/p/b.mp3": 1000, "/q/b (2024 remaster).mp3": 2000},
+              file_hashes={"/p/b.mp3": "ccc",
+                          "/q/b (2024 remaster).mp3": "ddd"}),
+    ]
+    section.set_rows(duplicate_rows(groups, full_paths=True, compare=True),
+                     preselect=False)
+    section._select_matching()
+    assert section.chosen() == ([Path("/y/a.mp3")], 1000)
+
+
+def test_select_matching_replaces_the_previous_pick(qtbot):
+    """Come Select all/none: rimpiazza la scelta di prima, non la somma."""
+    section = _Section(AppState(), "nota")
+    qtbot.addWidget(section)
+    section.set_rows(duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 1000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"})],
+        full_paths=True, compare=True), preselect=False)
+    section.table.toggle_pick(0, "_path2")        # sceglie "a mano" file A
+    assert section.chosen() == ([Path("/x/a.mp3")], 1000)
+    section._select_matching()
+    assert section.chosen() == ([Path("/y/a.mp3")], 1000)   # non più A + B
 
 
 # --- il filtro della libreria -----------------------------------------------

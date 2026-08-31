@@ -58,12 +58,20 @@ class DuplicateGroup:
 
     `keep` è solo una PROPOSTA (vedi `choose_keeper`), non una decisione:
     per i livelli B e C non va applicata affatto.
+
+    `file_sizes`/`file_hashes` portano il dato per SINGOLO file, non per
+    gruppo: per i livelli A e B non servono (`size`/`md5` bastano, essendo
+    byte-identici per costruzione), ma per il livello C i file del gruppo
+    possono avere dimensione e contenuto diversi — è la coppia `keep`/`dup`,
+    non il gruppo, il confronto che conta lì.
     """
     level: str
     size: int
     md5: str | None
     keep: Path
     duplicates: list[Path] = field(default_factory=list)
+    file_sizes: dict[Path, int] = field(default_factory=dict)
+    file_hashes: dict[Path, str | None] = field(default_factory=dict)
 
     @property
     def copies(self) -> int:
@@ -298,7 +306,9 @@ def find_duplicates(files: list[ScannedFile], progress=None,
         keep, dups = choose_keeper([f.path for f in group])
         report.similar_name.append(DuplicateGroup(
             level=LEVEL_SIMILAR_NAME, size=max(f.size for f in group),
-            md5=None, keep=keep, duplicates=dups))
+            md5=None, keep=keep, duplicates=dups,
+            file_sizes={f.path: f.size for f in group},
+            file_hashes={f.path: digests.get(f.path) for f in group}))
 
     return report
 

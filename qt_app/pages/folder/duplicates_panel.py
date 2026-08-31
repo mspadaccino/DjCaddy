@@ -13,6 +13,7 @@ e chi dei due se ne va lo dice l'utente — anche il presunto originale.
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 
 import pandas as pd
@@ -30,11 +31,13 @@ from qt_app import theme
 from qt_app.pages.common import ConfirmBar, dim, reveal_in_files
 from qt_app.state import AppState
 from qt_app.widgets.track_table import (CHECK_A_COLUMN, CHECK_B_COLUMN,
+                                        PLAY_A_COLUMN, PLAY_B_COLUMN,
                                         TrackTable)
 from qt_app.workers import Progress, run_in_pool
 
 
-def duplicate_rows(groups, full_paths: bool = False) -> pd.DataFrame:
+def duplicate_rows(groups, full_paths: bool = False,
+                   compare: bool = False) -> pd.DataFrame:
     """Le righe delle tabelle dei duplicati, una per copia di troppo.
 
     Con `full_paths` le due copie sono mostrate per intero invece che come
@@ -43,23 +46,68 @@ def duplicate_rows(groups, full_paths: bool = False) -> pd.DataFrame:
     l'altra — che è proprio l'informazione che serve per decidere. Lì la
     riga porta anche una casella per file (`✓ A` sul presunto originale,
     `✓ B` sulla copia): si mette in quarantena l'uno o l'altro, e la
-    proposta di `keep` resta una proposta.
+    proposta di `keep` resta una proposta. Stesso discorso per il ▶: uno
+    per file, perché con un solo `_path` file A non si sentirebbe mai.
+
+    Con `compare` (solo livello C, dove i due file NON sono byte-identici)
+    si aggiungono, in fondo, le dimensioni dei due file e tre colonne booleane
+    — stessa dimensione, stesso hash, stesso nome — lette da
+    `DuplicateGroup.file_sizes`/`file_hashes`, già calcolati da
+    `find_duplicates` e non da rifare qui. Un gruppo di più di due file (tre
+    remix con lo stesso nome, non due) porta anche riga per OGNI coppia, non
+    solo ciascuno contro `keep`: è l'unico modo per vedere se il terzo file
+    è uguale al secondo e non solo diverso dal primo. `keep` resta il primo
+    della coppia per `name_quality` — il compagno più "originale" — perché
+    la lista del gruppo è già ordinata così da `choose_keeper`.
+
+    `_bytes`/`_bytes2` (il peso di file B e file A) leggono la size VERA
+    del singolo file quando `file_sizes` ce l'ha — solo il livello C, dove
+    i due file di una riga possono pesare diverso — e altrove restano
+    `g.size`: nei livelli A e B i due file sono byte-identici per
+    costruzione, quindi è già il numero giusto. `files_and_bytes` conta su
+    questo per non sovrastimare lo spazio liberato da un file più piccolo
+    del suo gruppo.
     """
-    pair = ([CHECK_A_COLUMN, "file A", CHECK_B_COLUMN, "file B"] if full_paths
+    pair = ([CHECK_A_COLUMN, PLAY_A_COLUMN, "file A",
+             CHECK_B_COLUMN, PLAY_B_COLUMN, "file B"] if full_paths
             else ["folder", "keep", "duplicate"])
+    extra = ["size A", "size B", "same size", "same hash", "same name"] \
+        if compare else []
+
+    def _compare(g, a: Path, b: Path) -> dict:
+        size_a, size_b = g.file_sizes.get(a), g.file_sizes.get(b)
+        hash_a, hash_b = g.file_hashes.get(a), g.file_hashes.get(b)
+        same_size = size_a is not None and size_a == size_b
+        return {
+            "size A": human_size(size_a) if size_a is not None else "?",
+            "size B": human_size(size_b) if size_b is not None else "?",
+            "same size": same_size,
+            "same hash": bool(same_size and hash_a is not None
+                              and hash_a == hash_b),
+            "same name": a.name == b.name,
+        }
+
+    def _pairs(g) -> list[tuple[Path, Path]]:
+        if not compare:
+            return [(g.keep, dup) for dup in g.duplicates]
+        return list(itertools.combinations([g.keep, *g.duplicates], 2))
+
     return pd.DataFrame(
-        [{**({CHECK_A_COLUMN: "", "file A": str(g.keep),
-              CHECK_B_COLUMN: "", "file B": str(dup)}
+        [{**({CHECK_A_COLUMN: "", PLAY_A_COLUMN: "", "file A": str(a),
+              CHECK_B_COLUMN: "", PLAY_B_COLUMN: "", "file B": str(b)}
              if full_paths else
-             {"folder": str(g.folder), "keep": g.keep.name,
-              "duplicate": dup.name}),
+             {"folder": str(g.folder), "keep": a.name,
+              "duplicate": b.name}),
           "size": human_size(g.size), "copies": g.copies,
-          "md5": (g.md5 or "")[:12], "_path": str(dup),
-          **({"_path2": str(g.keep)} if full_paths else {}),
-          "_bytes": g.size}
-         for g in groups for dup in g.duplicates],
+          "md5": (g.md5 or "")[:12], "_path": str(b),
+          **({"_path2": str(a)} if full_paths else {}),
+          **(_compare(g, a, b) if compare else {}),
+          **({"_bytes2": g.file_sizes.get(a, g.size)} if full_paths else {}),
+          "_bytes": g.file_sizes.get(b, g.size)}
+         for g in groups for a, b in _pairs(g)],
         columns=[*pair, "size", "copies", "md5", "_path",
-                 *(["_path2"] if full_paths else []), "_bytes"])
+                 *(["_path2"] if full_paths else []), *extra,
+                 *(["_bytes2"] if full_paths else []), "_bytes"])
 
 
 def files_and_bytes(frame: pd.DataFrame,
@@ -69,15 +117,20 @@ def files_and_bytes(frame: pd.DataFrame,
     Una riga ne porta uno (livello A) o due (B e C), e lo stesso file torna
     su più righe quando il gruppo ha tre copie: contarlo due volte gonfierebbe
     lo spazio che si libera. Con `only` si contano solo i percorsi dati.
+
+    `_path` e `_path2` hanno ciascuno il proprio peso (`_bytes`/`_bytes2`):
+    nel livello C i due file di una riga possono avere size diverse, e
+    usare un solo numero per entrambi sovrastimerebbe lo spazio liberato
+    da quello più piccolo.
     """
     seen: dict[str, int] = {}
     if not len(frame) or "_path" not in frame:
         return [], 0
     for _, row in frame.iterrows():
-        for field in ("_path2", "_path"):
+        for field, bytes_field in (("_path2", "_bytes2"), ("_path", "_bytes")):
             path = row.get(field)
             if isinstance(path, str) and (only is None or path in only):
-                seen.setdefault(path, int(row["_bytes"]))
+                seen.setdefault(path, int(row.get(bytes_field, row["_bytes"])))
     return list(seen), sum(seen.values())
 
 
@@ -94,6 +147,12 @@ class _Section(QWidget):
         pick_all.clicked.connect(lambda: self.table.set_all_picked(True))
         pick_none = QPushButton("Select none")
         pick_none.clicked.connect(lambda: self.table.set_all_picked(False))
+        # Solo il livello Similar porta "same size"/"same name": il bottone
+        # nasce nascosto e si mostra da sé in `set_rows` quando la tabella
+        # ha di che filtrare — su A e B non vorrebbe dire niente.
+        self._match = QPushButton("Select same size + name")
+        self._match.clicked.connect(self._select_matching)
+        self._match.setVisible(False)
         self.table = TrackTable(checkable=True, library_menu=False)
         self.table.play_requested.connect(state.play)
         self.table.row_activated.connect(state.play)
@@ -103,6 +162,7 @@ class _Section(QWidget):
         row = QHBoxLayout()
         row.addWidget(pick_all)
         row.addWidget(pick_none)
+        row.addWidget(self._match)
         row.addWidget(self._count, stretch=1)
         box = QVBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
@@ -115,6 +175,18 @@ class _Section(QWidget):
         self._rows = rows
         self.table.set_tracks(rows)
         self.table.set_all_picked(preselect and bool(len(rows)))
+        self._match.setVisible(
+            "same size" in rows.columns and "same name" in rows.columns)
+
+    def _select_matching(self) -> None:
+        """Spunta ogni copia (file B) la cui riga ha size E nome uguali —
+        un modo rapido per prendere i casi quasi certi senza scorrere
+        l'elenco a mano. Rimpiazza la scelta di prima, come Select all."""
+        frame = self.table.model_.frame
+        if not len(frame) or "same size" not in frame or "_path" not in frame:
+            return
+        matching = frame[frame["same size"] & frame["same name"]]
+        self.table.set_picked(set(matching["_path"]))
 
     def chosen(self) -> tuple[list[Path], int]:
         picked, freed = files_and_bytes(self.table.model_.frame,
@@ -174,7 +246,10 @@ class DuplicatesPanel(QWidget):
                    "or rips that happen to be named alike. Nothing is "
                    "ticked, and here a tick loses a version you do not "
                    "have elsewhere — right-click shows either file in the "
-                   "file manager, and look at the sizes before choosing.")
+                   "file manager, and look at the sizes before choosing. "
+                   "Three or more files with the same name get a row for "
+                   "every pair, not just each against the first — so a "
+                   "trio is 3 rows, not 2.")
         for section in (self._level_a, self._level_b, self._level_c):
             section.changed.connect(self._refresh_plan)
 
@@ -191,7 +266,7 @@ class DuplicatesPanel(QWidget):
         self._levels = QTabWidget()
         self._levels.addTab(self._level_a, "A · same folder")
         self._levels.addTab(self._level_b, "B · other folders")
-        self._levels.addTab(self._level_c, "C · similar name")
+        self._levels.addTab(self._level_c, "Similar")
         self._levels.addTab(broken_box, "⚠ broken")
         self._levels.setVisible(False)
 
@@ -286,7 +361,8 @@ class DuplicatesPanel(QWidget):
         self._level_b.set_rows(
             duplicate_rows(report.other_folder, full_paths=True),
             preselect=False)
-        table_c = duplicate_rows(report.similar_name, full_paths=True)
+        table_c = duplicate_rows(report.similar_name, full_paths=True,
+                                 compare=True)
         self._level_c.set_rows(
             table_c.drop(columns=["md5"]) if len(table_c) else table_c,
             preselect=False)
@@ -295,7 +371,7 @@ class DuplicatesPanel(QWidget):
         self._levels.setTabText(
             1, f"B · other folders ({len(report.other_folder)})")
         self._levels.setTabText(
-            2, f"C · similar name ({len(report.similar_name)})")
+            2, f"Similar ({len(report.similar_name)})")
 
         broken_files = sum(len(g.paths) for g in report.broken)
         self._levels.setTabText(3, f"⚠ broken ({broken_files})")
@@ -342,7 +418,7 @@ class DuplicatesPanel(QWidget):
             f"{len(plan):,} files ticked, freeing "
             f"{human_size(bytes_a + bytes_b + bytes_c)} — {len(chosen_a):,} "
             f"from A ({human_size(bytes_a)}), {len(chosen_b):,} from B "
-            f"({human_size(bytes_b)}), {len(chosen_c):,} from C "
+            f"({human_size(bytes_b)}), {len(chosen_c):,} from Similar "
             f"({human_size(bytes_c)}). They move into "
             f"{self._root / QUARANTINE_DIRNAME}, keeping their folder "
             "structure so you can see where each came from and put it "

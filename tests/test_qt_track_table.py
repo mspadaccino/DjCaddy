@@ -19,9 +19,11 @@ from PySide6.QtCore import QModelIndex, Qt
 
 from core.viz.track_columns import (ENERGY_COLORS, EMOTION_COLORS,
                                     GROOVE_COLORS, KEY_COLORS, energy_level)
-from qt_app.widgets.track_table import (CHECK_COLUMN, PILLS_ROLE, PLAY_COLUMN,
-                                        PandasModel, PillDelegate, TrackTable,
-                                        pill_color, track_frame)
+from qt_app.widgets.track_table import (CHECK_A_COLUMN, CHECK_B_COLUMN,
+                                        CHECK_COLUMN, PILLS_ROLE,
+                                        PLAY_A_COLUMN, PLAY_B_COLUMN,
+                                        PLAY_COLUMN, PandasModel, PillDelegate,
+                                        TrackTable, pill_color, track_frame)
 
 
 def library() -> pd.DataFrame:
@@ -211,6 +213,29 @@ def test_play_cell_sounds_the_row_without_selecting_it(qtbot):
                          pos=cell)
     assert heard.args == ["/x/two.mp3"]
     assert table.selected_paths() == []     # suonare non è scegliere
+
+
+def test_play_a_and_play_b_sound_different_files(qtbot):
+    """Le righe a due file (i duplicati B/C) hanno un ▶ per file: quello di
+    A non deve mai suonare B, e viceversa."""
+    table = TrackTable(checkable=True)
+    qtbot.addWidget(table)
+    table.resize(640, 220)
+    table.set_tracks(pd.DataFrame([{
+        CHECK_A_COLUMN: "", PLAY_A_COLUMN: "", "file A": "/x/a.mp3",
+        CHECK_B_COLUMN: "", PLAY_B_COLUMN: "", "file B": "/y/a.mp3",
+        "_path": "/y/a.mp3", "_path2": "/x/a.mp3"}]))
+    cell_a = table.visualRect(table.model_.index(0, 1)).center()   # ▶ A
+    cell_b = table.visualRect(table.model_.index(0, 4)).center()   # ▶ B
+    with qtbot.waitSignal(table.play_requested) as heard:
+        qtbot.mouseClick(table.viewport(), Qt.MouseButton.LeftButton,
+                         pos=cell_a)
+    assert heard.args == ["/x/a.mp3"]
+    with qtbot.waitSignal(table.play_requested) as heard:
+        qtbot.mouseClick(table.viewport(), Qt.MouseButton.LeftButton,
+                         pos=cell_b)
+    assert heard.args == ["/y/a.mp3"]
+    assert table.selected_paths() == []         # suonare non è scegliere
 
 
 def test_check_click_toggles_the_row_without_clearing_the_rest(qtbot):
