@@ -176,6 +176,70 @@ def test_every_pickable_list_can_be_taken_or_cleared_in_one_gesture(qtbot):
         assert table.selected_paths() == []
 
 
+def test_reset_brings_back_the_button_that_makes_the_list(qtbot):
+    """Fatta la lista, il bottone che la fa spariva e non tornava più senza
+    cambiare seme: Reset riporta la schermata di partenza, spunte e anelli
+    compresi, lasciando i settaggi dove sono."""
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.set_builder import SetBuilderPanel
+    from qt_app.state import AppState
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=None, frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame))
+    panel = SetBuilderPanel(AppState(), wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    panel.set_pool(np.array([0, 1, 2]))
+    panel.set_choice(0, [], [0, 1, 2])
+
+    rings = []
+    panel.suggestions_changed.connect(lambda m, a: rings.append((m, a)))
+    panel._on_ask_mixes()
+    assert panel._mixes_ask.isHidden()           # il bottone si è fatto da parte
+    panel._mixes_table.set_all_picked(True)
+    assert panel._mixes_table.selected_paths()
+    assert panel._tabs.tabText(0).endswith(")")  # il conteggio sulla linguetta
+
+    rings.clear()
+    panel._on_reset_mixes()
+    assert not panel._mixes_ask.isHidden()
+    assert panel._mixes_table.isHidden()
+    assert panel._mixes_table.selected_paths() == []
+    assert rings and rings[-1][0] == []          # anelli tolti dalla mappa
+    assert not panel._tabs.tabText(0).endswith(")")
+    # I settaggi restano: è la lista che riparte, non la pagina.
+    assert panel._count.value() == 20
+
+    # E si può rifare, che è tutto il punto.
+    panel._on_ask_mixes()
+    assert panel._mixes_ask.isHidden()
+
+
+def test_reset_of_one_list_leaves_the_other_alone(qtbot):
+    """Quick List e Sounds like it sono due domande diverse sullo stesso
+    seme: chiuderne una non chiude l'altra."""
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.set_builder import SetBuilderPanel
+    from qt_app.state import AppState
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=None, frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame))
+    panel = SetBuilderPanel(AppState(), wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    panel.set_choice(0, [], [0, 1, 2])
+
+    panel._on_ask_mixes()
+    asked = panel._asked_mixes
+    panel._on_reset_alike()
+    assert panel._asked_mixes == asked
+    assert panel._asked_alike is None
+
+
 # --- la ricerca per nome ---
 
 def test_search_picker_list_shows_only_with_matches(qtbot):

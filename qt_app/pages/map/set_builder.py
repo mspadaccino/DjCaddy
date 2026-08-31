@@ -219,14 +219,16 @@ class SetBuilderPanel(QWidget):
         into.addWidget(spin)
         return spin
 
-    def _pick_row(self, table: TrackTable) -> QWidget:
-        """I due bottoni della scelta in blocco, sopra una tabella a spunte.
+    def _pick_row(self, table: TrackTable, reset=None) -> QWidget:
+        """La riga che governa la lista: scelta in blocco e, dove serve, il
+        ritorno alla schermata che la crea.
 
         Le liste qui arrivano a venti righe e più: prenderle tutte, o
         ripulire per ricominciare, non è un gesto da fare riga per riga.
         Riga a sé e non in fondo insieme agli altri bottoni, perché quelli
-        AGISCONO sulla scelta mentre questi la fanno — e perché quattro
-        bottoni in fila non ci stanno nella colonna di destra.
+        AGISCONO sulla lista (aggiungi, manda alla playlist) mentre questi
+        la governano — e perché cinque bottoni in fila non ci stanno nella
+        colonna di destra.
         """
         pick_all = QPushButton("Select all")
         pick_all.clicked.connect(lambda: table.set_all_picked(True))
@@ -238,6 +240,17 @@ class SetBuilderPanel(QWidget):
         box.addWidget(pick_all)
         box.addWidget(pick_none)
         box.addStretch(1)
+        if reset is not None:
+            # In fondo a destra, lontano dai due che scelgono: è il gesto
+            # che butta via la lista, non uno che la tocca.
+            back = QPushButton("✖ Reset")
+            back.setToolTip(theme.hint(
+                "Back to the button that makes the list: this one is "
+                "dropped, ticks included, and the rings come off the map. "
+                "The settings above — the weights and how many to list — "
+                "stay as they are, ready for the next run."))
+            back.clicked.connect(reset)
+            box.addWidget(back)
         return row
 
     def _build_quicklist(self) -> QWidget:
@@ -299,7 +312,8 @@ class SetBuilderPanel(QWidget):
         self._mixes_table = TrackTable(checkable=True)
         self._mixes_table.setToolTip(mixes_why)
         self._wire(self._mixes_table)
-        sbox.addWidget(self._pick_row(self._mixes_table))
+        sbox.addWidget(self._pick_row(self._mixes_table,
+                                      reset=self._on_reset_mixes))
         sbox.addWidget(self._mixes_table, stretch=1)
         self._mixes_add = QPushButton("➕ Add selected to the playlist")
         self._mixes_add.clicked.connect(
@@ -342,7 +356,8 @@ class SetBuilderPanel(QWidget):
         self._alike_table = TrackTable(checkable=True)
         self._alike_table.setToolTip(alike_why)
         self._wire(self._alike_table)
-        sbox.addWidget(self._pick_row(self._alike_table))
+        sbox.addWidget(self._pick_row(self._alike_table,
+                                      reset=self._on_reset_alike))
         sbox.addWidget(self._alike_table, stretch=1)
         self._alike_add = QPushButton("➕ Add selected to the playlist")
         self._alike_add.clicked.connect(
@@ -562,6 +577,15 @@ class SetBuilderPanel(QWidget):
             self._asked_mixes = self._lib.frame.at[self._seed, "path"]
             self._show_mixes()
 
+    def _on_reset_mixes(self) -> None:
+        """Si riparte da capo: la lista si chiude e torna il bottone che la
+        fa. Le spunte vanno tolte a mano, o rientrerebbero dalla finestra —
+        `set_tracks` conserva i presi che il frame nuovo porta ancora, e il
+        frame nuovo è quasi sempre lo stesso."""
+        self._asked_mixes = None
+        self._mixes_table.clear_picks()
+        self._refresh_quick()
+
     def _show_mixes(self) -> None:
         frame, cost, common = (self._lib.frame, self._lib.cost,
                                self._lib.common)
@@ -621,6 +645,12 @@ class SetBuilderPanel(QWidget):
         if self._lib is not None and self._seed is not None:
             self._asked_alike = self._lib.frame.at[self._seed, "path"]
             self._show_alike()
+
+    def _on_reset_alike(self) -> None:
+        """Come `_on_reset_mixes`, per la lista di quello che somiglia."""
+        self._asked_alike = None
+        self._alike_table.clear_picks()
+        self._refresh_alike()
 
     def _show_alike(self) -> None:
         frame, common = self._lib.frame, self._lib.common
