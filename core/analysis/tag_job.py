@@ -30,6 +30,9 @@ from .essentia_tags import (
 from .tag_tracking import ProcessedTracker
 
 DEFAULT_STATE_FILE = Path(__file__).resolve().parent.parent.parent / ".wavecut_tag_job.json"
+# Il CLI che fa girare il job, centralizzato come MAP_CLI_PATH in map_job:
+# lo lanciano sia la pagina Streamlit sia quella Qt, da cartelle diverse.
+TAG_CLI_PATH = Path(__file__).resolve().parent.parent.parent / "tag_cli.py"
 
 # Fra un brano e il successivo non passa un minuto nemmeno sul file più
 # ostico: se è passato, la macchina dormiva o il job era in pausa, e quel

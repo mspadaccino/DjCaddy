@@ -4,8 +4,8 @@
 
 Le tab sono le stesse sezioni, nello stesso ordine, del menu Streamlit; il
 lettore sta sotto di tutte, fuori dalle tab, che è come st.bottom lo tiene
-su ogni pagina. La pagina Map è quella vera (Fase 3); le altre tre sono
-segnaposto fino alla Fase 4.
+su ogni pagina. Dalla Fase 4 le pagine sono tutte vere, e si apre su Wave
+analysis come il menu di là.
 """
 
 from __future__ import annotations
@@ -24,8 +24,10 @@ from PySide6 import QtWebEngineWidgets  # noqa: F401  (l'import È l'effetto)
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget,
                                QVBoxLayout, QWidget)
 
+from qt_app.pages.folder import FolderPage
 from qt_app.pages.map import MapPage
-from qt_app.pages.placeholder import placeholder
+from qt_app.pages.tag import TagPage
+from qt_app.pages.wave import WavePage
 from qt_app.state import AppState
 from qt_app.theme import apply_theme
 from qt_app.widgets.player_dock import PlayerDock
@@ -36,21 +38,18 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Wavecut")
         self.state = AppState(self)
+        # Il lettore nasce prima delle pagine: la pagina Wave gli si
+        # aggancia (posizione e salti) fin dal costruttore.
+        self.player = PlayerDock(self.state)
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
-        self.tabs.addTab(placeholder("Wave analysis", "Fase 4"),
-                         "🌊 Wave analysis")
-        self.tabs.addTab(placeholder("Tag analysis", "Fase 4"),
-                         "🏷️ Tag analysis")
-        self.tabs.addTab(placeholder("Folder analysis", "Fase 4"),
-                         "📁 Folder analysis")
+        self.wave_page = WavePage(self.state, self.player)
+        self.tabs.addTab(self.wave_page, "🌊 Wave analysis")
+        self.tabs.addTab(TagPage(self.state), "🏷️ Tag analysis")
+        self.tabs.addTab(FolderPage(self.state), "📁 Folder analysis")
         self.map_page = MapPage(self.state)
         self.tabs.addTab(self.map_page, "🗺️ Map")
-        # L'unica pagina vera finora è la mappa: si apre lì.
-        self.tabs.setCurrentWidget(self.map_page)
-
-        self.player = PlayerDock(self.state)
 
         central = QWidget()
         layout = QVBoxLayout(central)

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
                                QWidget)
@@ -50,12 +50,19 @@ class PlayerDock(QWidget):
     con la ✕.
     """
 
+    # La posizione, per chi disegna un'altra onda sullo stesso brano (la
+    # pagina Wave): secondi, ad ogni positionChanged del player.
+    position_changed = Signal(float)
+
     def __init__(self, state: AppState, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._state = state
         self._path: str | None = None
         self._duration = 0.0            # dall'onda; il player fa da riserva
         self._waves: dict[tuple, tuple] = {}
+        # (path, secondi) di un salto chiesto PRIMA che il media sia pronto:
+        # si applica al primo durationChanged utile del brano giusto.
+        self._pending_seek: tuple[str, float] | None = None
 
         self._player = QMediaPlayer(self)
         self._audio = QAudioOutput(self)
@@ -120,8 +127,33 @@ class PlayerDock(QWidget):
         row.addWidget(self._clock)
         row.addWidget(close)
 
+    # --- quello che la pagina Wave chiede in più ---
+    @property
+    def path(self) -> str | None:
+        """Il brano caricato nel lettore (anche in pausa)."""
+        return self._path
+
+    def seek(self, seconds: float) -> None:
+        self._player.setPosition(int(seconds * 1000))
+
+    def play_at(self, path: str, seconds: float) -> None:
+        """Suona `path` da `seconds`: il ▶ delle righe della tabella cue.
+
+        Sul brano già caricato è un salto e via; su uno nuovo il salto
+        aspetta che il media sia pronto — un setPosition prima del
+        caricamento cade nel vuoto.
+        """
+        if path == self._path:
+            self.seek(seconds)
+            self._player.play()
+            return
+        self._pending_seek = (path, seconds)
+        self._state.play(path)
+
     # --- lo stato comanda ---
     def _on_now_playing(self, path: str | None) -> None:
+        if self._pending_seek is not None and self._pending_seek[0] != path:
+            self._pending_seek = None   # nel frattempo si è scelto altro
         if path is None:
             self._player.stop()
             self._path = None
@@ -195,8 +227,14 @@ class PlayerDock(QWidget):
         self._wave.set_position(seconds)
         self._clock.setText(
             f"{clock_text(seconds)} / {clock_text(self._total())}")
+        self.position_changed.emit(seconds)
 
     def _on_duration(self, milliseconds: int) -> None:
+        if (self._pending_seek is not None and milliseconds > 0
+                and self._pending_seek[0] == self._path):
+            _, seconds = self._pending_seek
+            self._pending_seek = None
+            self._player.setPosition(int(seconds * 1000))
         self._on_position(self._player.position())
 
     def _on_playback_state(self, playing) -> None:

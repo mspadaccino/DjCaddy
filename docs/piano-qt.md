@@ -303,6 +303,44 @@ Suite a 583 test verdi (13 nuovi). Come è stata costruita:
   pagina spiega che serve il Mac (vincolo Essentia).
 - Folder: scansione in thread, duplicati, piano di quarantena.
 
+**Esito (31/08/2026): fatto.** Le quattro pagine sono tutte vere e l'app si
+apre su Wave analysis, come il menu di là. Parità verificata con uno smoke
+offscreen su file veri, 38/38 voci: analisi, onda, tabella cue, export,
+coverage, breakdown, analisi e scrittura tag, scansione, duplicati con
+quarantena, filtering, sidecar, illeggibili. Suite a 625 test verdi (31
+nuovi di Fase 4). Come è stata costruita:
+
+- Wave: `WaveReview` (QPainter) replica il canvas CCv2 numero per numero —
+  barre a bande di frequenza, regioni rosa, marker col triangolino, playhead
+  giallo, tooltip col tempo — e l'audio sta nel dock: `PlayerDock` espone
+  `position_changed` e `play_at` (col salto rinviato a media pronto), così
+  l'onda della pagina e le barre del dock raccontano lo stesso ascolto. La
+  tabella cue è un QTableWidget con la tendina dei tag e Start in mm:ss;
+  `phrase_ends` e `marker_color` sono scesi in `core.analysis.cue_export` e
+  Streamlit li importa da lì. Il blocco djay Pro si disegna solo su macOS.
+- Tag: la coda a sinistra (coverage letta nel pool con progresso, filtro,
+  spunte), le tab a destra — Run (settings, analisi, salvataggio con
+  rilettura della coverage), Breakdown, Background job (QTimer su
+  `load_state`, lancio `tag_cli` via `TAG_CLI_PATH`), Environment. Su
+  Windows la pagina dice subito che l'analisi vuole il Mac.
+- Folder: cinque tab (Contents, Duplicates, Filtering, Junk, Unreadable);
+  ogni lettura pesante nel pool con progresso, cancellazioni e quarantene
+  dietro spunta di conferma, e il rescan riparte da solo dopo ogni azione
+  che sposta o cancella.
+- Un bug latente delle Fasi 2–3, scovato dallo smoke e corretto:
+  `run_in_pool` non tratteneva il task, e il garbage collector poteva
+  mangiarsi la consegna del risultato (riproducibile con
+  `truncation.inspect`: mai consegnato senza riferimento, 0,1 s con). Ora i
+  task in volo vivono in un set fino alla consegna — test di regressione in
+  `test_qt_workers.py`.
+- Scarti deliberati dalla lettera di Streamlit, come in Fase 3: pagine a
+  pannelli e tab al posto della pagina-fiume; i download-button diventano
+  dialoghi di salvataggio; il cambio di soglia vocale rigenera daccapo le
+  righe vocali (di là un edit sopravviveva su un id riciclato, cioè finiva
+  su una regione diversa); i "Select all/none" sono spunte per percorso
+  sulla TrackTable (`set_all_picked`), non tabelle ricreate con un contatore
+  nella chiave.
+
 ### Fase 5 — Packaging
 
 - Spec PyInstaller: dati inclusi (plotly.min.js, frontend HTML, eventuali

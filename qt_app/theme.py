@@ -36,6 +36,11 @@ PILL_INK = "#1b1f27"
 # due forme: il QColor va nella palette (è quello che leggono i delegate),
 # la stringa nel QSS.
 SELECTED_ROW = QColor(255, 75, 75, 76)
+
+# La riga del brano IN ASCOLTO: il giallo della catena, trasparente. Un
+# colore suo perché dice una cosa diversa dal rosso della selezione —
+# rosso = l'ho scelto, giallo = lo sto sentendo — e i due capitano insieme.
+PLAYING_ROW = QColor(255, 233, 77, 46)
 _SELECTED_CSS = (f"rgba({SELECTED_ROW.red()}, {SELECTED_ROW.green()}, "
                  f"{SELECTED_ROW.blue()}, {SELECTED_ROW.alphaF():.2f})")
 

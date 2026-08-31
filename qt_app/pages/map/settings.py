@@ -33,19 +33,12 @@ from core.analysis.map_projection import available as umap_available
 from core.analysis.map_projection import project
 from core.analysis.map_profile import default_workers
 from core.analysis.map_store import MapStore
+from qt_app.pages.common import spelled
 from qt_app.workers import run_in_pool
 
 # I segnali di pausa esistono solo sui POSIX: su Windows i due bottoni non
 # si disegnano — un job si può comunque fermare.
 CAN_PAUSE = hasattr(posix_signal, "SIGSTOP")
-
-
-def spelled(seconds: float) -> str:
-    if seconds < 90:
-        return f"{seconds:.0f}s"
-    if seconds < 5400:
-        return f"{seconds / 60:.0f} min"
-    return f"{seconds / 3600:.1f} hours"
 
 
 def _dim(text: str = "") -> QLabel:

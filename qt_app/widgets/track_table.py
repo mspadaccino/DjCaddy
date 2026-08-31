@@ -110,6 +110,10 @@ class PandasModel(QAbstractTableModel):
         super().__init__(parent)
         self._frame = frame if frame is not None else pd.DataFrame()
         self._reorderable = reorderable
+        # Il `_path` del brano in ascolto: la sua riga si tinge di giallo
+        # (BackgroundRole). Per percorso e non per riga: la tabella si
+        # riordina e si rifà, il brano resta quello.
+        self.playing: str | None = None
 
     # --- il frame ---
     @property
@@ -140,6 +144,9 @@ class PandasModel(QAbstractTableModel):
     def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
+        if role == Qt.ItemDataRole.BackgroundRole:
+            return (theme.PLAYING_ROW if self.playing is not None
+                    and self.path_at(index.row()) == self.playing else None)
         value = self._frame[self._shown()[index.column()]].iloc[index.row()]
         if role == PILLS_ROLE:
             return value
@@ -223,6 +230,20 @@ class PandasModel(QAbstractTableModel):
         return False
 
 
+def _row_ground(painter: QPainter, option, index: QModelIndex) -> None:
+    """Il fondo della cella nei delegate che disegnano da sé: il rosso della
+    riga selezionata, o il giallo del brano in ascolto (BackgroundRole) —
+    le colonne senza delegate lo prendono da sole dal modello. Colori di
+    modulo e non option.palette: il pennello del temporaneo di shiboken ha
+    già fatto crollare la suite una volta (segfault nel paint)."""
+    if option.state & QStyle.StateFlag.State_Selected:
+        painter.fillRect(option.rect, theme.SELECTED_ROW)
+        return
+    ground = index.data(Qt.ItemDataRole.BackgroundRole)
+    if ground is not None:
+        painter.fillRect(option.rect, ground)
+
+
 class PillDelegate(QStyledItemDelegate):
     """Le pastiglie in una cella: tinte piene, testo scuro, angoli tondi.
 
@@ -244,12 +265,7 @@ class PillDelegate(QStyledItemDelegate):
         return [str(v) for v in listed if str(v)]
 
     def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
-        if option.state & QStyle.StateFlag.State_Selected:
-            # Il colore di modulo, non option.palette.highlight(): il
-            # pennello del temporaneo di shiboken ha fatto crollare la
-            # suite (segfault nel paint) appena i test hanno cominciato
-            # a selezionare righe.
-            painter.fillRect(option.rect, theme.SELECTED_ROW)
+        _row_ground(painter, option, index)
         values = self._values(index)
         if not values:
             return
@@ -298,12 +314,7 @@ class CheckDelegate(QStyledItemDelegate):
     """
 
     def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
-        if option.state & QStyle.StateFlag.State_Selected:
-            # Il colore di modulo, non option.palette.highlight(): il
-            # pennello del temporaneo di shiboken ha fatto crollare la
-            # suite (segfault nel paint) appena i test hanno cominciato
-            # a selezionare righe.
-            painter.fillRect(option.rect, theme.SELECTED_ROW)
+        _row_ground(painter, option, index)
         box = QStyleOptionButton()
         box.palette = option.palette
         side = 16
@@ -327,12 +338,7 @@ class PlayDelegate(QStyledItemDelegate):
     """
 
     def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
-        if option.state & QStyle.StateFlag.State_Selected:
-            # Il colore di modulo, non option.palette.highlight(): il
-            # pennello del temporaneo di shiboken ha fatto crollare la
-            # suite (segfault nel paint) appena i test hanno cominciato
-            # a selezionare righe.
-            painter.fillRect(option.rect, theme.SELECTED_ROW)
+        _row_ground(painter, option, index)
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         font = painter.font()
@@ -373,11 +379,19 @@ class TrackTable(QTableView):
                "Δgroove": 62}
 
     def __init__(self, reorderable: bool = False, checkable: bool = False,
+                 library_menu: bool = True, playable: bool = True,
                  parent=None) -> None:
         super().__init__(parent)
         self._model = PandasModel(reorderable=reorderable, parent=self)
         self.setModel(self._model)
         self._checkable = checkable
+        # Le tabelle di Tag e Folder elencano file FUORI dalla mappa: seme e
+        # playlist lì non vogliono dire niente, e una voce di menu che non fa
+        # niente è peggio di una che non c'è. `playable` spegne il ▶ dove
+        # non vuol dire niente — un elenco di .jpg — come il `play` di
+        # `play_table` in Streamlit.
+        self._library_menu = library_menu
+        self._playable = playable
         self._check_delegate = CheckDelegate(self) if checkable else None
         self._play_delegate = PlayDelegate(self)
         self._delegates: dict[str, PillDelegate] = {}
@@ -423,12 +437,15 @@ class TrackTable(QTableView):
     def set_tracks(self, frame: pd.DataFrame,
                    genre_colors: dict[str, str] | None = None) -> None:
         """Mostra un frame di `track_frame`, e veste le colonne che conosce."""
-        if PLAY_COLUMN not in frame.columns:
+        wants_play = self._playable and PLAY_COLUMN not in frame.columns
+        wants_check = self._checkable and CHECK_COLUMN not in frame.columns
+        if wants_play or wants_check:
             # Su una COPIA: il frame è di chi chiama, e una colonna comparsa
             # di soprassalto in casa sua sarebbe una sorpresa cattiva.
             frame = frame.copy()
-            frame.insert(0, PLAY_COLUMN, "")
-            if self._checkable:
+            if wants_play:
+                frame.insert(0, PLAY_COLUMN, "")
+            if wants_check:
                 frame.insert(0, CHECK_COLUMN, "")   # ✓ prima, ▶ subito dopo
         self._model.set_frame(frame)
         if self._checkable:
@@ -487,6 +504,18 @@ class TrackTable(QTableView):
         self.viewport().update()
         self.selection_paths_changed.emit(self.selected_paths())
 
+    def set_all_picked(self, picked: bool) -> None:
+        """Spunta — o toglie la spunta a — ogni riga del frame corrente:
+        i bottoni Select all / none, e la spunta di partenza delle tabelle
+        che nascono già tutte scelte (i duplicati certi, la coda dei tag)."""
+        if not self._checkable:
+            return
+        frame = self._model.frame
+        self._picked = ({str(p) for p in frame["_path"]}
+                        if picked and "_path" in frame else set())
+        self.viewport().update()
+        self.selection_paths_changed.emit(self.selected_paths())
+
     def clear_picks(self) -> None:
         """Via spunte ed evidenziazione, in silenzio: serve a chi le sta
         rimpiazzando con un gesto più recente, non a segnalare un gesto."""
@@ -494,6 +523,16 @@ class TrackTable(QTableView):
         self.blockSignals(True)
         self.clearSelection()
         self.blockSignals(False)
+        self.viewport().update()
+
+    def set_playing(self, path: str | None) -> None:
+        """Il brano in ascolto: la sua riga si tinge di giallo trasparente,
+        in qualunque tabella lo contenga — è come lo si ritrova con
+        l'occhio mentre suona. Per percorso, quindi sopravvive a riordini
+        e ridisegni; quando l'ascolto finisce il giallo se ne va."""
+        if path == self._model.playing:
+            return
+        self._model.playing = path
         self.viewport().update()
 
     def mousePressEvent(self, event) -> None:
@@ -537,10 +576,11 @@ class TrackTable(QTableView):
         menu = QMenu(self)
         menu.addAction("▶ Play",
                        lambda: self.play_requested.emit(path))
-        menu.addAction("◎ Use as seed",
-                       lambda: self.seed_requested.emit(path))
-        menu.addAction(f"➕ Add to playlist ({len(added)})",
-                       lambda: self.add_requested.emit(list(added)))
+        if self._library_menu:
+            menu.addAction("◎ Use as seed",
+                           lambda: self.seed_requested.emit(path))
+            menu.addAction(f"➕ Add to playlist ({len(added)})",
+                           lambda: self.add_requested.emit(list(added)))
         menu.addSeparator()
         menu.addAction("📂 Show in file manager",
                        lambda: self.reveal_requested.emit(path))

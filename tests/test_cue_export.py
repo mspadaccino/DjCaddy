@@ -2,8 +2,11 @@ from core.analysis.cue_export import (
     DJAY_SLOTS,
     build_cue_rows,
     is_vocal_row,
+    marker_color,
+    phrase_ends,
     plan_djay_markers,
 )
+from core.analysis.models import SECTION_COLORS, VOCAL_MARKER_COLORS
 
 
 def test_build_cue_rows_one_row_per_phrase():
@@ -132,3 +135,32 @@ def test_plan_ignores_vocal_region_with_non_positive_length():
 def test_plan_empty():
     plan = plan_djay_markers([])
     assert plan.cues == [] and plan.loops == [] and plan.slot_label == {}
+
+
+# --- fine di ogni frase e colori dei marcatori (condivisi dalle due app) ----
+
+def test_phrase_ends_follow_the_next_start():
+    """La fine di una frase è l'inizio della successiva — anche dopo che un
+    inizio è stato spostato — e l'ultima tiene la fine rilevata."""
+    kinds = {"sec0": "phrase_start", "sec1": "phrase_start",
+             "vs0": "vocal_start"}
+    starts = {"sec0": 40.0, "sec1": 5.0, "vs0": 10.0}   # sec1 spostata prima
+    ends = phrase_ends(kinds, starts, {"sec0": 90.0})
+
+    assert ends == {"sec1": 40.0, "sec0": 90.0}
+
+
+def test_phrase_ends_last_without_detected_end_is_none():
+    ends = phrase_ends({"sec0": "phrase_start"}, {"sec0": 0.0}, {})
+    assert ends == {"sec0": None}
+
+
+def test_marker_color_vocal_and_phrase():
+    assert marker_color("vocal_start", "Vocal start") == \
+        VOCAL_MARKER_COLORS["Vocal start"]
+    assert marker_color("phrase_start", "Drop/Chorus") == \
+        SECTION_COLORS["Drop/Chorus"]
+    # Un'etichetta "X start"/"X end" cade sul colore della sua sezione.
+    assert marker_color("phrase_start", "Intro start") == \
+        SECTION_COLORS["Intro"]
+    assert marker_color("phrase_start", "boh") == "#ffffff"

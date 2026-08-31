@@ -24,7 +24,8 @@ import streamlit as st
 from core.analysis.audio_features import ANALYSIS_SR, load_audio
 from core.analysis.engine import AUDIO_EXTENSIONS, analyze_file, load_analysis
 from core.analysis.cue_export import (
-    DJAY_SLOTS, PHRASE_START, build_cue_rows, is_vocal_row, plan_djay_markers,
+    DJAY_SLOTS, PHRASE_START, build_cue_rows, is_vocal_row, marker_color,
+    phrase_ends, plan_djay_markers,
 )
 from core.analysis.dj_export import build_rekordbox_xml, read_title_artist
 from core.analysis.djay_write import CuePoint as DjayCuePoint
@@ -33,10 +34,8 @@ from core.analysis.djay_write import DjayWriteError, is_djay_running
 from core.analysis.djay_write import preview_write as djay_preview_write
 from core.analysis.djay_write import write_new_cues as djay_write_new_cues
 from core.analysis.models import (
-    SECTION_COLORS,
     SECTION_LABELS,
     VOCAL_END,
-    VOCAL_MARKER_COLORS,
     VOCAL_START,
     format_elapsed,
     format_remaining,
@@ -51,11 +50,9 @@ from core.analysis.waveform import compute_frequency_waveform
 TAG_OPTIONS = list(SECTION_LABELS) + [VOCAL_START, VOCAL_END]
 
 
-def _marker_color(kind: str, tag: str) -> str:
-    if kind in ("vocal_start", "vocal_end"):
-        return VOCAL_MARKER_COLORS.get(tag, "#ffffff")
-    base = tag.rsplit(" ", 1)[0] if tag.endswith((" start", " end")) else tag
-    return SECTION_COLORS.get(base, "#ffffff")
+# La regola dei colori è scesa in core (`cue_export.marker_color`): la
+# waveform Qt e questa devono colorare gli stessi tag allo stesso modo.
+_marker_color = marker_color
 
 
 def _live_regions(track: dict, floor: float):
@@ -408,17 +405,9 @@ if duration:
 
 
 def _phrase_ends(kinds: dict, starts: dict) -> dict:
-    """Fine di ogni frase: l'inizio della frase successiva, perché le sezioni
-    sono contigue — così la colonna resta coerente anche dopo che l'utente ha
-    spostato un inizio. Per l'ultima frase resta la fine rilevata
-    dall'analisi. Le righe vocali non hanno una fine propria: la loro sta
-    nella riga "Vocal end" gemella."""
-    order = sorted((rid for rid, k in kinds.items() if k == PHRASE_START),
-                   key=lambda rid: starts[rid])
-    return {
-        rid: (starts[order[i + 1]] if i + 1 < len(order) else analysis_end.get(rid))
-        for i, rid in enumerate(order)
-    }
+    """La regola è in core (`cue_export.phrase_ends`), condivisa con la
+    tabella cue dell'app Qt; qui si aggiunge solo la fine rilevata."""
+    return phrase_ends(kinds, starts, analysis_end)
 
 # --- Ordina per tempo corrente (solo per la visualizzazione: l'id resta
 # l'indice stabile, così Streamlit riaggancia gli edit alla riga giusta anche

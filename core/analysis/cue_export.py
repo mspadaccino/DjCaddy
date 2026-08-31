@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import VOCAL_END, VOCAL_START
+from .models import (SECTION_COLORS, VOCAL_END, VOCAL_MARKER_COLORS,
+                     VOCAL_START)
 
 PHRASE_START = "phrase_start"
 VOCAL_START_KIND = "vocal_start"
@@ -58,6 +59,33 @@ def build_cue_rows(sections, vocal_regions, bpm: float | None = None) -> list[di
 
 def is_vocal_row(row: dict) -> bool:
     return row["kind"] in VOCAL_KINDS
+
+
+def phrase_ends(kinds: dict, starts: dict, analysis_end: dict) -> dict:
+    """Fine di ogni frase: l'inizio della frase successiva, perché le sezioni
+    sono contigue — così la colonna resta coerente anche dopo che l'utente ha
+    spostato un inizio. Per l'ultima frase resta la fine rilevata
+    dall'analisi (`analysis_end`, per id). Le righe vocali non hanno una fine
+    propria: la loro sta nella riga "Vocal end" gemella.
+
+    In core perché le tabelle cue sono DUE — la pagina Streamlit e quella
+    Qt — e la regola della fine deve restare una sola.
+    """
+    order = sorted((rid for rid, k in kinds.items() if k == PHRASE_START),
+                   key=lambda rid: starts[rid])
+    return {
+        rid: (starts[order[i + 1]] if i + 1 < len(order)
+              else analysis_end.get(rid))
+        for i, rid in enumerate(order)
+    }
+
+
+def marker_color(kind: str, tag: str) -> str:
+    """Il colore di un marcatore, per waveform ed export (stessi ovunque)."""
+    if kind in VOCAL_KINDS:
+        return VOCAL_MARKER_COLORS.get(tag, "#ffffff")
+    base = tag.rsplit(" ", 1)[0] if tag.endswith((" start", " end")) else tag
+    return SECTION_COLORS.get(base, "#ffffff")
 
 
 @dataclass
