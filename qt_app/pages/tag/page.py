@@ -152,7 +152,7 @@ class TagPage(QWidget):
         left.addWidget(self._unreadable_told)
 
         # --- destra: i pannelli ---
-        self._run = RunPanel()
+        self._run = RunPanel(self._state)
         self._run.tags_written.connect(self._on_tags_written)
         self._breakdown = BreakdownPanel(self._state)
         self._job = JobPanel(lambda: (self._run.settings_box.settings(),

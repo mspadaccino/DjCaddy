@@ -10,6 +10,7 @@ altre schede lavorano su un brano che di solito si è scelto lì.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -21,16 +22,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # Prima di creare la QApplication, non dopo: Chromium esige che il contesto
 # OpenGL condiviso sia deciso all'avvio, e l'import è quello che lo decide.
 from PySide6 import QtWebEngineWidgets  # noqa: F401  (l'import È l'effetto)
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget,
                                QVBoxLayout, QWidget)
 
+from core.analysis.map_store import default_store_dir
 from qt_app.pages.folder import FolderPage
 from qt_app.pages.map import MapPage
 from qt_app.pages.tag import TagPage
 from qt_app.pages.wave import WavePage
 from qt_app.state import AppState
 from qt_app.theme import apply_theme
+from qt_app.widgets.header import HeaderBar
 from qt_app.widgets.player_dock import PlayerDock
+from qt_app.widgets.splash import SplashScreen
+
+_ASSETS = Path(__file__).resolve().parent / "assets"
+
+
+def _known_track_count() -> int:
+    """Il conteggio brani già noto, letto senza aprire la mappa intera —
+    solo per il testo dello splash mentre il caricamento vero gira."""
+    try:
+        meta = json.loads((default_store_dir() / "meta.json").read_text())
+        return int(meta.get("tracks", 0))
+    except (OSError, ValueError):
+        return 0
 
 
 class MainWindow(QMainWindow):
@@ -59,12 +76,23 @@ class MainWindow(QMainWindow):
         layout.setSpacing(6)
         layout.addWidget(self.tabs, stretch=1)
         layout.addWidget(self.player)
-        self.setCentralWidget(central)
+
+        # Riga propria sopra le schede, a tutta larghezza: il suo padding è
+        # il proprio, non quello (6px) del resto della finestra.
+        outer = QWidget()
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        self.header = HeaderBar(self.state)
+        outer_layout.addWidget(self.header)
+        outer_layout.addWidget(central, stretch=1)
+        self.setCentralWidget(outer)
 
 
 def main() -> int:
     QApplication.setApplicationName("DjCaddy")
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(str(_ASSETS / "djcaddy-icon.svg")))
     apply_theme(app)
     window = MainWindow()
     # Dentro lo schermo, sempre: il lettore compare in FONDO alla finestra,
@@ -89,7 +117,21 @@ def main() -> int:
     tall = min(940, available.bottom() - dock_gap - top)
     window.setGeometry(available.x() + (available.width() - wide) // 2,
                        top, wide, tall)
-    window.show()
+
+    # Copre l'apertura della mappa: gira in loop finché il caricamento
+    # reale non finisce, non a fine ciclo — così la finestra non appare
+    # vuota sui numeri grossi (90.000 tracce non si leggono all'istante).
+    track_count = f"{_known_track_count():,}".replace(",", ".")
+    splash = SplashScreen(f"costruzione della mappa · {track_count} brani")
+    splash.move(available.x() + (available.width() - splash.WIDTH) // 2,
+               available.y() + (available.height() - splash.HEIGHT) // 2)
+    splash.show()
+
+    def _reveal() -> None:
+        splash.close()
+        window.show()
+
+    window.map_page.loaded_once.connect(_reveal)
     return app.exec()
 
 

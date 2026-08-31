@@ -25,6 +25,7 @@ from core.analysis.essentia_tags import (GENRE_FORMATS, TagSettings,
 from core.analysis.tag_tracking import ProcessedTracker
 from qt_app import theme
 from qt_app.pages.common import dim, spelled
+from qt_app.state import AppState
 from qt_app.widgets.track_table import TrackTable
 from qt_app.workers import Progress, run_in_pool
 
@@ -178,8 +179,9 @@ class RunPanel(QWidget):
 
     tags_written = Signal()     # la pagina rilegge la copertura
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, state: AppState, parent=None) -> None:
         super().__init__(parent)
+        self._state = state
         self._queue: list[Path] = []
         self._analyzed: list[tuple] = []
         self._failures: list[dict] = []
@@ -275,6 +277,7 @@ class RunPanel(QWidget):
         settings = self.settings_box.settings()
         workers = self.settings_box.workers.value()
         self._analyze.setEnabled(False)
+        self._state.set_job_running("tag", True)
         self._bar.setVisible(True)
         self._bar.setRange(0, len(todo))
         self._bar.setValue(0)
@@ -304,6 +307,7 @@ class RunPanel(QWidget):
 
     def _on_failed(self, trouble: Exception) -> None:
         self._analyze.setEnabled(True)
+        self._state.set_job_running("tag", False)
         self._bar.setVisible(False)
         self._trouble.setText(f"The analysis failed: {trouble}")
         self._trouble.setStyleSheet(f"color: {theme.PRIMARY};")
@@ -311,6 +315,7 @@ class RunPanel(QWidget):
 
     def _on_analyzed(self, result) -> None:
         self._analyze.setEnabled(True)
+        self._state.set_job_running("tag", False)
         self._bar.setVisible(False)
         self._analyzed, self._failures = result
         self._trouble.setVisible(bool(self._failures))
