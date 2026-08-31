@@ -67,11 +67,16 @@ def duplicate_rows(groups, full_paths: bool = False,
     costruzione, quindi è già il numero giusto. `files_and_bytes` conta su
     questo per non sovrastimare lo spazio liberato da un file più piccolo
     del suo gruppo.
+
+    La colonna "size" (unica, di gruppo) sparisce con `compare`: lì c'è già
+    "size A"/"size B" per file, e una terza size — quella del gruppo,
+    ridondante e nei gruppi disomogenei anche fuorviante — non aggiunge
+    niente.
     """
     pair = ([CHECK_A_COLUMN, PLAY_A_COLUMN, "file A",
              CHECK_B_COLUMN, PLAY_B_COLUMN, "file B"] if full_paths
             else ["folder", "keep", "duplicate"])
-    extra = ["size A", "size B", "same size", "same hash", "same name"] \
+    extra = ["size A", "size B", "same size", "same name", "same hash"] \
         if compare else []
 
     def _compare(g, a: Path, b: Path) -> dict:
@@ -82,9 +87,9 @@ def duplicate_rows(groups, full_paths: bool = False,
             "size A": human_size(size_a) if size_a is not None else "?",
             "size B": human_size(size_b) if size_b is not None else "?",
             "same size": same_size,
+            "same name": a.name == b.name,
             "same hash": bool(same_size and hash_a is not None
                               and hash_a == hash_b),
-            "same name": a.name == b.name,
         }
 
     def _pairs(g) -> list[tuple[Path, Path]]:
@@ -98,15 +103,16 @@ def duplicate_rows(groups, full_paths: bool = False,
              if full_paths else
              {"folder": str(g.folder), "keep": a.name,
               "duplicate": b.name}),
-          "size": human_size(g.size), "copies": g.copies,
+          **({} if compare else {"size": human_size(g.size)}),
+          "copies": g.copies,
           "md5": (g.md5 or "")[:12], "_path": str(b),
           **({"_path2": str(a)} if full_paths else {}),
           **(_compare(g, a, b) if compare else {}),
           **({"_bytes2": g.file_sizes.get(a, g.size)} if full_paths else {}),
           "_bytes": g.file_sizes.get(b, g.size)}
          for g in groups for a, b in _pairs(g)],
-        columns=[*pair, "size", "copies", "md5", "_path",
-                 *(["_path2"] if full_paths else []), *extra,
+        columns=[*pair, *(["size"] if not compare else []), "copies", "md5",
+                 "_path", *(["_path2"] if full_paths else []), *extra,
                  *(["_bytes2"] if full_paths else []), "_bytes"])
 
 
@@ -181,12 +187,21 @@ class _Section(QWidget):
     def _select_matching(self) -> None:
         """Spunta ogni copia (file B) la cui riga ha size E nome uguali —
         un modo rapido per prendere i casi quasi certi senza scorrere
-        l'elenco a mano. Rimpiazza la scelta di prima, come Select all."""
+        l'elenco a mano. Rimpiazza la scelta di prima, come Select all.
+
+        "Stessa size E stesso nome" è un'uguaglianza, quindi è transitiva:
+        se X combacia con Y, un terzo file Z diverso da entrambi non
+        invalida la coppia X/Y — sono comunque la stessa copia. Un file può
+        perciò comparire spuntato anche su una riga che lo confronta con Z
+        (size diverse, non spuntata su quel lato): è corretto, quel file va
+        davvero in quarantena, la riga con Z mostra solo che quella SPECIFICA
+        coppia non è un match — non lo era prima del bottone, e non lo è ora.
+        """
         frame = self.table.model_.frame
         if not len(frame) or "same size" not in frame or "_path" not in frame:
             return
-        matching = frame[frame["same size"] & frame["same name"]]
-        self.table.set_picked(set(matching["_path"]))
+        match = frame["same size"] & frame["same name"]
+        self.table.set_picked(set(frame.loc[match, "_path"]))
 
     def chosen(self) -> tuple[list[Path], int]:
         picked, freed = files_and_bytes(self.table.model_.frame,

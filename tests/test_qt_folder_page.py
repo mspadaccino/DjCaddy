@@ -127,8 +127,24 @@ def test_duplicate_rows_compare_columns_come_last():
               file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"})],
         full_paths=True, compare=True)
     visible = [c for c in table.columns if not c.startswith("_")]
-    assert visible[-5:] == ["size A", "size B", "same size", "same hash",
-                            "same name"]
+    assert visible[-5:] == ["size A", "size B", "same size", "same name",
+                            "same hash"]
+
+
+def test_duplicate_rows_compare_drops_the_redundant_group_size():
+    """"size" è quella (unica) del gruppo — con size A/size B per file non
+    aggiunge niente, e nei gruppi disomogenei è pure fuorviante. Sparisce
+    solo con `compare`: nei livelli A e B resta l'unica size che c'è."""
+    table = duplicate_rows(
+        [group("/x/a.mp3", ["/y/a.mp3"],
+              file_sizes={"/x/a.mp3": 1000, "/y/a.mp3": 2000},
+              file_hashes={"/x/a.mp3": "aaa", "/y/a.mp3": "bbb"})],
+        full_paths=True, compare=True)
+    assert "size" not in table.columns
+
+    level_b = duplicate_rows([group("/x/a.mp3", ["/y/a.mp3"])],
+                             full_paths=True)
+    assert "size" in level_b.columns
 
 
 def test_duplicate_rows_compare_different_sizes_skips_the_hash():
@@ -303,6 +319,44 @@ def test_select_matching_replaces_the_previous_pick(qtbot):
     assert section.chosen() == ([Path("/x/a.mp3")], 1000)
     section._select_matching()
     assert section.chosen() == ([Path("/y/a.mp3")], 1000)   # non più A + B
+
+
+def test_select_matching_picks_a_match_even_if_a_third_file_does_not_match(qtbot):
+    """"Stessa size e nome" è un'uguaglianza, quindi transitiva: se x e y
+    combaciano, un terzo file z diverso da entrambi non invalida la coppia
+    x/y — resta lo stesso file, va comunque scelto. (Bug reale: un fix
+    precedente escludeva l'intero trio in questo caso, lasciando fuori una
+    copia che l'utente si aspettava spuntata.)"""
+    section = _Section(AppState(), "nota")
+    qtbot.addWidget(section)
+    trio = group("/x/song.mp3", ["/y/song.mp3", "/z/song (remaster).mp3"],
+                file_sizes={"/x/song.mp3": 1000, "/y/song.mp3": 1000,
+                           "/z/song (remaster).mp3": 2000},
+                file_hashes={"/x/song.mp3": "aaa", "/y/song.mp3": "aaa",
+                            "/z/song (remaster).mp3": "ccc"})
+    section.set_rows(duplicate_rows([trio], full_paths=True, compare=True),
+                     preselect=False)
+    section._select_matching()
+    assert section.chosen() == ([Path("/y/song.mp3")], 1000)
+
+
+def test_select_matching_picks_a_fully_consistent_trio(qtbot):
+    """Quando OGNI coppia del trio soddisfa il criterio (stesso nome, stessa
+    size su tutte e tre), niente da escludere: entrambe le copie in più si
+    prendono, come farebbe l'utente a mano."""
+    section = _Section(AppState(), "nota")
+    qtbot.addWidget(section)
+    trio = group("/x/song.mp3", ["/y/song.mp3", "/z/song.mp3"],
+                file_sizes={"/x/song.mp3": 1000, "/y/song.mp3": 1000,
+                           "/z/song.mp3": 1000},
+                file_hashes={"/x/song.mp3": "aaa", "/y/song.mp3": "bbb",
+                            "/z/song.mp3": "ccc"})
+    section.set_rows(duplicate_rows([trio], full_paths=True, compare=True),
+                     preselect=False)
+    section._select_matching()
+    chosen, freed = section.chosen()
+    assert set(chosen) == {Path("/y/song.mp3"), Path("/z/song.mp3")}
+    assert freed == 2000
 
 
 # --- il filtro della libreria -----------------------------------------------
