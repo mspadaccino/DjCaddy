@@ -85,6 +85,8 @@ def appended(current: list[str], incoming: list[str]
     La playlist non tiene lo stesso file due volte: chi arriva e c'è già —
     da prima, o perché la stessa mandata lo porta due volte — non entra di
     nuovo e finisce nel resoconto, una volta sola, nell'ordine d'arrivo.
+    Con `current` vuoto è la dedupe di una lista intera: così la usa
+    `replace`, per gli M3U8 che elencano lo stesso file due volte.
     """
     merged = list(current)
     skipped: list[str] = []
@@ -159,20 +161,13 @@ def double_marks(paths: list[str], vectors: np.ndarray | None,
         noted.setdefault(n, (tint, []))[1].append(line)
 
     for g in groups:
+        # Il path identico due volte qui non arriva: append e replace
+        # dedupicano entrambi, quindi le copie sono sempre file diversi.
         keeper = g[0]
         for n in g[1:]:
-            if paths[n] == paths[keeper]:
-                # Lo STESSO file due volte (un m3u8 mandato via replace può
-                # portarcelo): la tinta è per percorso, quindi veste
-                # entrambe le righe — e la spunta le toglie entrambe.
-                # Meglio dirlo che fingere una prima occorrenza pulita.
-                note(n, theme.TWIN_NAME_ROW,
-                     "This exact file is listed more than once — a tick "
-                     "removes every row of it.")
-            else:
-                note(n, theme.TWIN_NAME_ROW,
-                     f"Copy of #{keeper + 1} — same song name once track "
-                     "numbers and (mix) notes are stripped.")
+            note(n, theme.TWIN_NAME_ROW,
+                 f"Copy of #{keeper + 1} — same song name once track "
+                 "numbers and (mix) notes are stripped.")
     for a, b, score in pairs:
         note(b, theme.TWIN_SOUND_ROW,
              f"Sounds nearly identical to #{a + 1} "
@@ -396,19 +391,39 @@ class PlaylistPanel(QWidget):
                                    [frame.at[i, "path"] for i in indices])
         self._push(merged, False)
         if skipped:
-            self._tell_skipped(skipped)
+            self._tell_skipped(
+                skipped, "Already in the playlist",
+                f"{len(skipped)} track(s) already in the playlist — "
+                "not added again.")
 
-    def _tell_skipped(self, skipped: list[str]) -> None:
-        """Il resoconto dei file già in playlist: quali sono e a che riga
-        stanno. DOPO il push apposta, così i numeri detti sono quelli che
-        la tabella mostra dietro la finestra."""
+    def replace(self, indices: list[int]) -> None:
+        """La lista nuova al posto della vecchia — ripulita dei percorsi
+        ripetuti. Le liste di Build a set sono uniche per costruzione, ma
+        un M3U8 salvato altrove può portare lo stesso file due volte (o due
+        righe che il ripiego per nome risolve sullo stesso brano), e una
+        playlist col path doppio qui non si governa: la spunta toglie tutte
+        le sue righe, l'export lo riscriverebbe doppio."""
+        frame = self._lib.frame
+        merged, repeated = appended([],
+                                    [frame.at[i, "path"] for i in indices])
+        self._push(merged, False)
+        if repeated:
+            self._tell_skipped(
+                repeated, "Listed more than once",
+                f"{len(repeated)} track(s) listed more than once — kept "
+                "once, at their first spot.")
+
+    def _tell_skipped(self, skipped: list[str], title: str,
+                      text: str) -> None:
+        """Il resoconto dei file tenuti una volta sola: quali sono e a che
+        riga stanno. DOPO il push apposta, così i numeri detti sono quelli
+        che la tabella mostra dietro la finestra."""
         paths = [self._lib.frame.at[i, "path"] for i in self.indices()]
         lines = [(f"#{paths.index(p) + 1} · " if p in paths else "")
                  + Path(p).name for p in skipped]
         box = QMessageBox(self)
-        box.setWindowTitle("Already in the playlist")
-        box.setText(f"{len(skipped)} track(s) already in the playlist — "
-                    "not added again.")
+        box.setWindowTitle(title)
+        box.setText(text)
         shown = lines[:SKIPPED_SHOWN]
         if len(lines) > SKIPPED_SHOWN:
             shown.append(f"…and {len(lines) - SKIPPED_SHOWN} more — see "
@@ -416,10 +431,6 @@ class PlaylistPanel(QWidget):
             box.setDetailedText("\n".join(lines))
         box.setInformativeText("\n".join(shown))
         box.exec()
-
-    def replace(self, indices: list[int]) -> None:
-        frame = self._lib.frame
-        self._push([frame.at[i, "path"] for i in indices], False)
 
     def _push(self, paths: list[str], keep_chapters: bool) -> None:
         before = list(self._state.playlist)

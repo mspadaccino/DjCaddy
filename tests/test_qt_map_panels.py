@@ -169,17 +169,6 @@ def test_double_marks_leave_the_first_take_of_a_trio_clean():
     assert "2 repeat a song name from an earlier row" in told
 
 
-def test_double_marks_tell_the_exact_repeat_apart():
-    """Lo stesso identico file due volte (un m3u8 via replace può
-    portarcelo): la tinta è per percorso e veste entrambe le righe, e la
-    spunta le toglie entrambe — il tooltip lo dice invece di fingere una
-    prima occorrenza pulita che non c'è."""
-    paths = ["/a/x.mp3", "/b/y.mp3", "/a/x.mp3"]
-    marks, told = double_marks(paths, None)
-    assert set(marks) == {"/a/x.mp3"}
-    assert "every row" in marks["/a/x.mp3"][1]
-
-
 def test_double_marks_stay_silent_on_a_clean_playlist():
     marks, told = double_marks(["/a/one.mp3", "/b/two.mp3"], None)
     assert marks == {}
