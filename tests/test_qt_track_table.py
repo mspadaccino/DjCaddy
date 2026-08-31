@@ -253,6 +253,24 @@ def test_a_plain_click_highlights_but_leaves_the_ticks_alone(qtbot):
     assert table.selectionModel().isRowSelected(2)   # l'evidenziazione c'è
 
 
+def test_playing_row_wears_the_yellow(qtbot):
+    """La riga del brano in ascolto si tinge (BackgroundRole): per percorso,
+    quindi il giallo segue il brano nei riordini e se ne va a fine ascolto."""
+    from qt_app import theme
+
+    table = TrackTable()
+    qtbot.addWidget(table)
+    table.set_tracks(shown(), {})
+    model = table.model_
+    ground = Qt.ItemDataRole.BackgroundRole
+    assert model.data(model.index(1, 2), ground) is None
+    table.set_playing("/x/two.mp3")
+    assert model.data(model.index(1, 2), ground) == theme.PLAYING_ROW
+    assert model.data(model.index(0, 2), ground) is None   # solo la sua
+    table.set_playing(None)
+    assert model.data(model.index(1, 2), ground) is None
+
+
 def test_ticks_survive_a_refresh_and_prune_the_missing(qtbot):
     table = TrackTable(checkable=True)
     qtbot.addWidget(table)

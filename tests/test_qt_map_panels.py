@@ -87,6 +87,63 @@ def test_numbered_rows_keep_the_given_order():
     assert list(table["_path"]) == ["/y/three.mp3", "/x/one.mp3"]
 
 
+# --- il gruppo del lasso: i bottoni mandano le sole righe spuntate ---
+
+def test_group_buttons_send_only_the_ticked_rows(qtbot):
+    """Il lasso arriva già tutto spuntato — è già una scelta — ma da lì in
+    poi comandano le caselle: tolta una spunta, i bottoni lavorano su meno.
+    Prima partiva il gruppo intero comunque, e la colonna ✓ era un
+    ornamento."""
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.set_builder import SetBuilderPanel
+    from qt_app.state import AppState
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=None, frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame))
+    panel = SetBuilderPanel(AppState(), wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    panel.set_choice(None, [0, 1, 2], [0, 1, 2])
+
+    assert panel._group_table.selected_paths() == [
+        "/x/one.mp3", "/x/two.mp3", "/y/three.mp3"]
+
+    heard = []
+    panel.append_playlist.connect(heard.append)
+    panel._group_table.toggle_pick(0)           # via il primo
+    panel._on_plain_append()
+    assert heard == [[1, 2]]
+
+    heard.clear()
+    panel._on_sort_append()                     # ordina, ma i soli spuntati
+    assert len(heard) == 1 and sorted(heard[0]) == [1, 2]
+
+
+def test_unticking_survives_a_knob_touch(qtbot):
+    """Rifare la tabella a ogni giro rimetterebbe le spunte appena tolte: si
+    rifà solo quando il GRUPPO cambia."""
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.set_builder import SetBuilderPanel
+    from qt_app.state import AppState
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=None, frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame))
+    panel = SetBuilderPanel(AppState(), wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    panel.set_choice(None, [0, 1], [0, 1])
+    panel._group_table.toggle_pick(0)
+    panel.set_choice(None, [0, 1], [0, 1])      # stesso gruppo, altro giro
+    assert panel._group_table.selected_paths() == ["/x/two.mp3"]
+    panel.set_choice(None, [0, 2], [0, 2])      # gruppo NUOVO: si riparte
+    assert panel._group_table.selected_paths() == [
+        "/x/one.mp3", "/y/three.mp3"]
+
+
 # --- la ricerca per nome ---
 
 def test_search_picker_list_shows_only_with_matches(qtbot):

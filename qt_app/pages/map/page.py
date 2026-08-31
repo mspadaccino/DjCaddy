@@ -14,8 +14,6 @@ mano. Il seme in alto resta quello che era, col suo cerchio bianco.
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -23,9 +21,9 @@ import numpy as np
 import pandas as pd
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QSplitter, QTabWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout,
+                               QLabel, QLineEdit, QPushButton, QSplitter,
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from core.analysis.dj_export import playlist_positions
 from core.analysis.map_job import load_map_state
@@ -38,6 +36,7 @@ from core.viz.map_figure import (AXIS_FIELDS, AXIS_HELP, COLORED_GENRES,
                                  marker_sizes, overlay_figure)
 from core.viz.track_columns import genre_colors
 from qt_app import theme
+from qt_app.pages.common import reveal_in_files
 from qt_app.state import AppState
 from qt_app.widgets.plotly_view import PlotlyView
 from qt_app.widgets.track_table import TrackTable, track_frame
@@ -66,20 +65,6 @@ def _stamp(directory: Path) -> tuple:
     return tuple(out)
 
 
-def reveal_in_files(path: str) -> None:
-    """Mostra il file nel gestore della piattaforma: Finder, Esplora, o la
-    cartella e basta dove un "seleziona questo" non esiste."""
-    try:
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", "-R", path])
-        elif sys.platform == "win32":
-            subprocess.Popen(["explorer", "/select,", path])
-        else:
-            subprocess.Popen(["xdg-open", str(Path(path).parent)])
-    except OSError:
-        pass
-
-
 def _dim(text: str = "") -> QLabel:
     label = QLabel(text)
     label.setObjectName("dim")
@@ -105,6 +90,7 @@ class QuadrantPane(QWidget):
         self._marks: dict | None = None
         self._places = None
         self._ok = False
+        self._labels = True
 
         names = list(AXIS_FIELDS)
         self._by_x, self._by_y = QComboBox(), QComboBox()
@@ -129,9 +115,11 @@ class QuadrantPane(QWidget):
         box.addWidget(self._info)
         box.addWidget(self._view, stretch=1)
 
-    def set_cloud(self, drawn, top: list[str], frame, visible) -> None:
+    def set_cloud(self, drawn, top: list[str], frame, visible,
+                  labels: bool = True) -> None:
         self._drawn, self._top = drawn, top
         self._frame, self._visible = frame, visible
+        self._labels = labels
         self._redraw()
 
     def update_overlays(self, marks: dict) -> None:
@@ -168,7 +156,8 @@ class QuadrantPane(QWidget):
                   axis_guide(self._visible[columns[1]], columns[1]))
         self._view.set_figure(build_figure(
             self._drawn, self._top, self._places, playlist=[], seed=None,
-            axes=columns, titles=names, guides=guides, dark=True))
+            axes=columns, titles=names, guides=guides, dark=True,
+            labels=self._labels))
         if self._marks is not None:
             self._view.set_overlays(overlay_figure(self._places, self._marks, dark=True))
 
@@ -240,6 +229,13 @@ class MapPage(QWidget):
             "number stay at the smallest size."))
         self._size_by.currentTextChanged.connect(
             lambda _: self._rebuild_cloud())
+        self._labels = QCheckBox("Labels")
+        self._labels.setChecked(True)
+        self._labels.setToolTip(theme.hint(
+            "The genre names written over their clusters (Electronic, "
+            "Reggae, …). Turn them off where the groups overlap and the "
+            "words cover the points."))
+        self._labels.toggled.connect(lambda _: self._rebuild_cloud())
         self._job_told = _dim("")
         self._job_told.setVisible(False)
         settings = QPushButton("⚙️ Map settings")
@@ -251,6 +247,8 @@ class MapPage(QWidget):
         bar.addSpacing(8)
         bar.addWidget(QLabel("Point size"))
         bar.addWidget(self._size_by)
+        bar.addSpacing(8)
+        bar.addWidget(self._labels)
         bar.addStretch(1)
         bar.addWidget(self._job_told)
         bar.addWidget(settings)
@@ -316,7 +314,9 @@ class MapPage(QWidget):
         self._matches_told.setToolTip(theme.hint(
             "▶ plays a track; double-click a row makes it the seed."))
         # Fra i risultati si sceglie con l'orecchio: il ▶ di riga suona il
-        # brano, il doppio clic resta il gesto che lo fa seme.
+        # brano, il doppio clic resta il gesto che lo fa seme. Niente
+        # colonna di spunta: qui non si sceglie un gruppo, si sceglie UN
+        # seme, e il doppio clic basta.
         self._matches = TrackTable()
         self._wire(self._matches, activate_plays=False)
         self._matches.row_activated.connect(self._on_match_picked)
@@ -371,13 +371,16 @@ class MapPage(QWidget):
         self._settings.library_changed.connect(self._reload)
 
     def _wire(self, table: TrackTable, activate_plays: bool = True) -> None:
-        """Le stesse quattro voci su ogni tabella della pagina."""
+        """Le stesse quattro voci su ogni tabella della pagina — e il giallo
+        del brano in ascolto, che segue il lettore ovunque la riga stia."""
         if activate_plays:
             table.row_activated.connect(self._state.play)
         table.play_requested.connect(self._state.play)
         table.seed_requested.connect(self._seed_by_path)
         table.add_requested.connect(self._add_paths)
         table.reveal_requested.connect(reveal_in_files)
+        table.set_playing(self._state.now_playing)
+        self._state.now_playing_changed.connect(table.set_playing)
 
     # ------------------------------------------------------------------
     # caricamento e ricarica
@@ -489,12 +492,14 @@ class MapPage(QWidget):
 
         coords = self._lib.store.coords[:self._lib.placed]
         self._map.set_figure(build_figure(drawn, self._top, coords,
-                                          playlist=[], seed=None, dark=True))
+                                          playlist=[], seed=None, dark=True,
+                                          labels=self._labels.isChecked()))
         self._map.set_overlays(overlay_figure(coords, marks, dark=True))
         self._refresh_caption()
 
         if self._views.currentWidget() is self._quad:
-            self._quad.set_cloud(drawn, self._top, frame, visible)
+            self._quad.set_cloud(drawn, self._top, frame, visible,
+                                 labels=self._labels.isChecked())
             self._quad.update_overlays(marks)
             self._quad_dirty = False
         else:
@@ -644,7 +649,8 @@ class MapPage(QWidget):
         if (self._views.currentWidget() is self._quad and self._quad_dirty
                 and self._lib is not None and self._drawn is not None):
             self._quad.set_cloud(self._drawn, self._top, self._lib.frame,
-                                 self._visible)
+                                 self._visible,
+                                 labels=self._labels.isChecked())
             self._quad.update_overlays(self._marks())
             self._quad_dirty = False
 

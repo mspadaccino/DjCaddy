@@ -162,6 +162,7 @@ class SetBuilderPanel(QWidget):
         self._pool: np.ndarray = np.empty(0, dtype=int)
         self._seed: int | None = None
         self._selected: list[int] = []
+        self._group_shown: list[int] | None = None
         self._candidates: list[int] = []
         self._asked_mixes: str | None = None
         self._asked_alike: str | None = None
@@ -231,8 +232,11 @@ class SetBuilderPanel(QWidget):
         gbox = QVBoxLayout(group)
         self._group_told = QLabel("")
         gbox.addWidget(self._group_told)
-        self._group_table = TrackTable()
+        self._group_table = TrackTable(checkable=True)
         self._wire(self._group_table)
+        # I bottoni seguono le spunte: se ne togli una, lavorano su meno.
+        self._group_table.selection_paths_changed.connect(
+            lambda _: self._refresh_group_buttons())
         gbox.addWidget(self._group_table, stretch=1)
         row = QHBoxLayout()
         self._sort_append = QPushButton("✨ Magic sort and append")
@@ -245,8 +249,7 @@ class SetBuilderPanel(QWidget):
             "playlist already holds."))
         self._sort_append.clicked.connect(self._on_sort_append)
         self._plain_append = QPushButton("➕ Append them, unsorted")
-        self._plain_append.clicked.connect(
-            lambda: self.append_playlist.emit(list(self._selected)))
+        self._plain_append.clicked.connect(self._on_plain_append)
         self._sort_new = QPushButton("↺ Sort as a new playlist")
         self._sort_new.setToolTip("Starts over: what is in the playlist now "
                                   "is dropped.")
@@ -360,7 +363,7 @@ class SetBuilderPanel(QWidget):
         gbox = QVBoxLayout(going)
         self._chain_told = QLabel("")
         gbox.addWidget(self._chain_told)
-        self._chain_table = TrackTable(reorderable=True)
+        self._chain_table = TrackTable(reorderable=True, checkable=True)
         self._wire(self._chain_table)
         self._chain_table.model_.order_changed.connect(self._on_chain_reorder)
         gbox.addWidget(self._chain_table, stretch=3)
@@ -424,6 +427,7 @@ class SetBuilderPanel(QWidget):
         """La libreria nuova (o ricaricata). La catena tiene i percorsi,
         quindi sopravvive da sé: i brani spariti cadono fuori dal walk."""
         self._lib = lib
+        self._group_shown = None    # il frame è nuovo: la tabella va rifatta
         self._apply_weights()
         self._refresh_all()
 
@@ -496,15 +500,19 @@ class SetBuilderPanel(QWidget):
         if self._selected:
             self._quick.setCurrentIndex(1)
             self._retitle(0, len(self._selected))
-            frame, common = self._lib.frame, self._lib.common
-            self._group_told.setText(
-                f"<b>{len(self._selected)} track(s)</b> selected.")
-            shown = numbered_rows(frame, self._selected, common)
-            self._group_table.set_tracks(
-                shown, genre_colors(frame, shown["genres"], dark=True))
-            few = len(self._selected) < 2
-            self._sort_append.setDisabled(few)
-            self._sort_new.setDisabled(few or not self._state.playlist)
+            # La tabella si rifà solo quando il GRUPPO cambia: rifarla a
+            # ogni giro (un peso toccato, una scelta altrove) rimetterebbe
+            # la spunta alle righe che l'utente ha appena tolto.
+            if self._selected != self._group_shown:
+                frame, common = self._lib.frame, self._lib.common
+                shown = numbered_rows(frame, self._selected, common)
+                self._group_table.set_tracks(
+                    shown, genre_colors(frame, shown["genres"], dark=True))
+                # Tutte spuntate in partenza: il lasso È già una scelta —
+                # da qui si toglie chi non convince, non si rimette tutto.
+                self._group_table.set_all_picked(True)
+                self._group_shown = list(self._selected)
+            self._refresh_group_buttons()
             self._tell_rings()
             return
         if self._seed is None:
@@ -636,13 +644,40 @@ class SetBuilderPanel(QWidget):
         at_path = self._lib.at_path
         return [at_path[p] for p in self._state.playlist if p in at_path]
 
+    def _group_picks(self) -> list[int]:
+        """Le righe SPUNTATE del gruppo, nell'ordine della tabella: sono le
+        sole che i tre bottoni mandano — prima partiva il gruppo intero,
+        spunte o no, e la colonna ✓ era un ornamento."""
+        at_path = self._lib.at_path
+        return [at_path[p] for p in self._group_table.selected_paths()
+                if p in at_path]
+
+    def _refresh_group_buttons(self) -> None:
+        if self._lib is None:
+            return
+        ticked = len(self._group_table.selected_paths())
+        self._group_told.setText(
+            f"<b>{len(self._selected)} track(s)</b> selected — "
+            f"{ticked} ticked.")
+        self._plain_append.setDisabled(ticked < 1)
+        self._sort_append.setDisabled(ticked < 2)
+        self._sort_new.setDisabled(ticked < 2 or not self._state.playlist)
+
     def _on_sort_append(self) -> None:
-        order = sorted_after(self._lib.cost, self._playlist_indices(),
-                             self._selected)
-        self.append_playlist.emit(order)
+        wanted = self._group_picks()
+        if len(wanted) >= 2:
+            self.append_playlist.emit(sorted_after(
+                self._lib.cost, self._playlist_indices(), wanted))
+
+    def _on_plain_append(self) -> None:
+        wanted = self._group_picks()
+        if wanted:
+            self.append_playlist.emit(wanted)
 
     def _on_sort_new(self) -> None:
-        self.replace_playlist.emit(magic_sort(self._lib.cost, self._selected))
+        wanted = self._group_picks()
+        if len(wanted) >= 2:
+            self.replace_playlist.emit(magic_sort(self._lib.cost, wanted))
 
     def _add_rows(self, table: TrackTable) -> None:
         at_path = self._lib.at_path
