@@ -94,11 +94,24 @@ class SplashScreen(QWidget):
     HEIGHT = 520
 
     def __init__(self, status_text: str, parent=None) -> None:
-        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
+        # StaysOnTop: senza, una finestra frameless nata da terminale può
+        # aprirsi dietro chi l'ha lanciata, senza rubargli il fuoco — e
+        # sparire dietro sembra, da fuori, non essere mai apparsa.
+        flags = (Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
+                | Qt.WindowType.WindowStaysOnTopHint)
         super().__init__(parent, flags)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setFixedSize(self.WIDTH, self.HEIGHT)
         self._status_text = status_text
+
+        # Costruiti una volta sola: risolvere una famiglia mancante (Inter
+        # non è installato ovunque) costa più di un QFont vuoto, e qui
+        # tocca farlo 30 volte al secondo se non si tiene la risposta.
+        self._wordmark_font = QFont("Inter", 40)
+        self._wordmark_font.setWeight(QFont.Weight.DemiBold)
+        self._wordmark_font.setLetterSpacing(
+            QFont.SpacingType.PercentageSpacing, 96.5)
+        self._status_font = QFont("Menlo", 11)
 
         self._clock = QElapsedTimer()
         self._clock.start()
@@ -191,12 +204,8 @@ class SplashScreen(QWidget):
         if opacity <= 0:
             return
         dy = _kf(t, _FADE_TRANSLATE)
-        font = QFont("Inter", 40)
-        font.setWeight(QFont.Weight.DemiBold)
-        font.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 96.5)
-        painter.setFont(font)
+        painter.setFont(self._wordmark_font)
         y = self._content_top() + 184 + 26 + dy
-        rect = QRectF(0, y, self.WIDTH, 44)
 
         metrics = painter.fontMetrics()
         dj_w = metrics.horizontalAdvance("Dj")
@@ -237,8 +246,7 @@ class SplashScreen(QWidget):
         opacity = _kf(t, _FADE_OPACITY)
         if opacity <= 0:
             return
-        font = QFont("Menlo", 11)
-        painter.setFont(font)
+        painter.setFont(self._status_font)
         painter.setOpacity(opacity)
         painter.setPen(QColor("#808495"))
         rect = QRectF(0, self.HEIGHT - 22 - 16, self.WIDTH, 16)

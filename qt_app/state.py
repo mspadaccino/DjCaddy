@@ -29,6 +29,7 @@ class AppState(QObject):
     selection_changed = Signal(list)       # list[str]
     playlist_changed = Signal(list)        # list[str]
     now_playing_changed = Signal(object)   # str | None
+    analysis_running_changed = Signal(bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -36,6 +37,7 @@ class AppState(QObject):
         self.selection: list[str] = []
         self.playlist: list[str] = []
         self.now_playing: str | None = None
+        self._running_jobs: set[str] = set()
         self._queue: list[str] = []   # quello che resta da suonare in fila
 
     # --- seed e selezione ---
@@ -106,3 +108,17 @@ class AppState(QObject):
             self.now_playing_changed.emit(self.now_playing)
         else:
             self.stop()
+
+    # --- job in corso (mappa, tag): fa pulsare il marchio in home ---
+    @property
+    def analysis_running(self) -> bool:
+        return bool(self._running_jobs)
+
+    def set_job_running(self, name: str, running: bool) -> None:
+        was_running = self.analysis_running
+        if running:
+            self._running_jobs.add(name)
+        else:
+            self._running_jobs.discard(name)
+        if self.analysis_running != was_running:
+            self.analysis_running_changed.emit(self.analysis_running)

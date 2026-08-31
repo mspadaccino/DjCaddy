@@ -121,11 +121,13 @@ def main() -> int:
     # Copre l'apertura della mappa: gira in loop finché il caricamento
     # reale non finisce, non a fine ciclo — così la finestra non appare
     # vuota sui numeri grossi (90.000 tracce non si leggono all'istante).
-    track_count = f"{_known_track_count():,}".replace(",", ".")
-    splash = SplashScreen(f"costruzione della mappa · {track_count} brani")
+    track_count = f"{_known_track_count():,}"
+    splash = SplashScreen(f"building the map · {track_count} tracks")
     splash.move(available.x() + (available.width() - splash.WIDTH) // 2,
                available.y() + (available.height() - splash.HEIGHT) // 2)
     splash.show()
+    splash.raise_()
+    splash.activateWindow()
 
     def _reveal() -> None:
         splash.close()
