@@ -144,6 +144,38 @@ def test_unticking_survives_a_knob_touch(qtbot):
         "/x/one.mp3", "/y/three.mp3"]
 
 
+def test_every_pickable_list_can_be_taken_or_cleared_in_one_gesture(qtbot):
+    """Select all / none sulle tre tabelle a spunte di Build a set: le liste
+    arrivano a venti righe, e prenderle tutte non è un gesto da fare riga
+    per riga."""
+    from PySide6.QtWidgets import QPushButton
+
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.set_builder import SetBuilderPanel
+    from qt_app.state import AppState
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=None, frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame))
+    panel = SetBuilderPanel(AppState(), wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+
+    labels = [b.text() for b in panel.findChildren(QPushButton)]
+    assert labels.count("Select all") == 3      # gruppo, Quick List, Sounds
+    assert labels.count("Select none") == 3
+
+    panel.set_choice(None, [0, 1, 2], [0, 1, 2])
+    for table in (panel._group_table, panel._mixes_table,
+                  panel._alike_table):
+        table.set_tracks(numbered_rows(frame, [0, 1, 2], common={}))
+        table.set_all_picked(True)
+        assert len(table.selected_paths()) == 3
+        table.set_all_picked(False)
+        assert table.selected_paths() == []
+
+
 # --- la ricerca per nome ---
 
 def test_search_picker_list_shows_only_with_matches(qtbot):

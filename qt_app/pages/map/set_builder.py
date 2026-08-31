@@ -219,6 +219,27 @@ class SetBuilderPanel(QWidget):
         into.addWidget(spin)
         return spin
 
+    def _pick_row(self, table: TrackTable) -> QWidget:
+        """I due bottoni della scelta in blocco, sopra una tabella a spunte.
+
+        Le liste qui arrivano a venti righe e più: prenderle tutte, o
+        ripulire per ricominciare, non è un gesto da fare riga per riga.
+        Riga a sé e non in fondo insieme agli altri bottoni, perché quelli
+        AGISCONO sulla scelta mentre questi la fanno — e perché quattro
+        bottoni in fila non ci stanno nella colonna di destra.
+        """
+        pick_all = QPushButton("Select all")
+        pick_all.clicked.connect(lambda: table.set_all_picked(True))
+        pick_none = QPushButton("Select none")
+        pick_none.clicked.connect(lambda: table.set_all_picked(False))
+        row = QWidget()
+        box = QHBoxLayout(row)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(pick_all)
+        box.addWidget(pick_none)
+        box.addStretch(1)
+        return row
+
     def _build_quicklist(self) -> QWidget:
         self._quick = QStackedWidget()
 
@@ -237,6 +258,7 @@ class SetBuilderPanel(QWidget):
         # I bottoni seguono le spunte: se ne togli una, lavorano su meno.
         self._group_table.selection_paths_changed.connect(
             lambda _: self._refresh_group_buttons())
+        gbox.addWidget(self._pick_row(self._group_table))
         gbox.addWidget(self._group_table, stretch=1)
         row = QHBoxLayout()
         self._sort_append = QPushButton("✨ Magic sort and append")
@@ -277,6 +299,7 @@ class SetBuilderPanel(QWidget):
         self._mixes_table = TrackTable(checkable=True)
         self._mixes_table.setToolTip(mixes_why)
         self._wire(self._mixes_table)
+        sbox.addWidget(self._pick_row(self._mixes_table))
         sbox.addWidget(self._mixes_table, stretch=1)
         self._mixes_add = QPushButton("➕ Add selected to the playlist")
         self._mixes_add.clicked.connect(
@@ -319,6 +342,7 @@ class SetBuilderPanel(QWidget):
         self._alike_table = TrackTable(checkable=True)
         self._alike_table.setToolTip(alike_why)
         self._wire(self._alike_table)
+        sbox.addWidget(self._pick_row(self._alike_table))
         sbox.addWidget(self._alike_table, stretch=1)
         self._alike_add = QPushButton("➕ Add selected to the playlist")
         self._alike_add.clicked.connect(
