@@ -256,8 +256,18 @@ def write_tags(filepath: Path, tags: TrackTags, settings: TagSettings) -> list[s
     raise ValueError(f"Formato non gestito: {suffix}")
 
 
-def _skip_genre(existing: bool, settings: TagSettings) -> bool:
-    return existing and not settings.overwrite
+def _skip_genre(values, settings: TagSettings) -> bool:
+    """Se il campo del file va lasciato in pace.
+
+    `values` è il contenuto corrente del campo, così com'è nel file: "già
+    scritto" vale solo se contiene del TESTO — `_first`, la stessa regola
+    con cui `read_coverage` decide cosa manca. Un frame o una chiave
+    presenti ma vuoti sono la versione taggata del nulla: la copertura li
+    dà per mancanti, e se qui contassero come scritti il brano tornerebbe
+    in coda a ogni giro senza mai ricevere il genere (successo davvero: un
+    TCON con text=[] teneva un file in coda per sempre).
+    """
+    return _first(values) is not None and not settings.overwrite
 
 
 def _write_vorbis(filepath: Path, values: TagValues, settings: TagSettings) -> list[str]:
@@ -265,12 +275,12 @@ def _write_vorbis(filepath: Path, values: TagValues, settings: TagSettings) -> l
 
     audio = mutagen.File(filepath)
     written = []
-    if values.genre and not _skip_genre("GENRE" in audio, settings):
+    if values.genre and not _skip_genre(audio.get("GENRE"), settings):
         audio["GENRE"] = values.genre
         written.append(f"GENRE={values.genre}")
         if values.genre_confidence:
             audio["ESSENTIA_GENRE"] = values.genre_confidence
-    if values.mood and not _skip_genre("MOOD" in audio, settings):
+    if values.mood and not _skip_genre(audio.get("MOOD"), settings):
         audio["MOOD"] = values.mood
         written.append(f"MOOD={values.mood}")
         if values.mood_confidence:
@@ -291,7 +301,8 @@ def _write_id3(filepath: Path, values: TagValues, settings: TagSettings) -> list
     except ID3NoHeaderError:
         tags = ID3()
     written = []
-    if values.genre and not _skip_genre(bool(tags.getall("TCON")), settings):
+    if values.genre and not _skip_genre(
+            [f.text for f in tags.getall("TCON")], settings):
         tags.delall("TCON")
         tags.add(TCON(encoding=3, text=values.genre))
         written.append(f"TCON={values.genre}")
@@ -326,7 +337,7 @@ def _write_mp4(filepath: Path, values: TagValues, settings: TagSettings) -> list
         audio.add_tags()
     freeform = lambda s: [MP4FreeForm(s.encode("utf-8"), dataformat=AtomDataType.UTF8)]
     written = []
-    if values.genre and not _skip_genre("\xa9gen" in audio.tags, settings):
+    if values.genre and not _skip_genre(audio.tags.get("\xa9gen"), settings):
         audio["\xa9gen"] = [values.genre]
         written.append(f"genre={values.genre}")
         if values.genre_confidence:
@@ -348,7 +359,7 @@ def _write_asf(filepath: Path, values: TagValues, settings: TagSettings) -> list
 
     audio = ASF(filepath)
     written = []
-    if values.genre and not _skip_genre("WM/Genre" in audio, settings):
+    if values.genre and not _skip_genre(audio.get("WM/Genre"), settings):
         audio["WM/Genre"] = values.genre
         written.append(f"WM/Genre={values.genre}")
         if values.genre_confidence:
@@ -374,7 +385,7 @@ def _write_apev2(filepath: Path, values: TagValues, settings: TagSettings) -> li
     if audio.tags is None:
         audio.add_tags()
     written = []
-    if values.genre and not _skip_genre("Genre" in audio.tags, settings):
+    if values.genre and not _skip_genre(audio.tags.get("Genre"), settings):
         audio.tags["Genre"] = values.genre
         written.append(f"Genre={values.genre}")
         if values.genre_confidence:

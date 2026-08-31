@@ -187,6 +187,108 @@ def test_write_tags_nothing_to_write_is_a_no_op(tmp_path):
     assert write_tags(target, TrackTags(), TagSettings()) == []
 
 
+# --- un campo vuoto non è un campo scritto ----------------------------------
+
+# File sintetici, costruiti byte per byte: niente fixture col copyright, i
+# test girano ovunque. L'mp3 è una manciata di frame MPEG di zeri; il flac è
+# "fLaC" più uno STREAMINFO plausibile — mutagen valida i metadati, non
+# l'audio.
+
+_MPEG_FRAME = b"\xff\xfb\x90\x00" + b"\x00" * 413   # MPEG-1 L3, 128k/44.1
+
+
+def _empty_tcon_blob() -> bytes:
+    """Un ID3v2.3 con un TCON presente ma vuoto (payload: encoding + NUL).
+
+    È lo stato trovato su un file reale — mutagen lo legge come
+    `TCON(text=[])` ma non sa riscriverlo (al save lo scarta), quindi lo si
+    costruisce a mano. Era il caso che teneva un brano in coda per sempre:
+    "già scritto" per il salvataggio, "mancante" per la copertura.
+    """
+    tcon = b"TCON" + (2).to_bytes(4, "big") + b"\x00\x00" + b"\x00\x00"
+    size = len(tcon)
+    synchsafe = bytes([(size >> 21) & 0x7F, (size >> 14) & 0x7F,
+                       (size >> 7) & 0x7F, size & 0x7F])
+    return b"ID3\x03\x00\x00" + synchsafe + tcon
+
+
+def _fake_flac(target) -> None:
+    import struct
+
+    info = struct.pack(">HH", 4096, 4096) + bytes(3) + bytes(3)
+    bits = (44100 << 44) | (1 << 41) | (15 << 36) | 44100
+    info += bits.to_bytes(8, "big") + bytes(16)
+    target.write_bytes(b"fLaC" + bytes([0x80])
+                       + len(info).to_bytes(3, "big") + info)
+
+
+def test_skip_genre_wants_text_not_a_presence():
+    """"Già scritto" vale solo se c'è del TESTO — la stessa regola con cui
+    `read_coverage` decide cosa manca. Un frame vuoto che contasse come
+    scritto rimetterebbe il brano in coda a ogni giro, senza mai riempirlo."""
+    from core.analysis.essentia_tags import _skip_genre
+
+    keep = TagSettings(overwrite=False)
+    for empty in (None, [], [[]], [""], [" "], [[""]]):
+        assert not _skip_genre(empty, keep)
+    assert _skip_genre(["Rock"], keep)
+    assert _skip_genre([["Rock"]], keep)                # ID3: liste di liste
+    assert not _skip_genre(["Rock"], TagSettings(overwrite=True))
+
+
+def test_write_tags_mp3_fills_an_empty_genre_frame(tmp_path):
+    """Il giro intero sul caso reale: la copertura dice "manca", quindi la
+    scrittura DEVE scrivere — anche senza overwrite."""
+    from mutagen.id3 import ID3
+
+    from core.analysis.essentia_tags import read_coverage
+
+    target = tmp_path / "track.mp3"
+    target.write_bytes(_empty_tcon_blob() + _MPEG_FRAME * 4)
+    before = ID3(target).getall("TCON")
+    assert before and before[0].text == []              # lo stato del bug
+    assert read_coverage(target).genre is None          # la lettura: manca
+
+    write_tags(target, _tags(), TagSettings(overwrite=False))
+
+    assert ID3(target).getall("TCON")[0].text[0] == \
+        "Rock - Alternative Rock; Pop"
+    assert read_coverage(target).genre == "Rock - Alternative Rock; Pop"
+
+
+def test_write_tags_mp3_still_respects_a_real_genre(tmp_path):
+    """La guardia sull'altro verso: del testo vero, senza overwrite, resta."""
+    from mutagen.id3 import ID3, TCON
+
+    target = tmp_path / "track.mp3"
+    target.write_bytes(_MPEG_FRAME * 4)
+    tags = ID3()
+    tags.add(TCON(encoding=3, text="Il mio genere"))
+    tags.save(target)
+
+    write_tags(target, _tags(), TagSettings(overwrite=False))
+    assert ID3(target).getall("TCON")[0].text[0] == "Il mio genere"
+
+
+def test_write_tags_flac_fills_an_empty_genre_value(tmp_path):
+    """Stesso principio sui tag Vorbis: GENRE="" non è un genere."""
+    import mutagen
+
+    from core.analysis.essentia_tags import read_coverage
+
+    target = tmp_path / "track.flac"
+    _fake_flac(target)
+    audio = mutagen.File(target)
+    audio["GENRE"] = ""
+    audio.save()
+    assert read_coverage(target).genre is None          # la lettura: manca
+
+    write_tags(target, _tags(), TagSettings(overwrite=False))
+
+    assert mutagen.File(target)["GENRE"][0] == "Rock - Alternative Rock; Pop"
+    assert read_coverage(target).genre == "Rock - Alternative Rock; Pop"
+
+
 def test_write_tags_refuses_an_unknown_format(tmp_path):
     with pytest.raises(ValueError):
         write_tags(tmp_path / "track.xyz", _tags(), TagSettings())
