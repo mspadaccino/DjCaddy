@@ -20,6 +20,7 @@ report.csv
 report.json
 *.report.csv
 *.report.json
+mood_shift.csv
 
 # Sidecar di analisi per-brano (accanto ai file audio)
 *_analysis.json
