@@ -1,12 +1,11 @@
-"""L'SVG del marchio, ricomposto a runtime frame per frame.
+"""L'SVG del marchio, ricomposto a runtime.
 
-Stessa geometria di `assets/djcaddy-mark.svg` (viewBox 100×100), ma con
-anello, barre e cue parametrici: header e splash lo usano per disegnare lo
-stato esatto di un istante — anello che si chiude, barre che crescono, cue
-che scatta — passando i numeri invece di tenere quattro `QPropertyAnimation`
-sincronizzati a mano. Generare la stringa e renderla con `QSvgRenderer` è
-anche il modo più semplice per riottenere l'identica curva "A 38 38 0 1 0"
-dell'anello senza rifare a mano la trigonometria dell'arco.
+Viewbox 100×100, con anello, barre e cue parametrici: l'header lo usa per
+disegnare il marchio (a riposo o che pulsa), passando i numeri invece di
+tenere quattro `QPropertyAnimation` sincronizzati a mano. Generare la
+stringa e renderla con `QSvgRenderer` è anche il modo più semplice per
+ottenere la curva "A 38 38 0 1 0" dell'anello senza rifare a mano la
+trigonometria dell'arco.
 """
 
 from __future__ import annotations

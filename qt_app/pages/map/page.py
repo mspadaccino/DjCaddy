@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout,
                                QLabel, QLineEdit, QPushButton, QSplitter,
                                QTabWidget, QVBoxLayout, QWidget)
@@ -174,10 +174,6 @@ class QuadrantPane(QWidget):
 class MapPage(QWidget):
     """La pagina intera: mappa e quadranti a sinistra, i pannelli a destra."""
 
-    # Emesso una volta sola, al primo caricamento (riuscito o no): lo splash
-    # d'avvio lo aspetta per chiudersi.
-    loaded_once = Signal()
-
     def __init__(self, state: AppState, parent=None) -> None:
         super().__init__(parent)
         self._state = state
@@ -197,7 +193,6 @@ class MapPage(QWidget):
         self._reloading = False
         self._job_was_running = False
         self._store_stamp: tuple | None = None
-        self._ever_loaded = False
 
         self._build()
 
@@ -397,19 +392,12 @@ class MapPage(QWidget):
         self._store_stamp = _stamp(default_store_dir())
         run_in_pool(load_library, self._on_loaded, self._on_load_failed)
 
-    def _signal_first_load(self) -> None:
-        if not self._ever_loaded:
-            self._ever_loaded = True
-            self.loaded_once.emit()
-
     def _on_load_failed(self, trouble: Exception) -> None:
         self._reloading = False
         self._caption.setText(f"The map could not be opened: {trouble}")
-        self._signal_first_load()
 
     def _on_loaded(self, result) -> None:
         self._reloading = False
-        self._signal_first_load()
         store, lib = result
         self._settings.set_store(store)
         if lib is None:

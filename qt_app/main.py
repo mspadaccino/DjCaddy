@@ -10,7 +10,6 @@ altre schede lavorano su un brano che di solito si è scelto lì.
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -26,7 +25,6 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTabWidget,
                                QVBoxLayout, QWidget)
 
-from core.analysis.map_store import default_store_dir
 from qt_app.pages.folder import FolderPage
 from qt_app.pages.map import MapPage
 from qt_app.pages.tag import TagPage
@@ -35,19 +33,8 @@ from qt_app.state import AppState
 from qt_app.theme import apply_theme
 from qt_app.widgets.header import HeaderBar
 from qt_app.widgets.player_dock import PlayerDock
-from qt_app.widgets.splash import SplashScreen
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
-
-
-def _known_track_count() -> int:
-    """Il conteggio brani già noto, letto senza aprire la mappa intera —
-    solo per il testo dello splash mentre il caricamento vero gira."""
-    try:
-        meta = json.loads((default_store_dir() / "meta.json").read_text())
-        return int(meta.get("tracks", 0))
-    except (OSError, ValueError):
-        return 0
 
 
 class MainWindow(QMainWindow):
@@ -117,23 +104,7 @@ def main() -> int:
     tall = min(940, available.bottom() - dock_gap - top)
     window.setGeometry(available.x() + (available.width() - wide) // 2,
                        top, wide, tall)
-
-    # Copre l'apertura della mappa: gira in loop finché il caricamento
-    # reale non finisce, non a fine ciclo — così la finestra non appare
-    # vuota sui numeri grossi (90.000 tracce non si leggono all'istante).
-    track_count = f"{_known_track_count():,}"
-    splash = SplashScreen(f"building the map · {track_count} tracks")
-    splash.move(available.x() + (available.width() - splash.WIDTH) // 2,
-               available.y() + (available.height() - splash.HEIGHT) // 2)
-    splash.show()
-    splash.raise_()
-    splash.activateWindow()
-
-    def _reveal() -> None:
-        splash.close()
-        window.show()
-
-    window.map_page.loaded_once.connect(_reveal)
+    window.show()
     return app.exec()
 
 
