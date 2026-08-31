@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512">
-  <title>DjCaddy — marchio</title>
-  <path d="M81.1 71.8 A 38 38 0 1 0 40.2 86.7" fill="none" stroke="#9184D9" stroke-width="8" stroke-linecap="round"></path>
-  <rect x="25.5" y="42" width="9" height="28" rx="4.5" fill="#FFB37A"></rect>
-  <rect x="35.5" y="32" width="9" height="38" rx="4.5" fill="#FF8F4D"></rect>
-  <rect x="45.5" y="24" width="9" height="46" rx="4.5" fill="#FF6A2B"></rect>
-  <rect x="58.5" y="18" width="9" height="78" rx="4.5" fill="#FF6A2B"></rect>
-  <circle cx="86.5" cy="35" r="5" fill="#3EE5A0"></circle>
-</svg>
