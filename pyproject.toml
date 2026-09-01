@@ -17,11 +17,6 @@ demucs = "^4.0"
 # numba e llvmlite, che sono il grosso, arrivano già con librosa.
 umap-learn = "^0.5"
 
-# Solo per l'app Streamlit: l'app Qt (qt_app/) non ne ha bisogno, e nel
-# parallel run vive nel proprio gruppo cosi' non entra nel bundle desktop.
-[tool.poetry.group.streamlit.dependencies]
-streamlit = "^1.37"
-
 # Solo per l'app Qt (qt_app/): pin ripreso dal prototipo su qt_test
 # (commit 2dd9ff2), che ne conferma la fattibilità dello stack.
 [tool.poetry.group.qt.dependencies]

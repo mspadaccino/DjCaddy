@@ -34,7 +34,5 @@ test_mp3/
 # OS
 .DS_Store
 
-# Streamlit
-.streamlit/secrets.toml
 .djcaddy_tag_job.json
 .djcaddy_map_job.json

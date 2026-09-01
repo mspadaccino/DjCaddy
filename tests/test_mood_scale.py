@@ -66,7 +66,7 @@ def _board():
 
 
 def test_the_board_can_measure_the_mood():
-    from streamlit_app.views.graph_board import HEIGHT_FIELDS, _measured
+    from core.viz.board import HEIGHT_FIELDS, _measured
 
     frame = _board()
     at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
@@ -76,7 +76,7 @@ def test_the_board_can_measure_the_mood():
 
 
 def test_the_darkest_track_sits_lowest_and_the_brightest_highest():
-    from streamlit_app.views.graph_board import _heights
+    from core.viz.board import _heights
 
     frame = _board()
     at_path = {row["path"]: i for i, row in enumerate(frame.to_dict("records"))}
@@ -85,7 +85,7 @@ def test_the_darkest_track_sits_lowest_and_the_brightest_highest():
 
 
 def test_the_mood_scale_is_read_in_words_not_in_numbers():
-    from streamlit_app.views.graph_board import _ticks
+    from core.viz.board import _ticks
 
     frame = _board()
     ticks = _ticks("mood", {"/a.mp3": -1.0}, frame)

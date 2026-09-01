@@ -1,11 +1,16 @@
 # Piano: Wavecut Desktop (Qt6) in parallel run con Streamlit
 
-Stato al 31/08/2026: **Fasi 0–4 completate e su `main`** — repo ristrutturato
-(`core/` + `streamlit_app/` + `qt_app/`), `core/viz` estratto con snapshot
-test, app Qt con le quattro pagine a parità funzionale, parallel run
-operativo. L'esito sul campo conferma la scommessa: l'app Qt è nettamente
-più performante di Streamlit. **Restano la Fase 5 (packaging) e la Fase 6
-(confronto misurato)**, rimandate a dopo.
+Stato al 02/09/2026: **Fasi 0–4 e 6 completate e su `main` — resta solo la
+Fase 5 (packaging)**. Repo ristrutturato (`core/` + `qt_app/`), `core/viz`
+estratto con snapshot test, app Qt con le quattro pagine a parità
+funzionale. Il progetto nel frattempo si chiama **DjCaddy** (era Wavecut).
+
+La Fase 6 si è chiusa senza il confronto misurato che prevedeva: l'uso
+quotidiano ha già dato il verdetto (l'app Qt è nettamente più performante) e
+Streamlit è stato pensionato il 02/09/2026 — cartella `streamlit_app/`
+rimossa, gruppo poetry tolto, i test ripuntati su `core/viz` e
+`core/analysis` (quelli legati allo stato Streamlit sono morti con lei: il
+lato Qt ha i suoi).
 
 Scostamenti dal piano, in meglio:
 

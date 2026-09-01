@@ -1,9 +1,9 @@
 import pandas as pd
 
-from streamlit_app.views.track_columns import (ENERGY_COLORS, GROOVE_OPTIONS, LEVEL_OPTIONS,
-                                 PALETTE, READING_ORDER, camelot_color,
-                                 emotion_arrow, energy_level, genre_colors,
-                                 groove_pill, reading)
+from core.viz.track_columns import (ENERGY_COLORS, GROOVE_OPTIONS, LEVEL_OPTIONS,
+                                    PALETTE, READING_ORDER, camelot_color,
+                                    emotion_arrow, energy_level, genre_colors,
+                                    groove_pill, reading)
 
 
 def _track(**changes) -> pd.Series:
@@ -77,7 +77,8 @@ def test_a_track_reads_as_pills_and_what_is_missing_stays_empty():
 def test_the_frequent_genres_get_a_colour_and_the_long_tail_gets_grey():
     frame = pd.DataFrame([{"genres": "Electronic - House", "top_genre": "Electronic - House"}] * 3
                          + [{"genres": "Funk / Soul - Disco", "top_genre": "Funk / Soul - Disco"}])
-    colors = genre_colors(frame, [["Electronic - House"], ["Funk / Soul - Disco"]])
+    colors = genre_colors(frame, [["Electronic - House"], ["Funk / Soul - Disco"]],
+                          False)
     assert colors["Electronic - House"] == PALETTE[0]
     assert colors["Funk / Soul - Disco"] == PALETTE[1]
 
@@ -85,7 +86,8 @@ def test_the_frequent_genres_get_a_colour_and_the_long_tail_gets_grey():
     # sorte che si ha sulla mappa.
     crowded = pd.DataFrame([{"genres": f"G{n}", "top_genre": f"G{n}"}
                             for n in range(len(PALETTE) + 3)])
-    many = genre_colors(crowded, [[f"G{n}"] for n in range(len(PALETTE) + 3)])
+    many = genre_colors(crowded, [[f"G{n}"] for n in range(len(PALETTE) + 3)],
+                        False)
     assert many["G0"] in PALETTE
     assert many[f"G{len(PALETTE) + 2}"] not in PALETTE
 
@@ -95,23 +97,15 @@ def test_a_genre_that_only_the_shown_rows_carry_is_still_named():
     # pastiglia sparisce e il nome ricompare per esteso in mezzo alle altre.
     frame = pd.DataFrame([{"genres": "Electronic - House",
                            "top_genre": "Electronic - House"}])
-    colors = genre_colors(frame, [["Electronic - House", "Rock - Prog"]])
+    colors = genre_colors(frame, [["Electronic - House", "Rock - Prog"]],
+                          False)
     assert "Rock - Prog" in colors
 
 
-def test_every_plain_column_carries_its_explanation():
-    """Una colonna che si chiama "sound" o "Δkey" non si spiega da sola, e
-    chi la legge non ha nessun posto dove andare a chiedere."""
-    from streamlit_app.views.track_columns import COLUMN_HELP, read_only
-
-    for name in COLUMN_HELP:
-        assert read_only(name)[name]["help"] == COLUMN_HELP[name]
-
-
 def test_the_columns_the_tables_actually_ask_for_are_all_covered():
-    # I nomi sono quelli che map_analysis e graph_board passano a read_only:
-    # se se ne aggiunge uno senza spiegazione, questo test lo trova.
-    from streamlit_app.views.track_columns import COLUMN_HELP
+    # I nomi sono quelli che le tabelle passano alle spiegazioni: se se ne
+    # aggiunge uno senza spiegazione, questo test lo trova.
+    from core.viz.track_columns import COLUMN_HELP
 
     asked = {"#", "file", "BPM", "folder", "cost", "sound", "bpm cost",
              "key cost", "similarity", "copies", "Δbpm", "Δkey", "Δgroove"}

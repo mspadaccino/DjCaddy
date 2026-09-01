@@ -792,41 +792,6 @@ def test_a_real_sidecar_is_confirmed_by_its_content(tmp_path):
     assert r.walked == 3          # tutte le voci, non solo i "._"
 
 
-def test_selection_rows_keep_the_order_they_are_given():
-    """La tabella della Magic Playlist elenca i brani SELEZIONATI.
-
-    L'ordine non si tocca: da un lasso aperto e' quello in cui la linea
-    incontra i brani, cioe' gia' la scaletta.
-    """
-    import pandas as pd
-
-    from streamlit_app.views.map_analysis import selection_rows
-
-    frame = pd.DataFrame([
-        {"name": "A.mp3", "bpm": 124, "camelot": "8A", "danceability": 0.9,
-         "genres": "House", "moods": "Energetic; Dark",
-         "path": "/x/A.mp3", "folder": "/x"},
-        {"name": "B.mp3", "bpm": 126, "camelot": "9A", "danceability": 0.8,
-         "genres": "Disco", "moods": "Energetic; Happy",
-         "path": "/x/B.mp3", "folder": "/x"},
-        {"name": "C.mp3", "bpm": 128, "camelot": "8B", "danceability": 0.7,
-         "genres": "Italo", "moods": "Energetic; Summer",
-         "path": "/x/C.mp3", "folder": "/x"},
-    ])
-
-    got = selection_rows(frame, [2, 0])
-    assert list(got["file"]) == ["C.mp3", "A.mp3"]
-    assert list(got["#"]) == [1, 2]
-    assert list(got["_path"]) == ["/x/C.mp3", "/x/A.mp3"]
-    # la tonalita' e' una pastiglia, cioe' una lista di una voce sola: e' il
-    # tipo con cui Streamlit disegna un'etichetta colorata
-    assert list(got["key"]) == [["8B"], ["8A"]]
-    # il mood distintivo davanti: Energetic sta su tutti e non separa niente
-    assert list(got["mood"]) == ["Summer · Energetic", "Dark · Energetic"]
-    # un brano solo e' un caso come gli altri, non un caso a parte
-    assert list(selection_rows(frame, [1])["file"]) == ["B.mp3"]
-
-
 def test_song_key_ignores_the_track_number_and_what_is_in_brackets():
     from core.analysis.duplicates import song_key
     same = {song_key(Path(n)) for n in [
