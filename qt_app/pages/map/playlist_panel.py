@@ -18,11 +18,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel,
-                               QMessageBox, QPushButton, QSplitter,
-                               QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
 from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml,
                                      playlist_positions, read_m3u8,
@@ -307,25 +306,38 @@ class PlaylistPanel(QWidget):
 
         self._board = BoardView()
         self._board.value_changed.connect(self._on_board_event)
-        board_box = QWidget()
-        bbox = QVBoxLayout(board_box)
-        bbox.setContentsMargins(0, 0, 0, 0)
-        bbox.setSpacing(4)
-        bbox.addLayout(axis_row)
-        bbox.addWidget(self._board, stretch=1)
 
-        self._split = QSplitter(Qt.Orientation.Vertical)
-        table_box = QWidget()
-        tbox = QVBoxLayout(table_box)
+        # Il Chapter Builder vive nella sua scheda, a fianco della Playlist:
+        # la lavagna prima si spartiva l'altezza con la tabella, qui la ha
+        # tutta per sé.
+        self._chapters_title = QLabel("<b>Chapters</b>")
+        self._chapters_title.setToolTip(chapters_why)
+        self._chapters_empty = _dim(
+            "Nothing in the playlist yet: add tracks in the Playlist tab, "
+            "then come back here to build the chapters.")
+        self._chapters_controls = QWidget()
+        cbox = QVBoxLayout(self._chapters_controls)
+        cbox.setContentsMargins(0, 0, 0, 0)
+        cbox.setSpacing(6)
+        cbox.addLayout(chapters_row)
+        cbox.addLayout(axis_row)
+        cbox.addWidget(self._board, stretch=1)
+
+        self.board_widget = QWidget()
+        bbox = QVBoxLayout(self.board_widget)
+        bbox.setContentsMargins(0, 0, 0, 0)
+        bbox.setSpacing(6)
+        bbox.addWidget(self._chapters_title)
+        bbox.addWidget(self._chapters_empty)
+        bbox.addWidget(self._chapters_controls, stretch=1)
+
+        self._playlist_controls = QWidget()
+        tbox = QVBoxLayout(self._playlist_controls)
         tbox.setContentsMargins(0, 0, 0, 0)
         tbox.setSpacing(4)
         tbox.addWidget(self._table, stretch=1)
         tbox.addWidget(self._worst)
         tbox.addWidget(self._doubles)
-        tbox.addLayout(chapters_row)
-        self._split.addWidget(table_box)
-        self._split.addWidget(board_box)
-        self._split.setSizes([420, 340])
 
         adding = QPushButton("🎵 Add tracks…")
         adding.setToolTip("Pick files from the disk: they go in after what "
@@ -354,7 +366,7 @@ class PlaylistPanel(QWidget):
         box = QVBoxLayout(self)
         box.addLayout(header)
         box.addWidget(self._empty)
-        box.addWidget(self._split, stretch=1)
+        box.addWidget(self._playlist_controls, stretch=1)
         box.addLayout(files_row)
 
     # ------------------------------------------------------------------
@@ -467,7 +479,9 @@ class PlaylistPanel(QWidget):
         playlist = self.indices()
         has = bool(playlist)
         self._empty.setVisible(not has)
-        self._split.setVisible(has)
+        self._playlist_controls.setVisible(has)
+        self._chapters_empty.setVisible(not has)
+        self._chapters_controls.setVisible(has)
         for button in (self._play_all, self._sort, self._drop, self._reset,
                        self._save_m3u8, self._save_xml):
             button.setDisabled(not has)
