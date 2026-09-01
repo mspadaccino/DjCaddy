@@ -131,19 +131,35 @@ QThreadPool con segnali di progresso. Attenzione: in `core` ci sono chiamate
 **solo-macOS** (`caffeinate`, `osascript`/Terminal.app, `ps`, Finder) da
 mettere dietro un check di piattaforma con equivalenti o no-op su Windows.
 
-### Packaging: PyInstaller, due profili — SCELTO
+### Packaging: PyInstaller, UN bundle autonomo in tutto — SCELTO (rivisto il 02/09/2026)
 
 Build per piattaforma sulla piattaforma stessa (no cross-compile): `.app` +
 DMG su macOS, `.exe` + installer (Inno Setup) su Win11.
 
-Tradeoff dimensioni, da decidere in Fase 5 ma con raccomandazione già ora:
+**Requisito esplicito**: una volta impacchettata, l'app non deve dipendere
+da niente — non da Python, non da poetry, non da un download al primo avvio,
+non da ffmpeg di sistema. Il profilo "viewer" alleggerito, previsto in un
+primo momento, è **abbandonato**: c'è un solo bundle, completo.
 
-- **Bundle "DJ/viewer"** (raccomandato come artefatto di default): mappa,
-  playlist, lavagna, wave review, folder analysis. Esclude demucs (torch,
-  ~2GB) ed essentia-tensorflow, che sono già oggi opzionali a runtime
-  (`available()`); pesa nell'ordine di 700MB–1GB (WebEngine + numba/librosa).
-- **Install completa** (analisi, tagging, costruzione mappa): via poetry sul
-  Mac di lavoro, come oggi. Eventualmente un bundle "full" solo macOS.
+Dentro il bundle ci va quindi tutto:
+
+- le librerie pesanti: torch/demucs, essentia-tensorflow, librosa/numba,
+  umap, pyrekordbox/sqlcipher;
+- i **modelli**: Discogs-EffNet e le teste genere/mood (il contenuto di
+  `MODEL_DIR`), e il **checkpoint Demucs** pre-scaricato — niente rete al
+  primo avvio;
+- **ffmpeg statico** per la decodifica mp3 dell'analisi (la riproduzione è
+  già nativa via QtMultimedia);
+- plotly.min.js e i frontend HTML di `core/viz/frontend`.
+
+Il prezzo è la taglia — nell'ordine di 3–4GB — ed è accettato: è il costo
+dell'autonomia, e un DMG si copia una volta. Fuori dal bundle restano solo i
+DATI dell'utente (`~/.cache/djcaddy/`, i sidecar accanto ai brani), che sono
+suoi e sopravvivono agli aggiornamenti dell'app.
+
+Su Windows vale il vincolo strutturale già noto: essentia non ha wheel, il
+bundle Win11 è completo di tutto **tranne** le funzioni che ne dipendono
+(tagging, costruzione mappa), e le pagine coinvolte lo dicono.
 
 ## Vincolo noto: Essentia non esiste per Windows
 
@@ -360,14 +376,22 @@ nuovi di Fase 4). Come è stata costruita:
   sulla TrackTable (`set_all_picked`), non tabelle ricreate con un contatore
   nella chiave.
 
-### Fase 5 — Packaging
+### Fase 5 — Packaging (bundle unico, autonomo in tutto)
 
-- Spec PyInstaller: dati inclusi (plotly.min.js, frontend HTML, eventuali
-  modelli), esclusioni (torch, tensorflow nel profilo viewer), icona.
+- Spec PyInstaller: dati inclusi (plotly.min.js, frontend HTML, modelli
+  Essentia da `MODEL_DIR`, checkpoint Demucs, ffmpeg statico), icona;
+  nessuna esclusione delle librerie pesanti — il profilo "viewer" non
+  esiste più.
+- Il codice non deve toccare la rete né cercare binari di sistema quando
+  gira impacchettato: i percorsi di modelli e ffmpeg si risolvono dentro il
+  bundle (`sys._MEIPASS` o equivalente), con la copia in `~/.cache` solo
+  per ciò che dev'essere scrivibile.
 - macOS: `.app` + DMG (firma/notarizzazione se serve distribuire fuori);
-  Win11: `.exe` + Inno Setup.
-- Verifica: bundle installato su una macchina/utente pulito, senza Python:
-  apre lo store, mappa e playlist funzionano, il player suona.
+  Win11: `.exe` + Inno Setup, senza il gruppo essentia (vincolo wheel).
+- Verifica di autonomia, su una macchina/utente pulito senza Python e **a
+  rete staccata**: apre lo store, mappa e playlist funzionano, il player
+  suona, l'analisi di un brano nuovo gira fino in fondo (Demucs compreso)
+  e su macOS il tagging parte coi modelli inclusi.
 
 ### Fase 6 — Parallel run e confronto
 
@@ -419,7 +443,7 @@ dedicata: più semplice, interattiva, e con checkpoint naturali.
 | Perf mappa in QtWebEngine sotto le attese | spike in Fase 2 prima di investire; fallback pyqtgraph |
 | Shim Streamlit→QWebChannel per la lavagna più ostico del previsto | provarlo in Fase 2 col frontend vero; piano B: riscrivere la lavagna come widget nativo (perde il riuso, non lo stile) |
 | Essentia assente su Windows | Windows = consumo; analisi sul Mac; messaggi chiari in UI |
-| Bundle enorme | profilo "viewer" senza torch/tensorflow; "full" solo macOS |
+| Bundle enorme | accettato per scelta (autonomia totale): ~3–4GB; attenzione solo a tempi di build e a non includere i DATI utente |
 | Regressioni durante l'estrazione di Fase 1 | snapshot test dei JSON delle figure, prima di toccare |
 | Chiamate solo-macOS in core (`caffeinate`, `osascript`, `ps`) | guard di piattaforma in Fase 3, no-op o equivalenti su Windows |
 
