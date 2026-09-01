@@ -587,7 +587,7 @@ def fill_dock(owner: str = "app") -> None:
 
     track = Path(current)
     if not track.exists():
-        slot.warning(f"Not there any more: {track.name}")
+        slot.warning(f"File not found: {track.name}")
         return
     mime = PLAYABLE.get(track.suffix.lower())
     if mime is None:

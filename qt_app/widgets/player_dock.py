@@ -171,7 +171,7 @@ class PlayerDock(QWidget):
         if not track.exists():
             self._player.stop()
             self._wave.clear()
-            self._name.setText(f"Not there any more: {track.name}")
+            self._name.setText(f"File not found: {track.name}")
             self._clock.setText("0:00 / 0:00")
             return
         self._name.setText(track.name)
