@@ -70,7 +70,7 @@ def _seconds_each(n: int) -> float:
     return SECONDS_PER_TRACK[known]
 
 
-st.title("🏷️ Tag analysis")
+st.title("🏷️ Tag Maker")
 st.caption(
     "Analyze tracks with the Essentia models and write **genre** and **mood** "
     "into the file tags — the mood goes into the default comment field, "

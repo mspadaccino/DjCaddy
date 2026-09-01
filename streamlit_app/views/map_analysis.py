@@ -410,7 +410,7 @@ def render_infos(store: MapStore) -> None:
         st.warning("`essentia` is not importable here, so no track can be "
                    "analyzed. The map itself still opens.")
     if missing_models():
-        st.warning(f"Model files missing from `{MODEL_DIR}` — see Tag analysis.")
+        st.warning(f"Model files missing from `{MODEL_DIR}` — see Tag Maker.")
     if not umap_available():
         st.warning("`umap-learn` is not importable here, so the projection "
                    "cannot be recomputed. `poetry install` brings it in.")

@@ -25,7 +25,7 @@ st.set_page_config(page_title="Wavecut", page_icon="🌊", layout="wide")
 
 navigation = st.navigation([
     st.Page("views/wave_analysis.py", title="Wave analysis", icon="🌊", default=True),
-    st.Page("views/tag_analysis.py", title="Tag analysis", icon="🏷️"),
+    st.Page("views/tag_analysis.py", title="Tag Maker", icon="🏷️"),
     st.Page("views/folder_analysis.py", title="Folder analysis", icon="📁"),
     st.Page("views/map_analysis.py", title="Map", icon="🗺️"),
 ])

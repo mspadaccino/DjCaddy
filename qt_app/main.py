@@ -53,8 +53,8 @@ class MainWindow(QMainWindow):
         self.map_page = MapPage(self.state)
         self.tabs.addTab(self.map_page, "🗺️ Map")
         self.wave_page = WavePage(self.state, self.player)
-        self.tabs.addTab(self.wave_page, "🌊 Cue analysis")
-        self.tabs.addTab(TagPage(self.state), "🏷️ Tag analysis")
+        self.tabs.addTab(self.wave_page, "🌊 Cue Finder")
+        self.tabs.addTab(TagPage(self.state), "🏷️ Tag Maker")
         self.tabs.addTab(FolderPage(self.state), "📁 Folder analysis")
 
         central = QWidget()

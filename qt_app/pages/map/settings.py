@@ -211,7 +211,7 @@ class SettingsDialog(QDialog):
                                if sys.platform == "win32" else "."))
         if available() and missing_models():
             troubles.append(f"Model files missing from {MODEL_DIR} — see "
-                            "Tag analysis.")
+                            "Tag Maker.")
         if not umap_available():
             troubles.append("`umap-learn` is not importable here, so the "
                             "projection cannot be recomputed.")
