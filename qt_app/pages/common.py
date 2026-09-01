@@ -92,7 +92,7 @@ class ConfirmBar(QWidget):
         self._button = QPushButton(button_text)
         self._button.setEnabled(False)
         if primary:
-            self._button.setStyleSheet(theme.primary_button())
+            theme.style(self._button, theme.primary_button)
         self._check.toggled.connect(self._button.setEnabled)
         self._button.clicked.connect(self._on_click)
         row = QHBoxLayout(self)

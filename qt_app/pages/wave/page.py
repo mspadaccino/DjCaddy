@@ -49,9 +49,6 @@ from .cue_table import CueTable, view_rows
 # lavora su un brano per volta — bastano gli ultimi visti.
 CACHED_WAVES = 8
 
-_OK = "#3fbf7f"
-_WARN = "#ffb454"
-
 
 class WavePage(QWidget):
     """Revisione di frasi, vocali e hot cue di un singolo brano."""
@@ -93,8 +90,7 @@ class WavePage(QWidget):
         path_row.addWidget(browse)
 
         self._analyze = QPushButton("Analyze")
-        self._analyze.setStyleSheet(
-            theme.primary_button())
+        theme.style(self._analyze, theme.primary_button)
         self._analyze.clicked.connect(self._on_analyze)
         self._force = QCheckBox("Force analysis if exists")
         self._force.setToolTip("Re-analyze even if a <name>_analysis.json "
@@ -202,7 +198,7 @@ class WavePage(QWidget):
         self._preview_btn.clicked.connect(self._on_preview)
         self._preview_btn.setEnabled(False)
         self._write_btn = QPushButton("Write cues to track")
-        self._write_btn.setStyleSheet(theme.primary_button())
+        theme.style(self._write_btn, theme.primary_button)
         self._write_btn.clicked.connect(self._on_write)
         self._write_btn.setVisible(False)
         self._write_told = dim("")
@@ -297,13 +293,13 @@ class WavePage(QWidget):
 
         self._say(f"Loaded from {Path(self._track['name']).stem}"
                   f"_analysis.json: {self._track['name']}" if from_file
-                  else f"Analyzed: {self._track['name']}", _OK)
+                  else f"Analyzed: {self._track['name']}", theme.OK)
         bpm = self._track["bpm"]
         bpm_txt = f"{bpm:.0f}" if bpm is not None else "N/A"
         self._told.setText(
             f"<b>{self._track['genre']}</b> — {self._track['vibe']} — "
             f"BPM {bpm_txt}"
-            + (f"<br><span style='color:{_WARN}'>Analysis warning: "
+            + (f"<br><span style='color:{theme.WARN}'>Analysis warning: "
                f"{self._track['error']}</span>" if self._track["error"]
                else ""))
         self._told.setVisible(True)
@@ -321,7 +317,7 @@ class WavePage(QWidget):
         for widget in (self._wave, self._caption, self._table):
             widget.setVisible(showable)
         if not showable:
-            self._say("Duration unavailable: player can't be shown.", _WARN)
+            self._say("Duration unavailable: player can't be shown.", theme.WARN)
             return
         self._wave.set_wave([], [], float(self._track["duration"]))
         self._wave.set_position(0.0)
@@ -350,7 +346,7 @@ class WavePage(QWidget):
 
         run_in_pool(_job, self._on_wave_ready,
                     lambda t: self._say(f"The waveform could not be drawn: "
-                                        f"{t}", _WARN))
+                                        f"{t}", theme.WARN))
 
     def _on_wave_ready(self, result) -> None:
         key, path, amp, colors = result
@@ -455,7 +451,7 @@ class WavePage(QWidget):
 
     def _on_bad_start(self) -> None:
         self._say("Formato non valido (atteso mm:ss): valore precedente "
-                  "mantenuto.", _WARN)
+                  "mantenuto.", theme.WARN)
         self._refresh_cues()
 
     def _on_delete_row(self, rid: str) -> None:
@@ -586,7 +582,7 @@ class WavePage(QWidget):
             self._write_btn.setEnabled(True)
             self._write_btn.setVisible(False)
             self._say_write(f"{result.message} Backup of the library: "
-                            f"{result.backup_path}", _OK)
+                            f"{result.backup_path}", theme.OK)
 
         def _failed(trouble: Exception) -> None:
             self._write_btn.setEnabled(True)

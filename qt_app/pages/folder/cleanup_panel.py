@@ -44,8 +44,7 @@ class JunkPanel(QWidget):
         self._sidecars = None
 
         self._find = QPushButton("Find sidecar files")
-        self._find.setStyleSheet(
-            theme.primary_button())
+        theme.style(self._find, theme.primary_button)
         self._find.clicked.connect(self._on_find)
         self._find.setEnabled(False)
         self._told = dim(
@@ -72,7 +71,7 @@ class JunkPanel(QWidget):
         self._numbers.setVisible(False)
 
         self._warn = dim("")
-        self._warn.setStyleSheet("color: #ffb454;")
+        theme.style(self._warn, lambda: f"color: {theme.WARN};")
         self._warn.setVisible(False)
         self._listed = TrackTable(library_menu=False, playable=False)
         self._listed.reveal_requested.connect(reveal_in_files)
@@ -176,8 +175,7 @@ class UnreadablePanel(QWidget):
         self._integrity = None
 
         self._check = QPushButton("Check audio files")
-        self._check.setStyleSheet(
-            theme.primary_button())
+        theme.style(self._check, theme.primary_button)
         self._check.clicked.connect(self._on_check)
         self._check.setEnabled(False)
         self._told = dim("")

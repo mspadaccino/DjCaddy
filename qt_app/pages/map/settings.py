@@ -33,6 +33,7 @@ from core.analysis.map_projection import available as umap_available
 from core.analysis.map_projection import project
 from core.analysis.map_profile import default_workers
 from core.analysis.map_store import MapStore
+from qt_app import theme
 from qt_app.pages.common import spelled
 from qt_app.workers import run_in_pool
 
@@ -86,7 +87,7 @@ class SettingsDialog(QDialog):
         self._infos.setWordWrap(True)
         self._infos.setTextFormat(Qt.TextFormat.RichText)
         self._warnings = _dim("")
-        self._warnings.setStyleSheet("color: #ffb454;")
+        theme.style(self._warnings, lambda: f"color: {theme.WARN};")
 
         # --- la proiezione ---
         self._neighbors = QSpinBox()

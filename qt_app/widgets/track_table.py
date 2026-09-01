@@ -467,6 +467,11 @@ class TrackTable(QTableView):
             self.setDefaultDropAction(Qt.DropAction.MoveAction)
             self.setDragDropOverwriteMode(False)
 
+        # I delegate leggono `theme.` mentre dipingono, quindi al cambio di
+        # tema basta chiedere il pennello di nuovo: le pastiglie e le righe
+        # colorate ripassano dal loro colore di adesso.
+        theme.bus().changed.connect(self.viewport().update)
+
         self.doubleClicked.connect(self._on_double_click)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_menu)

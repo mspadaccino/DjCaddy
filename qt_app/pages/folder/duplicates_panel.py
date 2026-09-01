@@ -231,8 +231,7 @@ class DuplicatesPanel(QWidget):
         self._report = None
 
         self._find = QPushButton("Find duplicates")
-        self._find.setStyleSheet(
-            theme.primary_button())
+        theme.style(self._find, theme.primary_button)
         self._find.clicked.connect(self._on_find)
         self._find.setEnabled(False)
         self._bar = QProgressBar()

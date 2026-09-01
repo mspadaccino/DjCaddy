@@ -198,8 +198,7 @@ class RunPanel(QWidget):
         self.settings_box.workers.valueChanged.connect(
             lambda _: self._refresh_eta())
         self._analyze = QPushButton("Analyze")
-        self._analyze.setStyleSheet(
-            theme.primary_button())
+        theme.style(self._analyze, theme.primary_button)
         self._analyze.clicked.connect(self._on_analyze)
         batch_row = QHBoxLayout()
         batch_row.addWidget(QLabel("How many to analyze now"))
@@ -219,8 +218,7 @@ class RunPanel(QWidget):
         self._results = TrackTable(checkable=True, library_menu=False)
         self._results.setVisible(False)
         self._save = QPushButton("💾 Save tags")
-        self._save.setStyleSheet(
-            theme.primary_button())
+        theme.style(self._save, theme.primary_button)
         self._save.clicked.connect(self._on_save)
         self._save.setVisible(False)
         self._results.selection_paths_changed.connect(
@@ -322,7 +320,7 @@ class RunPanel(QWidget):
         if self._failures:
             listed = "\n".join(f"  {f['file']} — {f['error']}"
                                for f in self._failures[:10])
-            self._trouble.setStyleSheet("color: #ffb454;")
+            self._trouble.setStyleSheet(f"color: {theme.WARN};")
             self._trouble.setText(
                 f"{len(self._failures)} track(s) could not be analyzed:\n"
                 + listed

@@ -99,6 +99,15 @@ class ComponentView(QWebEngineView):
 
         self.load(QUrl.fromLocalFile(
             str(frontend_dir(frontend) / "index.html")))
+        theme.bus().changed.connect(self._on_theme)
+
+    def _on_theme(self) -> None:
+        """Fondo della pagina e payload rimandato col tema nuovo: i due
+        frontend riusati la loro pelle chiara ce l'hanno già — è la stessa
+        che usano in Streamlit — e la scelgono da `dark` negli args."""
+        self.page().setBackgroundColor(QColor(theme.BACKGROUND))
+        if self._payload is not None and "dark" in self._payload:
+            self.set_payload({**self._payload, "dark": theme.DARK})
 
     def set_payload(self, payload: dict) -> None:
         """Consegna (o aggiorna) gli args del componente. Come per la mappa,

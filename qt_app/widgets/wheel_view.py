@@ -12,6 +12,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 
 from core.viz.board import wheel_payload
+from qt_app import theme
 from qt_app.widgets.board_view import ComponentView
 
 
@@ -28,8 +29,11 @@ class WheelView(ComponentView):
         self._seen_at = None
         self.value_changed.connect(self._on_value)
 
-    def set_keys(self, selected: list[str], dark: bool = True) -> None:
-        self.set_payload(wheel_payload(list(selected), dark))
+    def set_keys(self, selected: list[str], dark: bool | None = None) -> None:
+        """Il tema è quello dell'app, se non lo si dice: al cambio la ruota
+        si ridipinge da sé — `ComponentView` rimanda il payload."""
+        self.set_payload(wheel_payload(
+            list(selected), theme.DARK if dark is None else dark))
 
     def _on_value(self, value: dict) -> None:
         # Il click si riconosce dal suo istante, come fa l'adapter

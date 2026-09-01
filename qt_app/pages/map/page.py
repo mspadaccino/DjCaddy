@@ -125,7 +125,8 @@ class QuadrantPane(QWidget):
     def update_overlays(self, marks: dict) -> None:
         self._marks = marks
         if self._ok and self._places is not None:
-            self._view.set_overlays(overlay_figure(self._places, marks, dark=True))
+            self._view.set_overlays(
+                overlay_figure(self._places, marks, dark=theme.DARK))
 
     def _redraw(self) -> None:
         if self._frame is None or self._drawn is None:
@@ -156,10 +157,11 @@ class QuadrantPane(QWidget):
                   axis_guide(self._visible[columns[1]], columns[1]))
         self._view.set_figure(build_figure(
             self._drawn, self._top, self._places, playlist=[], seed=None,
-            axes=columns, titles=names, guides=guides, dark=True,
+            axes=columns, titles=names, guides=guides, dark=theme.DARK,
             labels=self._labels))
         if self._marks is not None:
-            self._view.set_overlays(overlay_figure(self._places, self._marks, dark=True))
+            self._view.set_overlays(overlay_figure(
+                self._places, self._marks, dark=theme.DARK))
 
         # Cosa dice ogni asse — e dove passa la croce — si legge fermandosi
         # col mouse sulla sua manopola: scritto sotto al disegno erano
@@ -254,12 +256,12 @@ class MapPage(QWidget):
         bar.addWidget(settings)
 
         # Le due viste sugli stessi brani.
-        self._map = PlotlyView(background=theme.BACKGROUND)
+        self._map = PlotlyView()
         self._map.point_clicked.connect(self._on_click)
         self._map.points_selected.connect(self._on_selected)
         self._map.deselected.connect(self._on_deselected)
 
-        quad_view = PlotlyView(background=theme.BACKGROUND)
+        quad_view = PlotlyView()
         quad_view.point_clicked.connect(self._on_click)
         quad_view.points_selected.connect(self._on_selected)
         quad_view.deselected.connect(self._on_deselected)
@@ -371,6 +373,12 @@ class MapPage(QWidget):
         self._settings = SettingsDialog(self)
         self._settings.library_changed.connect(self._reload)
 
+        # I colori della figura sono cotti nel JSON che sta nella pagina
+        # web: al cambio di tema la nuvola va rifatta, ed è la stessa
+        # ricostruzione di un filtro che cambia — mappa, contorni e
+        # quadranti in un giro solo.
+        theme.bus().changed.connect(self._rebuild_cloud)
+
     def _wire(self, table: TrackTable, activate_plays: bool = True) -> None:
         """Le stesse quattro voci su ogni tabella della pagina — e il giallo
         del brano in ascolto, che segue il lettore ovunque la riga stia."""
@@ -461,7 +469,7 @@ class MapPage(QWidget):
             self._drawn = None
             self._map.set_figure(build_figure(
                 EMPTY_CLOUD, [], self._lib.store.coords[:self._lib.placed],
-                playlist=[], seed=None, dark=True))
+                playlist=[], seed=None, dark=theme.DARK))
             self._caption.setText("No track matches these filters.")
             self._quad_dirty = True
             return
@@ -493,9 +501,9 @@ class MapPage(QWidget):
 
         coords = self._lib.store.coords[:self._lib.placed]
         self._map.set_figure(build_figure(drawn, self._top, coords,
-                                          playlist=[], seed=None, dark=True,
+                                          playlist=[], seed=None, dark=theme.DARK,
                                           labels=self._labels.isChecked()))
-        self._map.set_overlays(overlay_figure(coords, marks, dark=True))
+        self._map.set_overlays(overlay_figure(coords, marks, dark=theme.DARK))
         self._refresh_caption()
 
         if self._views.currentWidget() is self._quad:
@@ -536,7 +544,7 @@ class MapPage(QWidget):
                 self._rebuild_cloud()
                 return
         coords = self._lib.store.coords[:self._lib.placed]
-        self._map.set_overlays(overlay_figure(coords, marks, dark=True))
+        self._map.set_overlays(overlay_figure(coords, marks, dark=theme.DARK))
         if not self._quad_dirty:
             self._quad.update_overlays(marks)
 
@@ -718,7 +726,7 @@ class MapPage(QWidget):
         rows = frame.loc[found[:SEED_MATCHES_MAX]]
         shown = track_frame(rows, self._lib.common)
         self._matches.set_tracks(
-            shown, genre_colors(frame, shown["genres"], dark=True))
+            shown, genre_colors(frame, shown["genres"], dark=theme.DARK))
         self._matches.setVisible(bool(found))
 
     def _on_match_picked(self, path: str) -> None:

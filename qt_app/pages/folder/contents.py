@@ -68,7 +68,7 @@ class ContentsPanel(QWidget):
         self._told = dim("")
         self._told.setVisible(False)
         self._warn = dim("")
-        self._warn.setStyleSheet("color: #ffb454;")
+        theme.style(self._warn, lambda: f"color: {theme.WARN};")
         self._warn.setVisible(False)
 
         # Due tabelle, una spuntabile e una no: l'audio si guarda e si

@@ -97,7 +97,7 @@ class TagPage(QWidget):
                 "wheels, so tagging cannot run here. Reading tags, the "
                 "breakdown and the job state still work — this machine "
                 "consumes the library, the Mac analyzes it.")
-            self._status.setStyleSheet("color: #ffb454;")
+            theme.style(self._status, lambda: f"color: {theme.WARN};")
 
         self._bar = QProgressBar()
         self._bar.setVisible(False)

@@ -346,7 +346,7 @@
  "SKIN": {
   "light": {
    "paper": "#ffffff",
-   "plot": "#f4f6f9",
+   "plot": "#ffffff",
    "ink": "#1b1f27",
    "other": "#9aa4b0",
    "label": "rgba(27,31,39,0.82)",

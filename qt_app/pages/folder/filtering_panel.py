@@ -91,8 +91,7 @@ class FilteringPanel(QWidget):
         self._reasons: dict[Path, list[str]] = {}
 
         self._read = QPushButton("Read durations")
-        self._read.setStyleSheet(
-            theme.primary_button())
+        theme.style(self._read, theme.primary_button)
         self._read.clicked.connect(self._on_read)
         self._read.setEnabled(False)
         self._bar = QProgressBar()

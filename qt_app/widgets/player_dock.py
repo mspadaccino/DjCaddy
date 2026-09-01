@@ -79,9 +79,9 @@ class PlayerDock(QWidget):
 
     def _build(self) -> None:
         self.setObjectName("player")
-        self.setStyleSheet(
+        theme.style(self, lambda: (
             f"QWidget#player {{ background: {theme.RAISED};"
-            f" border-radius: 8px; }}")
+            f" border-radius: 8px; }}"))
 
         self._toggle = QPushButton(PLAY_GLYPH)
         self._toggle.setFixedSize(36, 36)
@@ -115,9 +115,9 @@ class PlayerDock(QWidget):
         close = QPushButton("✕")
         close.setFlat(True)
         close.setCursor(Qt.CursorShape.PointingHandCursor)
-        close.setStyleSheet(
+        theme.style(close, lambda: (
             f"QPushButton {{ background: transparent; color: {theme.FADED};"
-            f" border: none; }} QPushButton:hover {{ color: {theme.INK}; }}")
+            f" border: none; }} QPushButton:hover {{ color: {theme.INK}; }}"))
         close.clicked.connect(self._state.stop)
 
         row = QHBoxLayout(self)

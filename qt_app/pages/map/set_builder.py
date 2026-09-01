@@ -546,7 +546,7 @@ class SetBuilderPanel(QWidget):
                 frame, common = self._lib.frame, self._lib.common
                 shown = numbered_rows(frame, self._selected, common)
                 self._group_table.set_tracks(
-                    shown, genre_colors(frame, shown["genres"], dark=True))
+                    shown, genre_colors(frame, shown["genres"], dark=theme.DARK))
                 # Tutte spuntate in partenza: il lasso È già una scelta —
                 # da qui si toglie chi non convince, non si rimette tutto.
                 self._group_table.set_all_picked(True)
@@ -608,7 +608,7 @@ class SetBuilderPanel(QWidget):
             "sound", "bpm cost", "key cost", "mood", "genres", "folder",
             "_path"])
         self._mixes_table.set_tracks(
-            shown, genre_colors(frame, shown["genres"], dark=True))
+            shown, genre_colors(frame, shown["genres"], dark=theme.DARK))
         self._mixes_ask.setVisible(False)
         self._mixes_wait.setVisible(False)
         self._mixes_table.setVisible(True)
@@ -664,7 +664,7 @@ class SetBuilderPanel(QWidget):
         shown = pd.DataFrame(listed,
                              columns=["similarity", *READING_ORDER, "_path"])
         self._alike_table.set_tracks(
-            shown, genre_colors(frame, shown["genres"], dark=True))
+            shown, genre_colors(frame, shown["genres"], dark=theme.DARK))
         self._alike_ask.setVisible(False)
         self._alike_wait.setVisible(False)
         self._alike_table.setVisible(True)
@@ -778,7 +778,7 @@ class SetBuilderPanel(QWidget):
                  "folder", "_path"]
         table = table[[c for c in order if c in table.columns]]
         self._chain_table.set_tracks(
-            table, genre_colors(frame, table["genres"], dark=True))
+            table, genre_colors(frame, table["genres"], dark=theme.DARK))
 
         # Il menu della sorgente: l'ultimo arrivato di default, che è da
         # dove si continua nove volte su dieci; cambiarlo serve a ramificare.
@@ -827,7 +827,7 @@ class SetBuilderPanel(QWidget):
                  "genres", "folder", "_path"]
         table = table[[c for c in order if c in table.columns]]
         self._roster_table.set_tracks(
-            table, genre_colors(frame, table["genres"], dark=True))
+            table, genre_colors(frame, table["genres"], dark=theme.DARK))
 
     # --- i gesti della catena ---
     def _chained(self, graph: GraphPlaylist, source: str | None) -> None:

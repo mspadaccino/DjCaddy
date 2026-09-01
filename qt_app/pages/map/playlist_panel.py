@@ -495,7 +495,7 @@ class PlaylistPanel(QWidget):
         ch_lookup = self._chapter_lookup(playlist)
         table = playlist_rows(frame, self._cost, playlist, common, ch_lookup)
         self._table.set_tracks(
-            table, genre_colors(frame, table["genres"], dark=True))
+            table, genre_colors(frame, table["genres"], dark=theme.DARK))
         self._sort.setDisabled(len(playlist) < 3)
 
         # I possibili doppioni, ricalcolati a ogni giro: la playlist è corta
@@ -534,9 +534,9 @@ class PlaylistPanel(QWidget):
         regions = board_chapter_regions(self._chapter_lookup(playlist),
                                         playlist)
         self._board.set_payload({
-            **board_payload(frame, at_path, paths, axis, common, dark=True),
+            **board_payload(frame, at_path, paths, axis, common, dark=theme.DARK),
             "selected": self._picked if self._picked in paths else None,
-            "chapters": regions, "dark": True})
+            "chapters": regions, "dark": theme.DARK})
 
     # ------------------------------------------------------------------
     # i gesti

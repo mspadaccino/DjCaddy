@@ -31,6 +31,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from qt_app import theme
 from qt_app.widgets.webchannel import attach_bridge
 
 
@@ -139,7 +140,7 @@ class PlotlyView(QWebEngineView):
     deselected = Signal()
     rendered = Signal(float)            # ms di Plotly.react, per misurare
 
-    def __init__(self, background: str = "#0e1117", parent=None) -> None:
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
         # La pagina è un file locale che carica un altro file locale: il
         # permesso va detto, di suo QtWebEngine non si fida.
@@ -148,14 +149,24 @@ class PlotlyView(QWebEngineView):
             True)
         # Anche il fondo della pagina: senza, prima che il CSS arrivi c'è
         # un lampo bianco sul tema scuro.
-        self.page().setBackgroundColor(QColor(background))
+        self.page().setBackgroundColor(QColor(theme.BACKGROUND))
         self._ready = False
         self._queued: str | None = None
         self._queued_overlays: str | None = None
         bridge = attach_bridge(self.page())
         bridge.received.connect(self._on_event)
-        self.setHtml(_PAGE.replace("BACKGROUND", background),
+        self.setHtml(_PAGE.replace("BACKGROUND", theme.BACKGROUND),
                      QUrl.fromLocalFile(str(plotly_package_data()) + "/"))
+        theme.bus().changed.connect(self._on_theme)
+
+    def _on_theme(self) -> None:
+        """Il fondo della pagina segue il tema. La FIGURA no: i suoi colori
+        sono cotti nel JSON, e a rifarla è chi l'ha costruita — qui si
+        cambia solo la superficie sotto, perché fra la richiesta e la
+        figura nuova non ci sia un lampo del tema di prima."""
+        self.page().setBackgroundColor(QColor(theme.BACKGROUND))
+        self.page().runJavaScript(
+            f"document.body.style.background = '{theme.BACKGROUND}';")
 
     def set_figure(self, figure) -> None:
         """Mostra (o aggiorna) la figura di base — un oggetto con `to_json`,
