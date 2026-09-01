@@ -167,9 +167,9 @@ AXIS_CENTRES = {"energy": 0.5, "valence_rank": 0.5}
 FLAT_SIZE = 7.0
 MIN_SIZE, MAX_SIZE = 4.0, 15.0
 
-# Due fondi e due inchiostri, uno per tema. Il fondo della mappa è staccato
-# di poco da quello della pagina: quel poco basta a dire dove finisce il
-# testo e comincia il territorio, senza farne un riquadro.
+# Due fondi e due inchiostri, uno per tema. Nel tema scuro il fondo della
+# mappa è LO STESSO della pagina: il riquadro staccato di poco si leggeva
+# come una finestra dentro la finestra, e il territorio non ha bordi.
 SKIN = {
     "light": {"paper": "#ffffff", "plot": "#f4f6f9", "ink": "#1b1f27",
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
@@ -177,7 +177,7 @@ SKIN = {
               "chained": "#f2cc0c", "mixes": "#1f9dd0",
               "alike": "#8a4fd6", "playing": "#d92b2b",
               "pl_selection": "#ff8a1e"},
-    "dark": {"paper": "#0e1117", "plot": "#161a22", "ink": "#eef1f6",
+    "dark": {"paper": "#0e1117", "plot": "#0e1117", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
              "chained": "#ffe94d", "mixes": "#5fd0f5",

@@ -17,9 +17,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-# Da Streamlit scuro: fondo pagina, riquadri, testo. PLOT è il fondo della
-# mappa (SKIN["dark"]["plot"]), staccato di poco dal fondo pagina: quel poco
-# basta a dire dove finisce il testo e comincia il territorio.
+# Da Streamlit scuro: fondo pagina, riquadri, testo. PLOT è il fondo delle
+# tabelle, staccato di poco dal fondo pagina: quel poco basta a dire dove
+# finisce la pagina e comincia l'elenco.
 BACKGROUND = "#0e1117"
 PLOT = "#161a22"
 RAISED = "#262730"
