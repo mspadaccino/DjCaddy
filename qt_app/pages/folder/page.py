@@ -1,4 +1,4 @@
-"""La pagina Folder analysis: cosa c'è in una cartella e cosa è di troppo.
+"""La pagina File Analysis: cosa c'è in una cartella e cosa è di troppo.
 
 Le operazioni restano separate come di là, ognuna col suo bottone: la
 scansione è veloce e si rifà a piacere, duplicati/durate/integrità leggono

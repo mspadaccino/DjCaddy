@@ -27,4 +27,5 @@ if ($null -eq $iscc) {
     Write-Warning "Inno Setup (iscc) non trovato: dist\DjCaddy\ e' pronto, il setup no."
     exit 0
 }
-& $iscc.Source packaging\djcaddy.iss
+$version = (Select-String -Path pyproject.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+& $iscc.Source "/DAppVersion=$version" packaging\djcaddy.iss

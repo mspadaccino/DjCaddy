@@ -20,12 +20,18 @@ Su Windows essentia non ha wheel: si impacchetta con l'ambiente installato
 import os
 import shutil
 import sys
+import tomllib
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
 
 ROOT = Path(SPECPATH).parent
 MACOS = sys.platform == "darwin"
+
+# La versione sta scritta in un posto solo, e quel posto e' pyproject.toml:
+# la leggono anche `build_macos.sh` (per il nome del DMG) e l'installer.
+VERSION = tomllib.loads(
+    (ROOT / "pyproject.toml").read_text())["tool"]["poetry"]["version"]
 
 
 def _required(path: Path, what: str, how: str) -> Path:
@@ -153,8 +159,8 @@ if MACOS:
         info_plist={
             "CFBundleName": "DjCaddy",
             "CFBundleDisplayName": "DjCaddy",
-            "CFBundleShortVersionString": "0.1.0",
-            "CFBundleVersion": "0.1.0",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
             # I brani stanno fuori dalle cartelle dell'app: senza questo,
             # su macOS recenti aprire una libreria dal volume esterno

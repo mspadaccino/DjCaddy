@@ -15,7 +15,11 @@
 ; `SignTool`, che non fa parte di questo script.
 
 #define AppName "DjCaddy"
-#define AppVersion "0.1.0"
+; La versione la passa build_windows.ps1 leggendola da pyproject.toml
+; (`iscc /DAppVersion=...`); il default serve a chi lancia iscc a mano.
+#ifndef AppVersion
+  #define AppVersion "0.1.0"
+#endif
 #define AppPublisher "Maurizio Spadaccino"
 #define AppExe "DjCaddy.exe"
 

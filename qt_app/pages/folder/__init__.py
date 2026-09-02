@@ -1,4 +1,4 @@
-"""La pagina Folder analysis (Fase 4)."""
+"""La pagina File Analysis (Fase 4)."""
 
 from .page import FolderPage
 

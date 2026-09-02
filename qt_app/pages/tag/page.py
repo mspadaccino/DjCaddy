@@ -305,7 +305,7 @@ class TagPage(QWidget):
             self._unreadable_told.setText(
                 f"⚠️ {len(coverage.unreadable)} file(s) whose tags could "
                 "not be read. Not a tagging problem — no reader opens "
-                "these. Folder analysis → Unreadable files deals with "
+                "these. File Analysis → Unreadable files deals with "
                 "them.")
         self._breakdown.set_coverage(readable)
         self._refresh_queue()
