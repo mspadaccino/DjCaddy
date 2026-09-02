@@ -36,6 +36,7 @@ from qt_app.state import AppState
 from qt_app.widgets.track_table import TrackTable
 
 from .library import Library
+from .playlist_panel import double_marks
 
 # Quanti candidati proporre, e a passi di quanto: gli stessi numeri della
 # pagina Streamlit, per le stesse ragioni (una lista più lunga di cento non
@@ -49,6 +50,18 @@ FRONTIER_SIZE = 9
 
 # Oltre questi risultati la ricerca per nome chiede una parola in più.
 SEARCH_MAX = 200
+
+# Lo stesso avviso della Playlist, sulle liste che qui non hanno un
+# «Remove ticked»: dice cosa vestono le tinte, non cosa fare — quello resta
+# a chi guarda (di solito, lasciare la spunta spenta prima di mandare la
+# lista avanti).
+DOUBLES_HINT = theme.hint(
+    "Orange rows: the same song is already elsewhere in this list — same "
+    "name once numbering and (mix) notes are stripped. Violet rows: they "
+    "sound nearly identical to another row here, whatever the names. Only "
+    "the extra copies are tinted, the first occurrence stays clean. Still "
+    "a question, not a verdict — hover a tinted row for its partner and "
+    "listen before deciding.")
 
 WAITING_FOR_THE_BUTTON = ("Nothing built yet — press the button above. The "
                           "list does not open by itself: most clicks on the "
@@ -315,6 +328,10 @@ class SetBuilderPanel(QWidget):
         sbox.addWidget(self._pick_row(self._mixes_table,
                                       reset=self._on_reset_mixes))
         sbox.addWidget(self._mixes_table, stretch=1)
+        self._mixes_doubles = _dim("")
+        self._mixes_doubles.setToolTip(DOUBLES_HINT)
+        self._mixes_doubles.setVisible(False)
+        sbox.addWidget(self._mixes_doubles)
         self._mixes_add = QPushButton("➕ Add selected to the playlist")
         self._mixes_add.clicked.connect(
             lambda: self._add_rows(self._mixes_table))
@@ -359,6 +376,10 @@ class SetBuilderPanel(QWidget):
         sbox.addWidget(self._pick_row(self._alike_table,
                                       reset=self._on_reset_alike))
         sbox.addWidget(self._alike_table, stretch=1)
+        self._alike_doubles = _dim("")
+        self._alike_doubles.setToolTip(DOUBLES_HINT)
+        self._alike_doubles.setVisible(False)
+        sbox.addWidget(self._alike_doubles)
         self._alike_add = QPushButton("➕ Add selected to the playlist")
         self._alike_add.clicked.connect(
             lambda: self._add_rows(self._alike_table))
@@ -407,6 +428,10 @@ class SetBuilderPanel(QWidget):
         self._wire(self._chain_table)
         self._chain_table.model_.order_changed.connect(self._on_chain_reorder)
         gbox.addWidget(self._chain_table, stretch=3)
+        self._chain_doubles = _dim("")
+        self._chain_doubles.setToolTip(DOUBLES_HINT)
+        self._chain_doubles.setVisible(False)
+        gbox.addWidget(self._chain_doubles)
 
         branch = QHBoxLayout()
         branch.addWidget(QLabel("Branch from"))
@@ -610,6 +635,12 @@ class SetBuilderPanel(QWidget):
             "_path"])
         self._mixes_table.set_tracks(
             shown, genre_colors(frame, shown["genres"], dark=theme.DARK))
+        marks, told = double_marks(
+            list(shown["_path"]),
+            self._vectors_for([i for i, _ in picks]))
+        self._mixes_table.set_marks(marks)
+        self._mixes_doubles.setText(told or "")
+        self._mixes_doubles.setVisible(told is not None)
         self._mixes_ask.setVisible(False)
         self._mixes_wait.setVisible(False)
         self._mixes_table.setVisible(True)
@@ -666,6 +697,12 @@ class SetBuilderPanel(QWidget):
                              columns=["similarity", *READING_ORDER, "_path"])
         self._alike_table.set_tracks(
             shown, genre_colors(frame, shown["genres"], dark=theme.DARK))
+        marks, told = double_marks(
+            list(shown["_path"]),
+            self._vectors_for([i for i, _ in rows]))
+        self._alike_table.set_marks(marks)
+        self._alike_doubles.setText(told or "")
+        self._alike_doubles.setVisible(told is not None)
         self._alike_ask.setVisible(False)
         self._alike_wait.setVisible(False)
         self._alike_table.setVisible(True)
@@ -693,6 +730,12 @@ class SetBuilderPanel(QWidget):
                                              k=self._count.value(),
                                              limit=self._lib.placed)]
         self.suggestions_changed.emit(mixes or [], alike or [])
+
+    def _vectors_for(self, indices: list[int]) -> np.ndarray | None:
+        """Gli embedding di questi indici, o None se la libreria non porta
+        uno store — capita nei test, con una libreria fatta a mano."""
+        store = self._lib.store
+        return store.embeddings[indices] if store is not None else None
 
     # --- i gesti del gruppo ---
     def _playlist_indices(self) -> list[int]:
@@ -780,6 +823,13 @@ class SetBuilderPanel(QWidget):
         table = table[[c for c in order if c in table.columns]]
         self._chain_table.set_tracks(
             table, genre_colors(frame, table["genres"], dark=theme.DARK))
+        chain_paths = list(table["_path"])
+        marks, told = double_marks(
+            chain_paths,
+            self._vectors_for([at_path[p] for p in chain_paths]))
+        self._chain_table.set_marks(marks)
+        self._chain_doubles.setText(told or "")
+        self._chain_doubles.setVisible(told is not None)
 
         # Il menu della sorgente: l'ultimo arrivato di default, che è da
         # dove si continua nove volte su dieci; cambiarlo serve a ramificare.
