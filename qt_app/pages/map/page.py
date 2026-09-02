@@ -53,6 +53,10 @@ from .settings import SettingsDialog
 # parola in più, non una lista più lunga.
 SEED_MATCHES_MAX = 50
 
+# I titoli delle due schede col conteggio a fianco — vedi `_retitle_panels`.
+PLAYLIST_TAB_TITLE = "🎵 Playlist"
+FAVOURITES_TAB_TITLE = "★ Favourites"
+
 
 def _stamp(directory: Path) -> tuple:
     """Lo stato dei file della mappa su disco: cambia quando il job scrive."""
@@ -202,11 +206,13 @@ class MapPage(QWidget):
         state.seed_changed.connect(lambda _: self._schedule_choice())
         state.selection_changed.connect(lambda _: self._schedule_choice())
         state.playlist_changed.connect(lambda _: self._schedule_overlays())
+        state.playlist_changed.connect(lambda _: self._retitle_panels())
         state.now_playing_changed.connect(lambda _: self._schedule_overlays())
         # Il ★ del seme segue i tocchi dati altrove (una tabella, un'altra
         # scheda): lo stesso giro di `_refresh_choice` che tiene ▶ e ➕
         # coerenti col seme di adesso.
         state.favourites_changed.connect(lambda _: self._schedule_choice())
+        state.favourites_changed.connect(lambda _: self._retitle_panels())
 
         self._job_timer = QTimer(self)
         self._job_timer.setInterval(2000)
@@ -369,9 +375,10 @@ class MapPage(QWidget):
         self._panels.addTab(self._filters, "🔎 Filters")
         self._panels.addTab(self._builder, "🎛️ Build a set")
         self._panels.addTab(self._playlist.board_widget, "📖 Chapters")
-        self._panels.addTab(self._playlist, "🎵 Playlist")
-        self._panels.addTab(self._favourites, "★ Favourites")
+        self._panels.addTab(self._playlist, PLAYLIST_TAB_TITLE)
+        self._panels.addTab(self._favourites, FAVOURITES_TAB_TITLE)
         self._panels.setCurrentWidget(self._builder)
+        self._retitle_panels()
 
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(left_box)
@@ -408,6 +415,19 @@ class MapPage(QWidget):
         table.set_favourites(set(self._state.favourites))
         self._state.favourites_changed.connect(
             lambda paths: table.set_favourites(set(paths)))
+
+    def _retitle_panels(self) -> None:
+        """Il conteggio sulle due linguette che tengono una lista: si legge
+        da fuori, senza aprire — come già fa `_retitle` di Build a set per
+        le sue tre schede."""
+        self._panels.setTabText(
+            self._panels.indexOf(self._playlist),
+            f"{PLAYLIST_TAB_TITLE} ({len(self._state.playlist)})"
+            if self._state.playlist else PLAYLIST_TAB_TITLE)
+        self._panels.setTabText(
+            self._panels.indexOf(self._favourites),
+            f"{FAVOURITES_TAB_TITLE} ({len(self._state.favourites)})"
+            if self._state.favourites else FAVOURITES_TAB_TITLE)
 
     # ------------------------------------------------------------------
     # caricamento e ricarica
