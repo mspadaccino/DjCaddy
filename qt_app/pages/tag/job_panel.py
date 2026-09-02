@@ -9,7 +9,6 @@ QTimer sul file di stato, come per il job della mappa.
 from __future__ import annotations
 
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -18,6 +17,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QProgressBar, QPushButton,
                                QVBoxLayout, QWidget)
 
 from core.analysis.tag_job import TAG_CLI_PATH, load_state
+from core.bundle import child_command, child_cwd
 from qt_app.pages.common import Metric, dim, spelled
 
 
@@ -126,7 +126,7 @@ class JobPanel(QWidget):
             return
         settings, workers = self._current_settings()
         log = Path(tempfile.gettempdir()) / "djcaddy_tag_job.log"
-        command = [sys.executable, str(TAG_CLI_PATH), str(self._root),
+        command = [*child_command(TAG_CLI_PATH), str(self._root),
                    "--workers", str(workers),
                    "--genre-format", settings.genre_format,
                    "--max-seconds", str(settings.max_seconds)]
@@ -143,6 +143,6 @@ class JobPanel(QWidget):
         with open(log, "w") as out:
             subprocess.Popen(command, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True,
-                             cwd=TAG_CLI_PATH.parent)
+                             cwd=child_cwd())
         self._told.setText(f"Started. Output in {log}.")
         QTimer.singleShot(1500, self._on_tick)

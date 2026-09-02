@@ -26,9 +26,10 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..bundle import model_dir
 from .folder_scan import is_metadata_sidecar
 
-MODEL_DIR = Path(os.path.expanduser("~/essentia_models"))
+MODEL_DIR = model_dir()
 
 EMBEDDING_MODEL = "discogs-effnet-bs64-1.pb"
 GENRE_MODEL = "genre_discogs400-discogs-effnet-1.pb"

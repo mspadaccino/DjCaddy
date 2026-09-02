@@ -26,15 +26,18 @@ import tempfile
 import time
 from pathlib import Path
 
+from ..bundle import resources, state_dir
 from .essentia_tags import find_taggable
 from .map_profile import ProfileSettings, profile_many
 from .map_store import MapStore, default_store_dir
 from .tag_job import JobState, load_state  # noqa: F401  (riesportato per la pagina)
 
-# Radice del repo: core/analysis/map_job.py -> core/analysis -> core -> radice.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+# Radice del repo (dentro il bundle: la cartella dei dati inclusi).
+PROJECT_ROOT = resources()
 
-DEFAULT_MAP_STATE_FILE = PROJECT_ROOT / ".djcaddy_map_job.json"
+# Lo stato si SCRIVE, quindi non sta con il codice ma dove si puo' scrivere:
+# accanto ad esso nel repo, in ~/.cache/djcaddy dentro il bundle.
+DEFAULT_MAP_STATE_FILE = state_dir() / ".djcaddy_map_job.json"
 
 # Percorso di map_cli.py, che resta in root: unica definizione, così chi
 # lancia il job (la pagina Map) non se lo ricalcola per conto suo.

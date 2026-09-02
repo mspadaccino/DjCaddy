@@ -36,3 +36,9 @@ test_mp3/
 
 .djcaddy_tag_job.json
 .djcaddy_map_job.json
+
+# Bundle: PyInstaller lavora qui, e le icone si rigenerano dall'SVG
+build/
+packaging/djcaddy.icns
+packaging/djcaddy.ico
+packaging/djcaddy.iconset/

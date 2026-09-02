@@ -16,8 +16,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Accanto al codice, come faceva lo script originale col suo tracking.
-DEFAULT_TRACKING_FILE = Path(__file__).resolve().parent.parent.parent / ".djcaddy_tag_progress.txt"
+from ..bundle import state_dir
+
+# Accanto al codice, come faceva lo script originale col suo tracking; dentro
+# il bundle, dove si puo' scrivere (~/.cache/djcaddy).
+DEFAULT_TRACKING_FILE = state_dir() / ".djcaddy_tag_progress.txt"
 
 
 @dataclass

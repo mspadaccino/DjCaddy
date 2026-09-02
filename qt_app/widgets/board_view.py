@@ -113,7 +113,11 @@ class ComponentView(QWebEngineView):
         """Consegna (o aggiorna) gli args del componente. Come per la mappa,
         di più payload in attesa vale l'ultimo."""
         self._payload = payload
+        # La guardia serve alla prima consegna: se arriva prima che la pagina
+        # esista, lo shim non c'e' ancora e la chiamata sarebbe solo un errore
+        # in console — il payload lo rimanda comunque `ready` qui sotto.
         self.page().runJavaScript(
+            f"if (window.__djcaddy_render) "
             f"window.__djcaddy_render({json.dumps(payload)})")
 
     def _on_event(self, data: dict) -> None:

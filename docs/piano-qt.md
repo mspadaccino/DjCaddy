@@ -1,9 +1,10 @@
 # Piano: Wavecut Desktop (Qt6) in parallel run con Streamlit
 
-Stato al 02/09/2026: **Fasi 0–4 e 6 completate e su `main` — resta solo la
-Fase 5 (packaging)**. Repo ristrutturato (`core/` + `qt_app/`), `core/viz`
-estratto con snapshot test, app Qt con le quattro pagine a parità
-funzionale. Il progetto nel frattempo si chiama **DjCaddy** (era Wavecut).
+Stato al 02/09/2026: **piano completato — tutte le fasi sono su `main`**.
+Repo ristrutturato (`core/` + `qt_app/`), `core/viz` estratto con snapshot
+test, app Qt con le quattro pagine a parità funzionale, bundle autonomo per
+macOS (DMG) e gli script per quello di Win11. Il progetto nel frattempo si
+chiama **DjCaddy** (era Wavecut).
 
 La Fase 6 si è chiusa senza il confronto misurato che prevedeva: l'uso
 quotidiano ha già dato il verdetto (l'app Qt è nettamente più performante) e
@@ -25,9 +26,10 @@ Scostamenti dal piano, in meglio:
   dirlo invece di rompersi (già così a runtime).
 
 Ogni fase è pensata per una sessione di lavoro a sé, con criteri di verifica
-espliciti: una sessione futura può prendere in mano una fase (ora la 5 o la
-6) leggendo solo questo documento e il codice. Il resto del documento è il
-piano come approvato, lasciato intatto come riferimento.
+espliciti: una sessione futura può prendere in mano una fase leggendo solo
+questo documento e il codice. Il resto del documento è il piano come
+approvato, lasciato intatto come riferimento, con l'esito di ogni fase
+annotato sotto la fase stessa.
 
 ## Obiettivo
 
@@ -397,6 +399,58 @@ nuovi di Fase 4). Come è stata costruita:
   rete staccata**: apre lo store, mappa e playlist funzionano, il player
   suona, l'analisi di un brano nuovo gira fino in fondo (Demucs compreso)
   e su macOS il tagging parte coi modelli inclusi.
+
+**Esito (02/09/2026): fatto su macOS.** `DjCaddy.app` da 2,0 GB, DMG da
+783 MB, verifica di autonomia 8/8 lanciata **dal DMG montato in sola
+lettura** — che è la condizione dell'utente finale. Suite a 675 test verdi
+(10 nuovi). Come è stata costruita:
+
+- **un eseguibile solo** (`packaging/entry.py`): impacchettata,
+  `sys.executable` È l'app, quindi i job lunghi non possono più essere
+  `python map_cli.py`. `core.bundle.child_command` richiama l'app con
+  `--job map` / `--job tag`, e la pagina Map e il Background job di Tag non
+  se ne accorgono — stesso processo staccato, stesso stato su file, stesso
+  log. Un test lega i nomi dei job a quelli a cui l'entry risponde;
+- `core/bundle.py` è l'unico posto che sa dove stanno le cose, e **fuori dal
+  bundle non cambia niente** (i test lo fissano percorso per percorso: è la
+  ragione per cui il modulo è invisibile allo sviluppo di ogni giorno).
+  Dentro: i dati inclusi sotto `_MEIPASS`; ciò che si SCRIVE — lo stato dei
+  due job e l'elenco dei brani già taggati, che stavano accanto al codice —
+  scende in `~/.cache/djcaddy/`, perché l'app è di sola lettura; `TORCH_HOME`
+  punta al checkpoint Demucs incluso;
+- **ffmpeg sul PATH, non call-site per call-site**: `install()` mette in testa
+  al PATH la cartella `bin/` del bundle. Di ffmpeg e ffprobe non si servono
+  solo i nostri `subprocess.run`, ma anche audioread dentro `librosa.load` e
+  `shutil.which` in folder_scan, che non passano da noi. Alla spec bastano i
+  due eseguibili: PyInstaller ne insegue le dylib e ne riscrive i percorsi;
+- `collect_all` **solo dove serve** (plotly, essentia, demucs, umap,
+  pynndescent, pyrekordbox): torch, librosa, sklearn, soundfile e scipy hanno
+  già i loro hook, e chiederlo anche per loro si tirava dentro le rispettive
+  suite di test — sklearn da sola migliaia di moduli, con pytest appresso;
+- icona `.icns`/`.ico` rasterizzata dall'unico SVG con Qt e `iconutil`
+  (`packaging/make_icon.py`): nessuno strumento in più da installare.
+
+Scarti e cose che restano da fare:
+
+- **firma ad-hoc, non notarizzata**: basta a farla girare qui e su chi apre
+  col tasto destro → Apri. Per distribuirla fuori servono un Developer ID e
+  `xcrun notarytool`, che non fanno parte di questo giro;
+- **Windows non è stato provato**: `djcaddy.spec` è già indifferente alla
+  piattaforma e ci sono `build_windows.ps1` e `djcaddy.iss` (Inno Setup), ma
+  PyInstaller non compila per un'altra piattaforma e qui c'è solo il Mac. Il
+  bundle Win11 va costruito su Win11, con `poetry install --without essentia`;
+- la verifica finale del piano — **macchina/utente pulito, senza Python, a
+  rete staccata** — resta da fare a mano: `--selftest` ne è il pezzo
+  meccanico (e si lancia proprio lì:
+  `/Applications/DjCaddy.app/Contents/MacOS/DjCaddy --selftest`), ma aprire
+  lo store, suonare e analizzare un brano nuovo vanno guardati;
+- 2,0 GB invece dei 3–4 preventivati: su arm64 torch pesa meno di quanto si
+  temeva. Il profilo "viewer" resta comunque una strada che non serve;
+- un rumore scovato proprio dal bundle e zittito: la prima consegna del
+  payload alla lavagna poteva precedere l'iniezione dello shim
+  (`window.__djcaddy_render is not a function` in console). Il payload
+  arrivava lo stesso — lo rimanda il `ready` — ma la chiamata ora è sotto
+  guardia, che è quello che il codice attorno già dava per scontato.
 
 ### Fase 6 — Parallel run e confronto
 

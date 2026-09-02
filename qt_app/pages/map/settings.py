@@ -33,6 +33,7 @@ from core.analysis.map_projection import available as umap_available
 from core.analysis.map_projection import project
 from core.analysis.map_profile import default_workers
 from core.analysis.map_store import MapStore
+from core.bundle import child_command, child_cwd
 from qt_app import theme
 from qt_app.pages.common import spelled
 from qt_app.workers import run_in_pool
@@ -310,7 +311,7 @@ class SettingsDialog(QDialog):
     def _on_launch(self) -> None:
         if not self._queue or self._folder is None:
             return
-        command = [sys.executable, str(MAP_CLI_PATH), str(self._folder),
+        command = [*child_command(MAP_CLI_PATH), str(self._folder),
                    "--workers", str(self._workers.value()), "--project"]
         if self._awake.isChecked():
             command = caffeinated(command)
@@ -318,7 +319,7 @@ class SettingsDialog(QDialog):
             subprocess.Popen(command, stdout=out,
                              stderr=subprocess.STDOUT,
                              start_new_session=True,
-                             cwd=MAP_CLI_PATH.parent)
+                             cwd=child_cwd())
         self._launch.setEnabled(False)
         self._job_told.setText(f"Started. Output in {DEFAULT_MAP_LOG}.")
         QTimer.singleShot(1500, self._on_tick)
