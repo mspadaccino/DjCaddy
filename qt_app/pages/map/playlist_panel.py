@@ -303,6 +303,10 @@ class PlaylistPanel(QWidget):
         # Dove e come è andata l'ultima «Save as…»: il «Save» riscrive lì,
         # nello stesso formato, senza ripassare dal dialogo.
         self._saved_to: tuple[Path, Callable[[list[dict]], str]] | None = None
+        # C'è qualcosa di nuovo da scrivere da quando si è salvato l'ultima
+        # volta? Comanda «Save», che si spegne appena scrive — come in un
+        # foglio Excel — e si riaccende alla prima mutazione vera.
+        self._dirty = False
         self._board_seen_at = None
         self._build(wire_table)
         state.playlist_changed.connect(self._on_playlist_changed)
@@ -567,6 +571,7 @@ class PlaylistPanel(QWidget):
             # descrivono — tranne quando è la loro stessa applicazione.
             self._chapters = None
         self._keep_chapters_once = False
+        self._dirty = True
         self._refresh()
 
     # ------------------------------------------------------------------
@@ -812,20 +817,29 @@ class PlaylistPanel(QWidget):
         if chosen:
             self._saved_to = (Path(chosen), build)
             self._write_out()
-            self._refresh_save_again(has=True)
 
     def _write_out(self) -> None:
         path, build = self._saved_to
         path.write_text(build(self._tracks_for_export()), "utf-8")
+        # Come in un foglio Excel: appena scritto non c'è più niente di
+        # nuovo da riscrivere, e il bottone lo dice spegnendosi. Torna vivo
+        # alla prima mutazione vera della playlist — vedi `_on_playlist_changed`.
+        self._dirty = False
+        self._refresh_save_again(has=bool(self.indices()))
 
     def _refresh_save_again(self, has: bool) -> None:
         known = self._saved_to is not None
-        self._save_again.setEnabled(has and known)
-        self._save_again.setToolTip(
-            f"Writes the playlist again to {self._saved_to[0]}, in the "
-            "same format, without asking." if known
-            else "Enabled once the playlist has been saved with one of "
-                 "the «Save as…» buttons: then it rewrites that same file.")
+        self._save_again.setEnabled(has and known and self._dirty)
+        if not known:
+            told = ("Enabled once the playlist has been saved with one of "
+                    "the «Save as…» buttons: then it rewrites that same "
+                    "file.")
+        elif self._dirty:
+            told = (f"Writes the playlist again to {self._saved_to[0]}, in "
+                    "the same format, without asking.")
+        else:
+            told = f"Nothing changed since the last save to {self._saved_to[0]}."
+        self._save_again.setToolTip(told)
 
     def _on_save_again(self) -> None:
         self._write_out()
