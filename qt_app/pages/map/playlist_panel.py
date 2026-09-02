@@ -13,15 +13,18 @@ pesi degli slider governano le proposte e non il resoconto.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel,
-                               QMessageBox, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
+                               QFileDialog, QHBoxLayout, QLabel,
+                               QMessageBox, QPushButton, QSlider,
+                               QVBoxLayout, QWidget)
 
 from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml,
                                      playlist_positions, read_m3u8,
@@ -186,6 +189,90 @@ def double_marks(paths: list[str], vectors: np.ndarray | None,
     return marks, told
 
 
+# Il capo lasco dello slider di pulizia: sotto questo punto la maglia
+# comincia a pescare vicini di genere invece di doppioni veri (vedi il
+# commento su SOUND_TWIN_MIN), ma qui è una scelta esplicita di chi tira lo
+# slider, non un default silenzioso.
+REMOVE_SIMILAR_FLOOR = 0.90
+
+
+class SimilarityCleanupDialog(QDialog):
+    """Lo slider di soglia per ripulire la playlist dai doppioni in blocco.
+
+    Da sinistra a destra la maglia si stringe: a sinistra soglia 1.0, solo
+    gli identici; a destra `REMOVE_SIMILAR_FLOOR`, dove contano come
+    doppioni anche i vicini di suono più larghi. I nomi ripetuti (stesso
+    `song_key`) contano sempre, a ogni posizione dello slider — sono la
+    stessa canzone per costruzione, non serve una soglia per dirlo. Il
+    conteggio sotto lo slider si ricalcola a ogni tacca, PRIMA che l'OK
+    tocchi la playlist: `removable_paths()` è letto solo dopo l'accept.
+    """
+
+    def __init__(self, paths: list[str], vectors: np.ndarray | None,
+                parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Remove similar tracks")
+        self.setModal(True)
+        self._paths = paths
+        self._vectors = vectors
+        self._losers: set[int] = set()
+        self._build()
+        self._on_slider(self._slider.value())
+
+    def _build(self) -> None:
+        intro = _dim(
+            "Same detection as the tinted rows in the playlist, but with a "
+            "threshold you control: everything it catches leaves the "
+            "playlist at once — the audio files on disk are untouched. "
+            "Exact repeats of the same song name always count; drag "
+            "toward 'Loosely similar' to also catch tracks that merely "
+            "sound alike.")
+        self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider.setRange(0, 100)
+        self._slider.setValue(round(
+            (1.0 - SOUND_TWIN_MIN) / (1.0 - REMOVE_SIMILAR_FLOOR) * 100))
+        self._slider.valueChanged.connect(self._on_slider)
+        self._threshold_told = _dim("")
+        ends = QHBoxLayout()
+        ends.addWidget(_dim("Identical only"))
+        ends.addWidget(self._slider, stretch=1)
+        ends.addWidget(_dim("Loosely similar"))
+        self._count = QLabel("")
+        self._count.setWordWrap(True)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        box = QVBoxLayout(self)
+        box.addWidget(intro)
+        box.addLayout(ends)
+        box.addWidget(self._threshold_told)
+        box.addWidget(self._count)
+        box.addWidget(buttons)
+
+    def _threshold(self, value: int) -> float:
+        return 1.0 - value / 100 * (1.0 - REMOVE_SIMILAR_FLOOR)
+
+    def _on_slider(self, value: int) -> None:
+        threshold = self._threshold(value)
+        self._threshold_told.setText(
+            f"Similarity threshold: {threshold:.3f}")
+        groups, pairs = playlist_doubles(self._paths, self._vectors,
+                                         threshold)
+        self._losers = {n for g in groups for n in g[1:]}
+        self._losers.update(b for _, b, _ in pairs)
+        n = len(self._losers)
+        self._count.setText(
+            f"<b>{n} track(s)</b> would be removed at this threshold."
+            if n else "No tracks would be removed at this threshold.")
+
+    def removable_paths(self) -> list[str]:
+        return [self._paths[n] for n in sorted(self._losers)]
+
+
 class PlaylistPanel(QWidget):
     """La sezione playlist, collegata allo stato: mostra `state.playlist`.
 
@@ -206,6 +293,9 @@ class PlaylistPanel(QWidget):
         self._chapters: list[list[int]] | None = None
         self._keep_chapters_once = False
         self._picked: str | None = None             # la scheda evidenziata
+        # Dove e come è andata l'ultima «Save as…»: il «Save» riscrive lì,
+        # nello stesso formato, senza ripassare dal dialogo.
+        self._saved_to: tuple[Path, Callable[[list[dict]], str]] | None = None
         self._board_seen_at = None
         self._build(wire_table)
         state.playlist_changed.connect(self._on_playlist_changed)
@@ -224,12 +314,19 @@ class PlaylistPanel(QWidget):
         self._sort.clicked.connect(self._on_magic_sort)
         self._drop = QPushButton("🗑 Remove ticked")
         self._drop.clicked.connect(self._on_drop)
+        self._remove_similar = QPushButton("🎯 Remove similar…")
+        self._remove_similar.setToolTip(
+            "Opens a dialog with a similarity threshold and a live count, "
+            "then removes every track it catches from the playlist — the "
+            "audio files on disk are untouched.")
+        self._remove_similar.clicked.connect(self._on_remove_similar)
         self._reset = QPushButton("🗑 Clear")
         self._reset.setToolTip("Clear the entire playlist.")
         self._reset.clicked.connect(lambda: self._push([], False))
         header = QHBoxLayout()
         header.addWidget(self._title, stretch=1)
-        for button in (self._play_all, self._sort, self._drop, self._reset):
+        for button in (self._play_all, self._sort, self._drop,
+                      self._remove_similar, self._reset):
             header.addWidget(button)
 
         self._empty = _dim(
@@ -349,6 +446,8 @@ class PlaylistPanel(QWidget):
                            "rekordbox, Serato, Traktor… Only the "
                            "track order is read.")
         loading.clicked.connect(self._on_load)
+        self._save_again = QPushButton("💾 Save")
+        self._save_again.clicked.connect(self._on_save_again)
         self._save_m3u8 = QPushButton("⬇ Save as playlist (M3U8)")
         self._save_m3u8.setToolTip("What rekordbox's Import Playlist "
                                    "accepts. Order and files only — no "
@@ -360,8 +459,10 @@ class PlaylistPanel(QWidget):
                                   "▸ rekordbox xml. Carries the BPM.")
         self._save_xml.clicked.connect(self._on_save_xml)
         files_row = QHBoxLayout()
-        for button in (adding, loading, self._save_m3u8, self._save_xml):
+        for button in (adding, loading, self._save_again,
+                       self._save_m3u8, self._save_xml):
             files_row.addWidget(button)
+        self._refresh_save_again(has=False)
 
         box = QVBoxLayout(self)
         box.addLayout(header)
@@ -482,9 +583,11 @@ class PlaylistPanel(QWidget):
         self._playlist_controls.setVisible(has)
         self._chapters_empty.setVisible(not has)
         self._chapters_controls.setVisible(has)
-        for button in (self._play_all, self._sort, self._drop, self._reset,
+        for button in (self._play_all, self._sort, self._drop,
+                       self._remove_similar, self._reset,
                        self._save_m3u8, self._save_xml):
             button.setDisabled(not has)
+        self._refresh_save_again(has)
         self._title.setText(
             f"<b>Playlist — {len(playlist)} track(s)</b>" if has
             else "<b>Playlist</b>")
@@ -558,6 +661,19 @@ class PlaylistPanel(QWidget):
         if doomed:
             self._push([p for p in self._state.playlist if p not in doomed],
                        False)
+
+    def _on_remove_similar(self) -> None:
+        playlist = self.indices()
+        if len(playlist) < 2:
+            return
+        paths = [self._lib.frame.at[i, "path"] for i in playlist]
+        dialog = SimilarityCleanupDialog(
+            paths, self._lib.store.embeddings[playlist], self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            doomed = set(dialog.removable_paths())
+            if doomed:
+                self._push([p for p in self._state.playlist
+                           if p not in doomed], False)
 
     def _on_board_event(self, value: dict) -> None:
         if value.get("at") == self._board_seen_at:
@@ -681,19 +797,35 @@ class PlaylistPanel(QWidget):
                            "genre": frame.at[i, "top_genre"], "cues": []})
         return tracks
 
-    def _save(self, data: str, default_name: str, title: str,
-              wanted: str) -> None:
+    def _save_as(self, build: Callable[[list[dict]], str],
+                 default_name: str, title: str, wanted: str) -> None:
         chosen, _ = QFileDialog.getSaveFileName(self, title, default_name,
                                                 wanted)
         if chosen:
-            Path(chosen).write_text(data, "utf-8")
+            self._saved_to = (Path(chosen), build)
+            self._write_out()
+            self._refresh_save_again(has=True)
+
+    def _write_out(self) -> None:
+        path, build = self._saved_to
+        path.write_text(build(self._tracks_for_export()), "utf-8")
+
+    def _refresh_save_again(self, has: bool) -> None:
+        known = self._saved_to is not None
+        self._save_again.setEnabled(has and known)
+        self._save_again.setToolTip(
+            f"Writes the playlist again to {self._saved_to[0]}, in the "
+            "same format, without asking." if known
+            else "Enabled once the playlist has been saved with one of "
+                 "the «Save as…» buttons: then it rewrites that same file.")
+
+    def _on_save_again(self) -> None:
+        self._write_out()
 
     def _on_save_m3u8(self) -> None:
-        self._save(build_m3u8(self._tracks_for_export()),
-                   "djcaddy_playlist.m3u8", "Save the playlist",
-                   "Playlist (*.m3u8)")
+        self._save_as(build_m3u8, "djcaddy_playlist.m3u8",
+                      "Save the playlist", "Playlist (*.m3u8)")
 
     def _on_save_xml(self) -> None:
-        self._save(build_rekordbox_xml(self._tracks_for_export()),
-                   "djcaddy_library.xml", "Save the rekordbox library",
-                   "rekordbox XML (*.xml)")
+        self._save_as(build_rekordbox_xml, "djcaddy_library.xml",
+                      "Save the rekordbox library", "rekordbox XML (*.xml)")
