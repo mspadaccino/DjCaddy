@@ -322,12 +322,15 @@ class MapPage(QWidget):
         self._matches_told = _dim("")
         self._matches_told.setVisible(False)
         self._matches_told.setToolTip(theme.hint(
-            "▶ plays a track; double-click a row makes it the seed."))
+            "▶ plays a track; double-click a row makes it the seed; ★ adds "
+            "it to Favourites without making it the seed."))
         # Fra i risultati si sceglie con l'orecchio: il ▶ di riga suona il
         # brano, il doppio clic resta il gesto che lo fa seme. Niente
         # colonna di spunta: qui non si sceglie un gruppo, si sceglie UN
-        # seme, e il doppio clic basta.
-        self._matches = TrackTable()
+        # seme, e il doppio clic basta. La stella però ci sta: la ricerca
+        # manuale è spesso proprio il modo in cui si ritrova un brano per
+        # segnarlo preferito, senza doverlo prima portare in seme.
+        self._matches = TrackTable(favouritable=True)
         self._wire(self._matches, activate_plays=False)
         self._matches.row_activated.connect(self._on_match_picked)
         self._matches.setVisible(False)
