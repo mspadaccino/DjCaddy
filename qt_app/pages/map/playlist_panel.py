@@ -23,8 +23,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QLabel,
-                               QMessageBox, QPushButton, QSlider,
-                               QVBoxLayout, QWidget)
+                               QListWidget, QMessageBox, QPushButton,
+                               QSlider, QVBoxLayout, QWidget)
 
 from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml,
                                      playlist_positions, read_m3u8,
@@ -239,6 +239,8 @@ class SimilarityCleanupDialog(QDialog):
         ends.addWidget(_dim("Loosely similar"))
         self._count = QLabel("")
         self._count.setWordWrap(True)
+        self._list = QListWidget()
+        self._list.setMaximumHeight(180)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -251,6 +253,7 @@ class SimilarityCleanupDialog(QDialog):
         box.addLayout(ends)
         box.addWidget(self._threshold_told)
         box.addWidget(self._count)
+        box.addWidget(self._list, stretch=1)
         box.addWidget(buttons)
 
     def _threshold(self, value: int) -> float:
@@ -268,6 +271,10 @@ class SimilarityCleanupDialog(QDialog):
         self._count.setText(
             f"<b>{n} track(s)</b> would be removed at this threshold."
             if n else "No tracks would be removed at this threshold.")
+        self._list.clear()
+        self._list.addItems(
+            f"#{i + 1} · {Path(self._paths[i]).name}"
+            for i in sorted(self._losers))
 
     def removable_paths(self) -> list[str]:
         return [self._paths[n] for n in sorted(self._losers)]
