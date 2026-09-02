@@ -7,7 +7,7 @@ It does four things, and they are the four tabs of the app:
 
 | tab | what it is for |
 |---|---|
-| 🗺️ **Music Map** | the whole library as one picture — points that sound alike sit together — with playlists drawn as paths across it |
+| 🧭 **Navigator** | the whole library as one picture — points that sound alike sit together — with playlists drawn as paths across it |
 | 🌊 **Cue Finder** | one track at a time: check the suggested phrase boundaries by ear, then write them as hot/memory cues **straight into the rekordbox library** |
 | 🏷️ **Tag Maker** | genre and mood inferred by the Essentia models and written into the files' own tags |
 | 📁 **File Analysis** | what is in a folder, what repeats, what is unreadable — and a reviewable quarantine plan |
@@ -21,7 +21,7 @@ played portion coloured, click anywhere on it to seek.
 
 - [Before you start](#before-you-start)
 - [Getting started: from a folder of tracks to a set](#getting-started-from-a-folder-of-tracks-to-a-set)
-- [Music Map](#music-map)
+- [Navigator](#navigator)
 - [Cue Finder](#cue-finder)
 - [Tag Maker](#tag-maker)
 - [File Analysis](#file-analysis)
@@ -98,7 +98,7 @@ Read this once and the rest of the guide becomes reference.
 
 ### 1 · Point it at your library and build the map
 
-Open **Music Map**, then **⚙️ Map settings**, and give it the folder your
+Open **Navigator**, then **⚙️ Map settings**, and give it the folder your
 tracks live in. Building the map runs every track through a neural network,
 so it is a **long background job** — hours on a whole library — but it is
 *resumable*: stop it whenever you like and it picks up where it left off. The
@@ -147,7 +147,7 @@ before it runs.
 
 ---
 
-## Music Map
+## Navigator
 
 The library as one picture. It answers the question a folder cannot: *what do
 I play next, out of ninety thousand tracks?*

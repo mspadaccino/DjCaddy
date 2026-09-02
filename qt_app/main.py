@@ -51,7 +51,7 @@ class MainWindow(QMainWindow):
         # La mappa per prima: è da lì che si parte a cercare, e le altre
         # schede lavorano su un brano che di solito si è scelto lì.
         self.map_page = MapPage(self.state)
-        self.tabs.addTab(self.map_page, "🗺️ Music Map")
+        self.tabs.addTab(self.map_page, "🧭 Navigator")
         self.wave_page = WavePage(self.state, self.player)
         self.tabs.addTab(self.wave_page, "🌊 Cue Finder")
         self.tabs.addTab(TagPage(self.state), "🏷️ Tag Maker")
