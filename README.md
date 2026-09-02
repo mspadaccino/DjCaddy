@@ -15,6 +15,9 @@ It does four things, and they are the four tabs of the app:
 Under all four there is one persistent player: waveform preview with the
 played portion coloured, click anywhere on it to seek.
 
+**This guide is also inside the app**: the 📖 button in the header opens it,
+without the chapters below about the command line, the build and the code.
+
 ---
 
 ## Contents

@@ -50,6 +50,9 @@ datas = [
     # I due frontend HTML riusati (lavagna, ruota Camelot) e l'icona.
     (str(ROOT / "core" / "viz" / "frontend"), "core/viz/frontend"),
     (str(ROOT / "qt_app" / "assets"), "qt_app/assets"),
+    # Il README: è la guida che l'app mostra in Help, filtrata da
+    # `core.guide`. Sta nel bundle perché la finestra la legge da lì.
+    (str(ROOT / "README.md"), "."),
 ]
 
 # I modelli Essentia: embedding Discogs-EffNet e le teste genere/mood, più
