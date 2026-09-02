@@ -44,6 +44,14 @@ class FavouritesPanel(QWidget):
 
     def _build(self, wire_table) -> None:
         self._title = QLabel("<b>Favourites</b>")
+        self._reset = QPushButton("🗑 Clear")
+        self._reset.setToolTip("Clear every favourite. The audio files and "
+                               "the playlist are untouched.")
+        self._reset.clicked.connect(self._state.clear_favourites)
+        header = QHBoxLayout()
+        header.addWidget(self._title, stretch=1)
+        header.addWidget(self._reset)
+
         self._empty = _dim(
             "No favourites yet: click the ☆ next to ▶ on the seed row, or "
             "the ★ column of Quick List, Sounds like it, Chain Maker and "
@@ -65,7 +73,7 @@ class FavouritesPanel(QWidget):
         self._add.clicked.connect(self._on_add)
 
         box = QVBoxLayout(self)
-        box.addWidget(self._title)
+        box.addLayout(header)
         box.addWidget(self._empty)
         box.addWidget(self._table, stretch=1)
         box.addLayout(pick_row)
@@ -88,6 +96,7 @@ class FavouritesPanel(QWidget):
         self._empty.setVisible(not has)
         self._table.setVisible(has)
         self._add.setDisabled(not has)
+        self._reset.setDisabled(not has)
         if not has:
             return
         frame, common = self._lib.frame, self._lib.common

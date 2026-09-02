@@ -114,6 +114,12 @@ class AppState(QObject):
         _save_favourites(self.favourites)
         self.favourites_changed.emit(self.favourites)
 
+    def clear_favourites(self) -> None:
+        if self.favourites:
+            self.favourites = []
+            _save_favourites(self.favourites)
+            self.favourites_changed.emit(self.favourites)
+
     # --- ascolto ---
     def play(self, path: str) -> None:
         self._queue = []           # un ▶ singolo interrompe la fila in corso
