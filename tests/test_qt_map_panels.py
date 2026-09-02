@@ -386,3 +386,37 @@ def test_library_frame_is_none_before_the_projection(tmp_path):
     store = MapStore.load(tmp_path / "map")
     store.append([_profile(tmp_path / "a.mp3", 1.0)])
     assert library_frame(store) is None
+
+
+# --- salva / salva con nome ---
+def test_save_rewrites_the_last_save_as_target_without_a_dialog(
+        qtbot, tmp_path, monkeypatch):
+    """«Save» è spento finché una «Save as…» non ha scelto un file; da lì
+    riscrive quel file, nello stesso formato, senza riaprire il dialogo."""
+    from PySide6.QtWidgets import QFileDialog
+    from pathlib import Path
+
+    from qt_app.pages.map.playlist_panel import PlaylistPanel
+    from qt_app.state import AppState
+
+    panel = PlaylistPanel(AppState(), wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    assert not panel._save_again.isEnabled()
+
+    tracks = [{"path": Path("/x/one.mp3"), "name": "one", "artist": "",
+               "duration": 300.0}]
+    monkeypatch.setattr(panel, "_tracks_for_export", lambda: tracks)
+    out = tmp_path / "set.m3u8"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(out), "")))
+    panel._save_m3u8.click()
+    assert "/x/one.mp3" in out.read_text()
+    assert panel._save_again.isEnabled()
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: pytest.fail(
+                            "«Save» must not open the dialog")))
+    tracks.append({"path": Path("/x/two.mp3"), "name": "two", "artist": "",
+                   "duration": 200.0})
+    panel._save_again.click()
+    assert "/x/two.mp3" in out.read_text()
