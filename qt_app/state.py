@@ -14,7 +14,29 @@ Gli indici si ricavano al momento, da chi ha in mano il frame.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from PySide6.QtCore import QObject, Signal
+
+from core.analysis.map_store import default_store_dir
+
+# Accanto alla cache della mappa, non dentro: i preferiti sopravvivono anche
+# a una mappa rifatta da capo (`map` si può cancellare e ricostruire, la
+# lista di chi piace no).
+_FAVOURITES_PATH = default_store_dir().parent / "favourites.json"
+
+
+def _load_favourites() -> list[str]:
+    try:
+        return json.loads(_FAVOURITES_PATH.read_text("utf-8"))
+    except (OSError, ValueError):
+        return []
+
+
+def _save_favourites(paths: list[str]) -> None:
+    _FAVOURITES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _FAVOURITES_PATH.write_text(json.dumps(paths), "utf-8")
 
 
 class AppState(QObject):
@@ -28,6 +50,7 @@ class AppState(QObject):
     seed_changed = Signal(object)          # str | None
     selection_changed = Signal(list)       # list[str]
     playlist_changed = Signal(list)        # list[str]
+    favourites_changed = Signal(list)      # list[str]
     now_playing_changed = Signal(object)   # str | None
     analysis_running_changed = Signal(bool)
 
@@ -36,6 +59,7 @@ class AppState(QObject):
         self.seed: str | None = None
         self.selection: list[str] = []
         self.playlist: list[str] = []
+        self.favourites: list[str] = _load_favourites()
         self.now_playing: str | None = None
         self._running_jobs: set[str] = set()
         self._queue: list[str] = []   # quello che resta da suonare in fila
@@ -75,6 +99,20 @@ class AppState(QObject):
         if paths != self.playlist:
             self.playlist = list(paths)
             self.playlist_changed.emit(self.playlist)
+
+    # --- preferiti ---
+    def toggle_favourite(self, path: str) -> None:
+        """Dentro o fuori dai preferiti, a seconda di dove sta ora — il
+        gesto è lo stesso, sia dalla stella di una tabella sia dal
+        pulsante accanto al seme. Scritto su disco a ogni tocco: la lista
+        è corta, e un preferito perso a un crash costa più di un file
+        scritto una volta di troppo."""
+        if path in self.favourites:
+            self.favourites = [p for p in self.favourites if p != path]
+        else:
+            self.favourites = self.favourites + [path]
+        _save_favourites(self.favourites)
+        self.favourites_changed.emit(self.favourites)
 
     # --- ascolto ---
     def play(self, path: str) -> None:

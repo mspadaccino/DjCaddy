@@ -69,6 +69,13 @@ PLAY_B_COLUMN = "▶ B"
 PLAY_FIELDS = {PLAY_COLUMN: "_path", PLAY_A_COLUMN: "_path2",
                PLAY_B_COLUMN: "_path"}
 
+# La stella dei preferiti, su chi la chiede (`favouritable=True`): a
+# differenza di ✓ non è una scelta della tabella ma un fatto dell'app —
+# `AppState.favourites` — quindi la tabella si limita a disegnarla
+# (`set_favourites`) e a raccontare il clic (`favorite_requested`); chi
+# ascolta decide se aggiungere o togliere.
+FAVOURITE_COLUMN = "★"
+
 
 def pill_color(column: str, value: str,
                genres: dict[str, str] | None = None) -> str | None:
@@ -394,6 +401,25 @@ class PlayDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class FavouriteDelegate(QStyledItemDelegate):
+    """La stella dei preferiti: piena se il file è nell'insieme che
+    `TrackTable.set_favourites` porta, vuota altrimenti. Il clic non lo
+    raccoglie il delegate — come per ▶ — ma `mousePressEvent` della tabella,
+    che emette `favorite_requested`."""
+
+    def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
+        _row_ground(painter, option, index)
+        table = self.parent()
+        path = table.model_.path_at(index.row())
+        filled = table.is_favourite(path)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QColor(theme.PRIMARY if filled else theme.FADED))
+        painter.drawText(option.rect, Qt.AlignmentFlag.AlignCenter,
+                         "★" if filled else "☆")
+        painter.restore()
+
+
 class TrackTable(QTableView):
     """La tabella dei brani, già vestita: pastiglie, sort, trascinamento.
 
@@ -410,6 +436,7 @@ class TrackTable(QTableView):
     add_requested = Signal(list)            # i _path delle righe scelte
     reveal_requested = Signal(str)
     selection_paths_changed = Signal(list)  # i _path delle righe selezionate
+    favorite_requested = Signal(str)        # il _path della stella cliccata
 
     # Larghezze di partenza per le colonne che si conoscono: misurarle sui
     # dati (resizeColumnsToContents) visita OGNI riga, e una tabella da
@@ -417,6 +444,7 @@ class TrackTable(QTableView):
     # gratis.
     _WIDTHS = {CHECK_COLUMN: 30, CHECK_A_COLUMN: 40, CHECK_B_COLUMN: 40,
                PLAY_COLUMN: 30, PLAY_A_COLUMN: 40, PLAY_B_COLUMN: 40,
+               FAVOURITE_COLUMN: 30,
                "#": 40, "file": 320,
                "file A": 300, "file B": 300,
                "BPM": 52, "key": 52,
@@ -428,7 +456,7 @@ class TrackTable(QTableView):
 
     def __init__(self, reorderable: bool = False, checkable: bool = False,
                  library_menu: bool = True, playable: bool = True,
-                 parent=None) -> None:
+                 favouritable: bool = False, parent=None) -> None:
         super().__init__(parent)
         self._model = PandasModel(reorderable=reorderable, parent=self)
         self.setModel(self._model)
@@ -440,13 +468,18 @@ class TrackTable(QTableView):
         # `play_table` in Streamlit.
         self._library_menu = library_menu
         self._playable = playable
+        self._favouritable = favouritable
         self._check_delegates: dict[str, CheckDelegate] = {}
         self._play_delegate = PlayDelegate(self)
+        self._favourite_delegate = FavouriteDelegate(self)
         self._delegates: dict[str, PillDelegate] = {}
         self._genre_colors: dict[str, str] = {}
         # I brani PRESI (colonna ✓), per percorso: sopravvivono ai ridisegni
         # della tabella — quello che sparisce dal frame cade da solo.
         self._picked: set[str] = set()
+        # I preferiti (colonna ★): vengono da fuori (`set_favourites`), la
+        # tabella non decide mai da sé chi ci sta.
+        self._favourites: set[str] = set()
 
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setDefaultSectionSize(26)
@@ -497,7 +530,9 @@ class TrackTable(QTableView):
         # al file che governa.
         wants_check = self._checkable and not any(
             c in frame.columns for c in CHECK_FIELDS)
-        if wants_play or wants_check:
+        wants_favourite = (self._favouritable
+                           and FAVOURITE_COLUMN not in frame.columns)
+        if wants_play or wants_check or wants_favourite:
             # Su una COPIA: il frame è di chi chiama, e una colonna comparsa
             # di soprassalto in casa sua sarebbe una sorpresa cattiva.
             frame = frame.copy()
@@ -505,6 +540,8 @@ class TrackTable(QTableView):
                 frame.insert(0, PLAY_COLUMN, "")
             if wants_check:
                 frame.insert(0, CHECK_COLUMN, "")   # ✓ prima, ▶ subito dopo
+            if wants_favourite:
+                frame.insert(0, FAVOURITE_COLUMN, "")  # ★ davanti a tutto
         self._model.set_frame(frame)
         if self._checkable:
             # I presi che il frame nuovo non porta più non sono più presi —
@@ -541,6 +578,9 @@ class TrackTable(QTableView):
             if name in shown:
                 self.setItemDelegateForColumn(
                     shown.index(name), self._play_delegate)
+        if self._favouritable and FAVOURITE_COLUMN in shown:
+            self.setItemDelegateForColumn(
+                shown.index(FAVOURITE_COLUMN), self._favourite_delegate)
         for name, width in self._WIDTHS.items():
             if name in shown:
                 self.setColumnWidth(shown.index(name), width)
@@ -634,6 +674,17 @@ class TrackTable(QTableView):
         self._model.marks = dict(marks)
         self.viewport().update()
 
+    def is_favourite(self, path: str | None) -> bool:
+        return path in self._favourites
+
+    def set_favourites(self, paths: set[str]) -> None:
+        """L'insieme dei preferiti, per percorso — come `playing`: la verità
+        sta in `AppState.favourites`, qui si disegna soltanto."""
+        if paths == self._favourites:
+            return
+        self._favourites = set(paths)
+        self.viewport().update()
+
     def mousePressEvent(self, event) -> None:
         """I due campi-comando davanti alla riga, prima del clic normale.
 
@@ -651,6 +702,11 @@ class TrackTable(QTableView):
                 path = self._model.path_at(index.row(), PLAY_FIELDS[name])
                 if path:
                     self.play_requested.emit(path)
+                return
+            if self._favouritable and name == FAVOURITE_COLUMN:
+                path = self._model.path_at(index.row())
+                if path:
+                    self.favorite_requested.emit(path)
                 return
             if self._checkable and name in CHECK_FIELDS:
                 self.toggle_pick(index.row(), CHECK_FIELDS[name])

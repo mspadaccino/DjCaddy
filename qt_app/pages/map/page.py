@@ -42,6 +42,7 @@ from qt_app.widgets.plotly_view import PlotlyView
 from qt_app.widgets.track_table import TrackTable, track_frame
 from qt_app.workers import run_in_pool
 
+from .favourites_panel import FavouritesPanel
 from .filters import FiltersPanel
 from .library import Library, load_library
 from .playlist_panel import PlaylistPanel
@@ -202,6 +203,10 @@ class MapPage(QWidget):
         state.selection_changed.connect(lambda _: self._schedule_choice())
         state.playlist_changed.connect(lambda _: self._schedule_overlays())
         state.now_playing_changed.connect(lambda _: self._schedule_overlays())
+        # Il ★ del seme segue i tocchi dati altrove (una tabella, un'altra
+        # scheda): lo stesso giro di `_refresh_choice` che tiene ▶ e ➕
+        # coerenti col seme di adesso.
+        state.favourites_changed.connect(lambda _: self._schedule_choice())
 
         self._job_timer = QTimer(self)
         self._job_timer.setInterval(2000)
@@ -288,6 +293,9 @@ class MapPage(QWidget):
         self._listen.setFixedWidth(44)
         self._listen.setToolTip("Hear the seed, in the player at the bottom.")
         self._listen.clicked.connect(self._on_listen_seed)
+        self._fav_seed = QPushButton("☆")
+        self._fav_seed.setFixedWidth(44)
+        self._fav_seed.clicked.connect(self._on_toggle_seed_favourite)
         self._add_seed = QPushButton("➕")
         self._add_seed.setFixedWidth(44)
         self._add_seed.setToolTip("Add the seed to the playlist.")
@@ -303,7 +311,7 @@ class MapPage(QWidget):
         browse.setToolTip("Pick the seed's file from the disk.")
         browse.clicked.connect(self._on_browse_seed)
         seed_row = QHBoxLayout()
-        for widget in (self._listen, self._add_seed):
+        for widget in (self._listen, self._fav_seed, self._add_seed):
             seed_row.addWidget(widget)
         seed_row.addWidget(self._search, stretch=1)
         seed_row.addWidget(self._clear)
@@ -351,12 +359,15 @@ class MapPage(QWidget):
         self._builder.chain_changed.connect(self._on_chain)
         self._playlist = PlaylistPanel(self._state, self._wire)
         self._playlist.picked_changed.connect(self._on_playlist_picks)
+        self._favourites = FavouritesPanel(self._state, self._wire)
+        self._favourites.append_playlist.connect(self._on_builder_append)
 
         self._panels = QTabWidget()
         self._panels.addTab(self._filters, "🔎 Filters")
         self._panels.addTab(self._builder, "🎛️ Build a set")
         self._panels.addTab(self._playlist.board_widget, "📖 Chapters")
         self._panels.addTab(self._playlist, "🎵 Playlist")
+        self._panels.addTab(self._favourites, "★ Favourites")
         self._panels.setCurrentWidget(self._builder)
 
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -390,6 +401,10 @@ class MapPage(QWidget):
         table.reveal_requested.connect(reveal_in_files)
         table.set_playing(self._state.now_playing)
         self._state.now_playing_changed.connect(table.set_playing)
+        table.favorite_requested.connect(self._state.toggle_favourite)
+        table.set_favourites(set(self._state.favourites))
+        self._state.favourites_changed.connect(
+            lambda paths: table.set_favourites(set(paths)))
 
     # ------------------------------------------------------------------
     # caricamento e ricarica
@@ -423,6 +438,7 @@ class MapPage(QWidget):
         self._filters.set_frame(lib.frame)
         self._builder.set_library(lib)
         self._playlist.set_library(lib)
+        self._favourites.set_library(lib)
         self._rebuild_cloud()
         self._schedule_choice()
 
@@ -576,6 +592,12 @@ class MapPage(QWidget):
         seed = at_path.get(self._state.seed)
         self._listen.setEnabled(seed is not None)
         self._add_seed.setEnabled(seed is not None)
+        self._fav_seed.setEnabled(seed is not None)
+        is_fav = seed is not None and self._state.seed in self._state.favourites
+        self._fav_seed.setText("★" if is_fav else "☆")
+        self._fav_seed.setToolTip(
+            "Remove the seed from Favourites." if is_fav
+            else "Add the seed to Favourites.")
         self._search.setPlaceholderText(
             "🔍 " + str(frame.at[seed, "name"]) + "  ·  "
             + Path(str(frame.at[seed, "folder"])).name
@@ -683,6 +705,10 @@ class MapPage(QWidget):
     def _on_add_seed(self) -> None:
         if self._state.seed is not None:
             self._add_paths([self._state.seed])
+
+    def _on_toggle_seed_favourite(self) -> None:
+        if self._state.seed is not None:
+            self._state.toggle_favourite(self._state.seed)
 
     def _on_clear_seed(self) -> None:
         self._search.clear()

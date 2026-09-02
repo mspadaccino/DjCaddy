@@ -309,7 +309,7 @@ class SetBuilderPanel(QWidget):
         sbox.addWidget(self._mixes_ask)
         self._mixes_wait = _dim(WAITING_FOR_THE_BUTTON)
         sbox.addWidget(self._mixes_wait)
-        self._mixes_table = TrackTable(checkable=True)
+        self._mixes_table = TrackTable(checkable=True, favouritable=True)
         self._mixes_table.setToolTip(mixes_why)
         self._wire(self._mixes_table)
         sbox.addWidget(self._pick_row(self._mixes_table,
@@ -353,7 +353,7 @@ class SetBuilderPanel(QWidget):
         sbox.addWidget(self._alike_ask)
         self._alike_wait = _dim(WAITING_FOR_THE_BUTTON)
         sbox.addWidget(self._alike_wait)
-        self._alike_table = TrackTable(checkable=True)
+        self._alike_table = TrackTable(checkable=True, favouritable=True)
         self._alike_table.setToolTip(alike_why)
         self._wire(self._alike_table)
         sbox.addWidget(self._pick_row(self._alike_table,
@@ -402,7 +402,8 @@ class SetBuilderPanel(QWidget):
         gbox = QVBoxLayout(going)
         self._chain_told = QLabel("")
         gbox.addWidget(self._chain_told)
-        self._chain_table = TrackTable(reorderable=True, checkable=True)
+        self._chain_table = TrackTable(reorderable=True, checkable=True,
+                                       favouritable=True)
         self._wire(self._chain_table)
         self._chain_table.model_.order_changed.connect(self._on_chain_reorder)
         gbox.addWidget(self._chain_table, stretch=3)
@@ -421,7 +422,7 @@ class SetBuilderPanel(QWidget):
 
         self._roster_told = QLabel("")
         gbox.addWidget(self._roster_told)
-        self._roster_table = TrackTable(checkable=True)
+        self._roster_table = TrackTable(checkable=True, favouritable=True)
         self._wire(self._roster_table)
         gbox.addWidget(self._roster_table, stretch=3)
         self._roster_add = QPushButton("➕ Add selected to the chain")
