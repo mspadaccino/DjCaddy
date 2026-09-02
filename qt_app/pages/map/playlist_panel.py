@@ -780,7 +780,7 @@ class PlaylistPanel(QWidget):
                 f"{len(missing)} track(s) are not on the map and cannot "
                 "join — add their folder under Map settings. Details below.")
             box.setDetailedText("\n".join(missing))
-        replace = box.addButton("Send to playlist",
+        replace = box.addButton("Load as new playlist",
                                 QMessageBox.ButtonRole.AcceptRole)
         append = box.addButton("Append to playlist",
                                QMessageBox.ButtonRole.ActionRole)
