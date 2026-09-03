@@ -1,13 +1,15 @@
-"""Build a set: i quattro modi di passare dalla mappa a una scaletta.
+"""Build a set: i tre modi di passare dalla mappa a una scaletta.
 
-Le tre schede della pagina Streamlit — Quick List (cosa ci si mixa sopra),
-Sounds like it (cosa gli somiglia), Chain Maker (un brano alla volta) — più
+Quick List (cosa ci si mixa sopra), Chain Maker (un brano alla volta) e
 Radio (una playlist da un GRUPPO: i preferiti o il lazo), sopra un pannello
 unico di pesi e "quanti elencare", che sono gli stessi filtri di partenza
-per tutte.
+per tutte. C'era una quarta scheda, Sounds like it, che rispondeva "cosa
+gli somiglia" sui 1280 numeri dell'embedding: da quando il termine sound
+del costo misura lì e non più sulla mappa, è Quick List coi pesi 1, 0, 0,
+e una scheda che si ottiene girando tre manopole non serve.
 
 Le regole vengono tutte da core: `nearest`, `magic_sort`, `sorted_after`,
-`store.similar`, `suggestions`, `chain_table`, `roster_table`, `radio.tune`.
+`suggestions`, `chain_table`, `roster_table`, `radio.tune`.
 Qui ci sono i widget e la disciplina delle liste: una lista si apre quando
 la si chiede ("Make the list"), resta viva finché il seme è quello — si
 ricalcola con i pesi e con i filtri — e si richiude da sé quando il seme
@@ -77,8 +79,7 @@ WAITING_FOR_THE_BUTTON = ("Nothing built yet — press the button above. The "
 
 # I titoli delle schede, senza conteggio: il conteggio ce lo appende
 # `_retitle` quando c'è qualcosa da contare.
-TAB_TITLES = ("✨ Quick List", "🎯 Sounds like it", "🔗 Chain Maker",
-              "📻 Radio")
+TAB_TITLES = ("✨ Quick List", "🔗 Chain Maker", "📻 Radio")
 
 # Da dove parte la Radio: la scelta del menu, nell'ordine del menu.
 RADIO_SOURCES = ("Favourites", "Map selection")
@@ -184,7 +185,7 @@ class SetBuilderPanel(QWidget):
 
     Parla col resto della pagina a segnali: `append_playlist` e
     `replace_playlist` portano INDICI di libreria; `suggestions_changed` e
-    `chain_changed` dicono cosa cerchiare sulla mappa (le proposte, la
+    `chain_changed` dicono cosa cerchiare sulla mappa (la Quick List, la
     catena). La scelta corrente — seme o gruppo, con la precedenza alla
     spunta in playlist — arriva da fuori con `set_choice`: la regola di chi
     comanda sta nella pagina, qui si lavora su quello che comanda.
@@ -192,7 +193,7 @@ class SetBuilderPanel(QWidget):
 
     append_playlist = Signal(list)
     replace_playlist = Signal(list)
-    suggestions_changed = Signal(list, list)
+    suggestions_changed = Signal(list)
     chain_changed = Signal(list)
 
     def __init__(self, state: AppState, wire_table,
@@ -208,7 +209,6 @@ class SetBuilderPanel(QWidget):
         self._group_shown: list[int] | None = None
         self._candidates: list[int] = []
         self._asked_mixes: str | None = None
-        self._asked_alike: str | None = None
         self._graph = GraphPlaylist()
         self._source: str | None = None
         self._roster_picks: list = []
@@ -228,8 +228,11 @@ class SetBuilderPanel(QWidget):
 
         weights = QHBoxLayout()
         self._w_sound = self._weight(weights, "sound",
-                                     "How much the distance on the map "
-                                     "counts: the acoustic affinity.")
+                                     "How much the acoustic distance counts "
+                                     "— cosine in the 1280 dimensions of "
+                                     "the embedding, not on the flattened "
+                                     "map. Alone, with BPM and key at 0, "
+                                     "the list is «what sounds like it».")
         self._w_bpm = self._weight(weights, "BPM",
                                    "How much the tempo gap counts. Beyond "
                                    "±6% the cost climbs fast.")
@@ -243,16 +246,15 @@ class SetBuilderPanel(QWidget):
         self._count.setSingleStep(SUGGESTION_STEP)
         self._count.setValue(SUGGESTION_DEFAULT)
         self._count.setToolTip("How many to list — Quick List and "
-                               "Sounds like it.")
+                               "Radio.")
         self._count.valueChanged.connect(lambda _: self._on_knobs())
         weights.addWidget(self._count)
         weights.addStretch(1)
 
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_quicklist(), TAB_TITLES[0])
-        self._tabs.addTab(self._build_alike(), TAB_TITLES[1])
-        self._tabs.addTab(self._build_chain(), TAB_TITLES[2])
-        self._tabs.addTab(self._build_radio(), TAB_TITLES[3])
+        self._tabs.addTab(self._build_chain(), TAB_TITLES[1])
+        self._tabs.addTab(self._build_radio(), TAB_TITLES[2])
 
         box = QVBoxLayout(self)
         box.addWidget(self._seed_told)
@@ -352,8 +354,11 @@ class SetBuilderPanel(QWidget):
         sbox = QVBoxLayout(seed)
         mixes_why = theme.hint(
             "Ranked by the transition cost — sound, tempo and key "
-            "together, with the weights above. Only tracks that pass the "
-            "filters are considered. The first row is the seed itself.")
+            "together, with the weights above. Sound is measured in the "
+            "1280 dimensions of the embedding: with BPM and key at 0 this "
+            "is «what sounds like it», tempo and key aside. Only tracks "
+            "that pass the filters are considered. The first row is the "
+            "seed itself.")
         self._mixes_ask = QPushButton("✨ Make the list")
         self._mixes_ask.setToolTip(mixes_why)
         self._mixes_ask.clicked.connect(self._on_ask_mixes)
@@ -386,54 +391,6 @@ class SetBuilderPanel(QWidget):
         for page in (idle, group, seed):
             self._quick.addWidget(page)
         return self._quick
-
-    def _build_alike(self) -> QWidget:
-        self._alike = QStackedWidget()
-
-        idle = QWidget()
-        QVBoxLayout(idle).addWidget(_dim(
-            "Pick a single seed on the map — not a group — to see what "
-            "sounds like it."))
-
-        seed = QWidget()
-        sbox = QVBoxLayout(seed)
-        alike_why = theme.hint(
-            "Pure acoustic closeness, measured in the 1280 dimensions of "
-            "the embedding — not on the flattened map, and with no regard "
-            "for tempo or key. A different question from 'what mixes out "
-            "of this'. The first row is the seed itself, here too.")
-        self._alike_ask = QPushButton("✨ Make the list")
-        self._alike_ask.setToolTip(alike_why)
-        self._alike_ask.clicked.connect(self._on_ask_alike)
-        sbox.addWidget(self._alike_ask)
-        self._alike_wait = _dim(WAITING_FOR_THE_BUTTON)
-        sbox.addWidget(self._alike_wait)
-        self._alike_table = TrackTable(checkable=True, favouritable=True)
-        self._alike_table.setToolTip(alike_why)
-        self._wire(self._alike_table)
-        sbox.addWidget(self._pick_row(self._alike_table,
-                                      reset=self._on_reset_alike))
-        sbox.addWidget(self._alike_table, stretch=1)
-        self._alike_doubles = _dim("")
-        self._alike_doubles.setToolTip(DOUBLES_HINT)
-        self._alike_doubles.setVisible(False)
-        sbox.addWidget(self._alike_doubles)
-        self._alike_add = QPushButton("➕ Add selected to the playlist")
-        self._alike_add.clicked.connect(
-            lambda: self._add_rows(self._alike_table))
-        self._alike_send = QPushButton("↺ Send as a new playlist")
-        self._alike_send.setToolTip("Starts over: what is in the playlist "
-                                    "now is dropped.")
-        self._alike_send.clicked.connect(
-            lambda: self._send_rows(self._alike_table))
-        alike_row = QHBoxLayout()
-        alike_row.addWidget(self._alike_add)
-        alike_row.addWidget(self._alike_send)
-        sbox.addLayout(alike_row)
-
-        self._alike.addWidget(idle)
-        self._alike.addWidget(seed)
-        return self._alike
 
     def _build_chain(self) -> QWidget:
         self._chain = QStackedWidget()
@@ -647,19 +604,17 @@ class SetBuilderPanel(QWidget):
     def _apply_weights(self) -> None:
         if self._lib is not None:
             cost = self._lib.cost
-            cost.w_map, cost.w_bpm, cost.w_key = self.weights()
+            cost.w_sound, cost.w_bpm, cost.w_key = self.weights()
 
     def _on_knobs(self) -> None:
         self._apply_weights()
         self._refresh_quick()
-        self._refresh_alike()
         self._refresh_roster()
         self._retune()
 
     def _refresh_all(self) -> None:
         self._refresh_seed_told()
         self._refresh_quick()
-        self._refresh_alike()
         self._refresh_chain()
         self._refresh_radio()
 
@@ -750,7 +705,7 @@ class SetBuilderPanel(QWidget):
             listed.append({
                 "cost": round(value, 3),
                 **reading(frame.loc[i], common),
-                "sound": round(parts["map"], 3),
+                "sound": round(parts["sound"], 3),
                 "bpm cost": round(parts["bpm"], 2),
                 "key cost": round(parts["key"], 2),
                 "_path": frame.at[i, "path"],
@@ -777,85 +732,19 @@ class SetBuilderPanel(QWidget):
         self._retitle(0, len(picks) - 1)
         self._tell_rings(mixes=[i for i, _ in picks[1:]])
 
-    # --- Sounds like it ---
-    def _refresh_alike(self) -> None:
-        if self._lib is None:
-            return
-        if self._seed is None:
-            self._alike.setCurrentIndex(0)
-            self._retitle(1, 0)
-            self._tell_rings()
-            return
-        self._alike.setCurrentIndex(1)
-        path = self._lib.frame.at[self._seed, "path"]
-        if self._asked_alike == path:
-            self._show_alike()
-        else:
-            self._retitle(1, 0)
-            self._alike_ask.setVisible(True)
-            self._alike_wait.setVisible(True)
-            self._alike_table.setVisible(False)
-            self._alike_add.setVisible(False)
-            self._alike_send.setVisible(False)
-            self._tell_rings()
-
-    def _on_ask_alike(self) -> None:
-        if self._lib is not None and self._seed is not None:
-            self._asked_alike = self._lib.frame.at[self._seed, "path"]
-            self._show_alike()
-
-    def _on_reset_alike(self) -> None:
-        """Come `_on_reset_mixes`, per la lista di quello che somiglia."""
-        self._asked_alike = None
-        self._alike_table.clear_picks()
-        self._refresh_alike()
-
-    def _show_alike(self) -> None:
-        frame, common = self._lib.frame, self._lib.common
-        rows = ([(self._seed, 1.0)]
-                + self._lib.store.similar(self._seed, k=self._count.value(),
-                                          limit=len(frame)))
-        listed = [{"similarity": round(score, 3),
-                   **reading(frame.loc[i], common),
-                   "_path": frame.at[i, "path"]}
-                  for i, score in rows]
-        shown = pd.DataFrame(listed,
-                             columns=["similarity", *READING_ORDER, "_path"])
-        self._alike_table.set_tracks(
-            shown, genre_colors(frame, shown["genres"], dark=theme.DARK))
-        marks, told = double_marks(
-            list(shown["_path"]),
-            self._vectors_for([i for i, _ in rows]))
-        self._alike_table.set_marks(marks)
-        self._alike_doubles.setText(told or "")
-        self._alike_doubles.setVisible(told is not None)
-        self._alike_ask.setVisible(False)
-        self._alike_wait.setVisible(False)
-        self._alike_table.setVisible(True)
-        self._alike_add.setVisible(True)
-        self._alike_send.setVisible(True)
-        self._retitle(1, len(rows) - 1)
-        self._tell_rings(alike=[i for i, _ in rows[1:]])
-
-    def _tell_rings(self, mixes: list[int] | None = None,
-                    alike: list[int] | None = None) -> None:
-        """Gli anelli delle proposte sulla mappa: SOLO le liste aperte per il
+    def _tell_rings(self, mixes: list[int] | None = None) -> None:
+        """Gli anelli delle proposte sulla mappa: SOLO la lista aperta per il
         seme corrente, come `suggested()` di là — anelli attorno a una lista
         che nessuno ha visto direbbero che una scelta è stata fatta."""
         if self._lib is None or self._seed is None:
-            self.suggestions_changed.emit([], [])
+            self.suggestions_changed.emit([])
             return
         path = self._lib.frame.at[self._seed, "path"]
         if mixes is None and self._asked_mixes == path:
             mixes = [i for i, _ in nearest(self._lib.cost, self._seed,
                                            k=self._count.value(),
                                            pool=self._pool)]
-        if alike is None and self._asked_alike == path:
-            alike = [i for i, _ in
-                     self._lib.store.similar(self._seed,
-                                             k=self._count.value(),
-                                             limit=self._lib.placed)]
-        self.suggestions_changed.emit(mixes or [], alike or [])
+        self.suggestions_changed.emit(mixes or [])
 
     def _vectors_for(self, indices: list[int]) -> np.ndarray | None:
         """Gli embedding di questi indici, o None se la libreria non porta
@@ -924,7 +813,7 @@ class SetBuilderPanel(QWidget):
     def _refresh_chain(self) -> None:
         if self._lib is None:
             return
-        self._retitle(2, len(self._graph))
+        self._retitle(1, len(self._graph))
         if not len(self._graph):
             self._chain.setCurrentIndex(0)
             if self._candidates:
@@ -1163,7 +1052,7 @@ class SetBuilderPanel(QWidget):
             widget.setVisible(self._radio_key is not None)
         if self._radio_key is None:
             self._radio_doubles.setVisible(False)
-            self._retitle(3, 0)
+            self._retitle(2, 0)
 
     def _on_ask_radio(self) -> None:
         if self._lib is None or self._lib.store is None:
@@ -1213,7 +1102,7 @@ class SetBuilderPanel(QWidget):
                        self._radio_add, self._radio_send):
             widget.setVisible(True)
         self._radio_again.setEnabled(bool(ordered))
-        self._retitle(3, len(ordered))
+        self._retitle(2, len(ordered))
 
     def _radio_unticked(self) -> list[int]:
         ticked = set(self._radio_table.selected_paths())

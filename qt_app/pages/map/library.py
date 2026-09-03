@@ -23,7 +23,7 @@ class Library:
     """Quello che ogni pannello della pagina riceve, già derivato.
 
     `cost` è il costo di transizione coi pesi CONDIVISI di Quick List,
-    Sounds like it e Chain Maker: il pannello dei pesi lo muta, tutti lo
+    Chain Maker e Radio: il pannello dei pesi lo muta, tutti lo
     interrogano — come gli slider unici della pagina Streamlit. La playlist
     invece legge i suoi scarti a pesi fermi (1,1,1) e si costruisce il
     proprio, come la sua sezione di là.
@@ -76,6 +76,6 @@ def load_library() -> tuple[MapStore, Library | None]:
     common = (mood_scale.popularity(list(frame["moods"]))
               if "moods" in frame else {})
     at_path = {row["path"]: i for i, row in enumerate(store.rows[:len(frame)])}
-    cost = TransitionCost(store.coords[:len(frame)], frame["bpm"].tolist(),
-                          frame["camelot"].tolist())
+    cost = TransitionCost(store.embeddings[:len(frame)],
+                          frame["bpm"].tolist(), frame["camelot"].tolist())
     return store, Library(store, frame, common, at_path, cost)

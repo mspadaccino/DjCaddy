@@ -1,7 +1,6 @@
 """La radio: una playlist da un GRUPPO di brani, non da uno solo.
 
-Quick List e Sounds like it partono da un seme e rispondono "cosa gli sta
-vicino". Qui si parte da un insieme — i preferiti, un lazo sulla mappa —
+Quick List parte da un seme e risponde "cosa gli sta vicino". Qui si parte da un insieme — i preferiti, un lazo sulla mappa —
 e si risponde "cosa va in quella direzione": è la modalità "radio" dei
 servizi di streaming, riscritta sugli embedding della mappa.
 

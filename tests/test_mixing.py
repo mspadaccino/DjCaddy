@@ -15,6 +15,13 @@ from core.analysis.mixing import (
 )
 
 
+def _fan(*degrees) -> np.ndarray:
+    """Vettori unitari a ventaglio: la distanza di suono cresce con
+    l'angolo, che è quello che le rette di prima facevano con la x."""
+    angles = np.radians(degrees)
+    return np.column_stack([np.cos(angles), np.sin(angles)]).astype(np.float32)
+
+
 def test_camelot_from_every_way_of_writing_a_key():
     assert to_camelot("A minor") == "8A"
     assert to_camelot("C") == "8B"          # maggiore sottinteso
@@ -88,8 +95,8 @@ def test_bpm_distance_folds_octaves():
 
 
 def _library():
-    coords = np.array([[0, 0], [1, 0], [10, 0], [11, 0]], dtype=np.float32)
-    return TransitionCost(coords, [128, 128, 128, 128], ["8A", "8A", "8A", "8A"])
+    return TransitionCost(_fan(0, 15, 60, 75), [128, 128, 128, 128],
+                          ["8A", "8A", "8A", "8A"])
 
 
 def test_cost_is_normalized_and_symmetric_here():
@@ -100,12 +107,11 @@ def test_cost_is_normalized_and_symmetric_here():
 
 
 def test_weights_change_the_ranking():
-    coords = np.array([[0, 0], [0.1, 0], [5, 0]], dtype=np.float32)
-    # Il vicino sulla mappa ha il tempo sbagliato, il lontano ce l'ha giusto.
-    cost = TransitionCost(coords, [128, 150, 128], ["8A", "8A", "8A"])
-    cost.w_map, cost.w_bpm, cost.w_key = 1.0, 0.0, 0.0
+    # Il vicino di suono ha il tempo sbagliato, il lontano ce l'ha giusto.
+    cost = TransitionCost(_fan(0, 2, 75), [128, 150, 128], ["8A", "8A", "8A"])
+    cost.w_sound, cost.w_bpm, cost.w_key = 1.0, 0.0, 0.0
     assert nearest(cost, 0, k=1)[0][0] == 1
-    cost.w_map, cost.w_bpm, cost.w_key = 0.0, 1.0, 0.0
+    cost.w_sound, cost.w_bpm, cost.w_key = 0.0, 1.0, 0.0
     assert nearest(cost, 0, k=1)[0][0] == 2
 
 
@@ -133,9 +139,8 @@ def test_along_path_honours_the_pool():
 
 
 def test_magic_sort_beats_the_order_it_was_given():
-    # Quattro brani in fila sulla mappa, dati in ordine sparso.
-    coords = np.array([[0, 0], [1, 0], [2, 0], [3, 0]], dtype=np.float32)
-    cost = TransitionCost(coords, [128] * 4, ["8A"] * 4)
+    # Quattro brani in fila nel suono, dati in ordine sparso.
+    cost = TransitionCost(_fan(0, 15, 30, 45), [128] * 4, ["8A"] * 4)
     given = [0, 3, 1, 2]
 
     def total(order):
@@ -170,34 +175,40 @@ def test_a_stroke_that_goes_somewhere_is_a_path():
 # --- la tendenza: cercare da dove la catena sta andando ---
 
 def _line():
-    coords = np.array([[0, 0], [1, 0], [2, 0], [3, 0], [-1, 0]], dtype=np.float32)
-    return TransitionCost(coords, [120, 124, 128, 132, 116],
+    # In fila sul ventaglio: la 0 sta un po' più indietro della 2 rispetto
+    # alla 1, così da 1 la rosa ha un ordine e non un pareggio.
+    return TransitionCost(_fan(-5, 15, 30, 45, -20),
+                          [120, 124, 128, 132, 116],
                           ["8A", "8A", "8A", "8A", "8A"])
 
 
 def test_from_point_at_a_track_is_the_cost_from_that_track():
     cost = _line()
-    point = (cost.coords[1], cost.bpm[1], cost.camelot[1])
+    point = (cost.vectors[1], cost.bpm[1], cost.camelot[1])
     assert np.allclose(cost.from_point(point, [0, 2, 3]), cost.to(1, [0, 2, 3]))
 
 
-def test_ahead_continues_the_step_on_the_map_and_in_tempo():
+def test_ahead_continues_the_step_in_sound_and_in_tempo():
     cost = _line()
-    coord, bpm, key = cost.ahead(previous=0, last=1, trend=1.0)
-    assert np.allclose(coord, [2, 0]) and bpm == 128 and key == "8A"
-    coord, bpm, _ = cost.ahead(previous=0, last=1, trend=0.0)
-    assert np.allclose(coord, [1, 0]) and bpm == 124
+    vector, bpm, key = cost.ahead(previous=0, last=1, trend=1.0)
+    assert bpm == 128 and key == "8A"
+    # Un passo avanti da 1 nella direzione 0→1 sta più vicino alla 2 che
+    # alla 1 stessa.
+    at = (vector, 128, "8A")
+    assert cost.from_point(at, [2])[0] < cost.from_point(at, [1])[0]
+    vector, bpm, _ = cost.ahead(previous=0, last=1, trend=0.0)
+    assert np.allclose(vector, cost.vectors[1]) and bpm == 124
 
 
 def test_ahead_keeps_the_last_tempo_when_one_is_unknown():
-    cost = TransitionCost([[0, 0], [1, 0]], [None, 124], ["8A", "8A"])
+    cost = TransitionCost(_fan(0, 15), [None, 124], ["8A", "8A"])
     assert cost.ahead(0, 1, 1.0)[1] == 124
 
 
 def test_nearest_looks_ahead_when_told_to():
     cost = _line()
-    # Da 1, il più vicino è 0 o 2 alla pari (e 0 viene prima). Guardando
-    # avanti di un passo pieno il punto è la 2 stessa, e la 3 batte la 0.
-    assert [i for i, _ in nearest(cost, 1, k=2)] == [0, 2]
+    # Da 1, la 2 poi la 0. Guardando avanti di un passo pieno il punto sta
+    # sulla 2, e la 3 batte la 0.
+    assert [i for i, _ in nearest(cost, 1, k=2)] == [2, 0]
     ahead = cost.ahead(0, 1, 1.0)
     assert [i for i, _ in nearest(cost, 1, k=2, ahead=ahead)] == [2, 3]

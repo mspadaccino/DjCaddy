@@ -42,9 +42,15 @@ def library() -> pd.DataFrame:
     ])
 
 
+def _fan(*degrees) -> np.ndarray:
+    """Vettori unitari a ventaglio: la distanza di suono cresce con
+    l'angolo."""
+    angles = np.radians(degrees)
+    return np.column_stack([np.cos(angles), np.sin(angles)]).astype(np.float32)
+
+
 def cost_of(frame: pd.DataFrame) -> TransitionCost:
-    coords = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
-    return TransitionCost(coords, frame["bpm"].tolist(),
+    return TransitionCost(_fan(0, 15, 30), frame["bpm"].tolist(),
                           frame["camelot"].tolist())
 
 
@@ -243,9 +249,9 @@ def test_unticking_survives_a_knob_touch(qtbot):
 
 
 def test_every_pickable_list_can_be_taken_or_cleared_in_one_gesture(qtbot):
-    """Select all / none sulle quattro tabelle a spunte di Build a set: le
-    liste arrivano a venti righe, e prenderle tutte non è un gesto da fare
-    riga per riga."""
+    """Select all / none sulle tre tabelle a spunte di Build a set (più il
+    gruppo): le liste arrivano a venti righe, e prenderle tutte non è un
+    gesto da fare riga per riga."""
     from PySide6.QtWidgets import QPushButton
 
     from qt_app.pages.map.library import Library
@@ -261,12 +267,12 @@ def test_every_pickable_list_can_be_taken_or_cleared_in_one_gesture(qtbot):
     panel.set_library(lib)
 
     labels = [b.text() for b in panel.findChildren(QPushButton)]
-    assert labels.count("Select all") == 4      # gruppo, Quick, Sounds, Radio
-    assert labels.count("Select none") == 4
+    assert labels.count("Select all") == 3      # gruppo, Quick List, Radio
+    assert labels.count("Select none") == 3
 
     panel.set_choice(None, [0, 1, 2], [0, 1, 2])
     for table in (panel._group_table, panel._mixes_table,
-                  panel._alike_table, panel._radio_table):
+                  panel._radio_table):
         table.set_tracks(numbered_rows(frame, [0, 1, 2], common={}))
         table.set_all_picked(True)
         assert len(table.selected_paths()) == 3
@@ -293,7 +299,7 @@ def test_reset_brings_back_the_button_that_makes_the_list(qtbot):
     panel.set_choice(0, [], [0, 1, 2])
 
     rings = []
-    panel.suggestions_changed.connect(lambda m, a: rings.append((m, a)))
+    panel.suggestions_changed.connect(rings.append)
     panel._on_ask_mixes()
     assert panel._mixes_ask.isHidden()           # il bottone si è fatto da parte
     panel._mixes_table.set_all_picked(True)
@@ -305,7 +311,7 @@ def test_reset_brings_back_the_button_that_makes_the_list(qtbot):
     assert not panel._mixes_ask.isHidden()
     assert panel._mixes_table.isHidden()
     assert panel._mixes_table.selected_paths() == []
-    assert rings and rings[-1][0] == []          # anelli tolti dalla mappa
+    assert rings and rings[-1] == []             # anelli tolti dalla mappa
     assert not panel._tabs.tabText(0).endswith(")")
     # I settaggi restano: è la lista che riparte, non la pagina.
     assert panel._count.value() == 20
@@ -315,27 +321,21 @@ def test_reset_brings_back_the_button_that_makes_the_list(qtbot):
     assert panel._mixes_ask.isHidden()
 
 
-def test_reset_of_one_list_leaves_the_other_alone(qtbot):
-    """Quick List e Sounds like it sono due domande diverse sullo stesso
-    seme: chiuderne una non chiude l'altra."""
-    from qt_app.pages.map.library import Library
-    from qt_app.pages.map.set_builder import SetBuilderPanel
-    from qt_app.state import AppState
-
-    frame = library()
-    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
-    lib = Library(store=None, frame=frame, common={}, at_path=at_path,
-                  cost=cost_of(frame))
-    panel = SetBuilderPanel(AppState(), wire_table=lambda table: None)
-    qtbot.addWidget(panel)
-    panel.set_library(lib)
-    panel.set_choice(0, [], [0, 1, 2])
+def test_reset_of_one_list_leaves_the_other_alone(qtbot, tmp_path,
+                                                  monkeypatch):
+    """Quick List e Radio sono due domande diverse sullo stesso seme:
+    chiuderne una non chiude l'altra."""
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, _ = _radio_panel(qtbot, tmp_path)
+    panel._radio_from.setCurrentIndex(1)
+    panel.set_choice(0, [], [0])
 
     panel._on_ask_mixes()
+    panel._on_ask_radio()
     asked = panel._asked_mixes
-    panel._on_reset_alike()
+    panel._on_reset_radio()
     assert panel._asked_mixes == asked
-    assert panel._asked_alike is None
+    assert panel._radio_key is None
 
 
 # --- la ricerca per nome ---
@@ -461,8 +461,7 @@ def _radio_library():
          "folder": "/r", "path": f"/r/t{n}.mp3", "duration": 200.0}
         for n in range(8)])
     at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
-    coords = np.column_stack([np.arange(8.0), np.zeros(8)])
-    cost = TransitionCost(coords, frame["bpm"].tolist(),
+    cost = TransitionCost(vectors, frame["bpm"].tolist(),
                           frame["camelot"].tolist())
     store = SimpleNamespace(embeddings=vectors)
     return Library(store=store, frame=frame, common={}, at_path=at_path,
@@ -498,7 +497,7 @@ def test_radio_from_the_map_selection_tunes_around_the_group(qtbot, tmp_path,
     # Attorno all'asse x, senza i semi: resta fuori solo la 7, a 150 gradi.
     assert set(panel._radio_shown) == {2, 3, 4, 5, 6}
     assert len(panel._radio_table.selected_paths()) == 5    # tutte spuntate
-    assert panel._tabs.tabText(3).endswith(f"({len(panel._radio_shown)})")
+    assert panel._tabs.tabText(2).endswith(f"({len(panel._radio_shown)})")
 
 
 def test_radio_flag_switches_to_the_favourites(qtbot, tmp_path, monkeypatch):
@@ -561,14 +560,14 @@ def test_chain_pick_is_noted_with_the_roster_it_came_from(qtbot, tmp_path,
 def test_chain_trend_looks_ahead_of_the_source(qtbot, tmp_path, monkeypatch):
     monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
     panel, state, _ = _radio_panel(qtbot, tmp_path)
-    # Catena 1 → 2 sulla retta: fermo, da 2 la 1 è presa e 3 batte... alla
-    # pari con niente; con la tendenza il punto sta sulla 3 e la 4 passa
-    # davanti alla 0.
+    # Catena 1 (20°) → 2 (40°). Ferma, da 2 viene prima la 4 (70°) e poi
+    # la 0 (0°). Con la tendenza il punto sta verso i 60°: la 4 resta prima
+    # e la 3 (90°) passa davanti alla 0.
     panel._on_chain_reorder(["/r/t1.mp3", "/r/t2.mp3"])
     assert panel._roster_told.text().endswith("</b>")
     still = list(panel._roster_table.model_.frame["_path"])
     panel._trend.setValue(1.0)
     assert "looking ahead" in panel._roster_told.text()
     ahead = list(panel._roster_table.model_.frame["_path"])
-    assert still[0] == "/r/t3.mp3" and ahead[:2] == ["/r/t3.mp3", "/r/t4.mp3"]
-    assert still.index("/r/t0.mp3") < still.index("/r/t4.mp3")
+    assert still[:2] == ["/r/t4.mp3", "/r/t0.mp3"]
+    assert ahead[:2] == ["/r/t4.mp3", "/r/t3.mp3"]

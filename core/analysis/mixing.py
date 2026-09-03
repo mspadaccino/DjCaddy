@@ -4,7 +4,7 @@ Il cuore della sezione Map: una playlist non è una lista di testo ma un
 grafo orientato pesato, dove i nodi sono i brani e l'arco A→B vale quanto
 è facile mixarli. Il costo è quello della specifica:
 
-    D(A,B) = w1·d_umap(A,B) + w2·d_bpm(A,B) + w3·d_camelot(A,B)
+    D(A,B) = w1·d_sound(A,B) + w2·d_bpm(A,B) + w3·d_camelot(A,B)
 
 Le tre distanze sono tutte normalizzate 0..1, altrimenti i pesi non
 sarebbero confrontabili: `w1=w2=w3` deve voler dire "contano uguale".
@@ -182,67 +182,76 @@ def camelot_shift(a: str | None, b: str | None) -> tuple[int, bool] | None:
 class TransitionCost:
     """La funzione D(A,B) applicata a una libreria intera.
 
-    Si costruisce una volta sui vettori della libreria e poi si interroga per
-    indice: le distanze sulla mappa si calcolano in blocco con numpy, che su
-    90.000 brani è la differenza fra millisecondi e minuti.
+    Si costruisce una volta sui vettori della libreria e poi si interroga
+    per indice. `vectors` sono gli embedding (N × 1280): la distanza di
+    suono è 1 − coseno fra i due, tagliata a 0..1. Prima era la distanza
+    sulla mappa in due dimensioni, che dell'embedding è un'ombra: due brani
+    vicini nell'ombra non lo sono per forza, e viceversa. Misurare nelle
+    1280 dimensioni fa di "cosa gli somiglia" il caso di Quick List coi
+    pesi 1, 0, 0 — e la mappa torna a servire a guardare, non a misurare.
+
+    Su 90.000 brani la matrice dei vettori è mezzo giga: non si copia (è
+    una vista dello store) e si legge per righe — tutte quando i bersagli
+    sono la libreria intera, le sole che servono altrimenti.
     """
 
-    def __init__(self, coords, bpm, camelot,
-                 w_map: float = 1.0, w_bpm: float = 1.0, w_key: float = 1.0):
-        self.coords = np.asarray(coords, dtype=np.float32)
+    def __init__(self, vectors, bpm, camelot,
+                 w_sound: float = 1.0, w_bpm: float = 1.0, w_key: float = 1.0):
+        self.vectors = np.atleast_2d(np.asarray(vectors, dtype=np.float32))
+        self.norms = np.maximum(np.linalg.norm(self.vectors, axis=1), 1e-9)
         self.bpm = list(bpm)
         self.camelot = list(camelot)
-        self.w_map, self.w_bpm, self.w_key = w_map, w_bpm, w_key
-        # Scala di riferimento della mappa: la diagonale del riquadro che
-        # contiene tutti i punti. Dividere per lei rende d_umap un 0..1
-        # confrontabile con le altre due, qualunque siano le unità che UMAP
-        # ha prodotto questa volta.
-        if len(self.coords):
-            span = self.coords.max(axis=0) - self.coords.min(axis=0)
-            self.scale = float(np.hypot(*span)) or 1.0
-        else:
-            self.scale = 1.0
+        self.w_sound, self.w_bpm, self.w_key = w_sound, w_bpm, w_key
 
-    def map_distances(self, index: int) -> np.ndarray:
-        """Distanza normalizzata sulla mappa da `index` a tutti gli altri."""
-        delta = self.coords - self.coords[index]
-        return np.hypot(delta[:, 0], delta[:, 1]) / self.scale
+    def sound_distances(self, vector, targets) -> np.ndarray:
+        """1 − coseno fra `vector` e ogni bersaglio, tagliato a 0..1."""
+        targets = np.asarray(list(targets), dtype=int)
+        vector = np.asarray(vector, dtype=np.float32)
+        scale = max(float(np.linalg.norm(vector)), 1e-9)
+        # Indicizzare la matrice copia le righe chieste: su mezza libreria
+        # sono centinaia di mega. Da un quarto in su costa meno leggerla
+        # tutta e tenere della risposta solo quello che serve.
+        if len(targets) * 4 >= len(self.vectors):
+            dots = (self.vectors @ vector)[targets]
+        else:
+            dots = self.vectors[targets] @ vector
+        cosine = dots / (self.norms[targets] * scale)
+        return np.clip(1.0 - cosine, 0.0, 1.0)
 
     def to(self, source: int, targets) -> np.ndarray:
         """Il costo D(source, t) per ogni t in `targets`."""
-        return self.from_point((self.coords[source], self.bpm[source],
+        return self.from_point((self.vectors[source], self.bpm[source],
                                 self.camelot[source]), targets)
 
     def from_point(self, point, targets) -> np.ndarray:
-        """Il costo da un punto che non è un brano: `(coordinate, bpm,
+        """Il costo da un punto che non è un brano: `(vettore, bpm,
         camelot)`. Serve alla tendenza del Chain Maker, che cerca vicino a
         dove la catena STA ANDANDO, non a dove è arrivata."""
         targets = np.asarray(list(targets), dtype=int)
         if not len(targets):
             return np.empty(0, dtype=np.float32)
-        coord, bpm, camelot = point
-        delta = self.coords[targets] - np.asarray(coord, dtype=np.float32)
-        on_map = np.hypot(delta[:, 0], delta[:, 1]) / self.scale
+        vector, bpm, camelot = point
+        sound = self.sound_distances(vector, targets)
         tempo = np.array([bpm_distance(bpm, self.bpm[t]) for t in targets])
         key = np.array([camelot_distance(camelot, self.camelot[t])
                         for t in targets])
-        return (self.w_map * on_map + self.w_bpm * tempo + self.w_key * key) / \
-            max(1e-9, self.w_map + self.w_bpm + self.w_key)
+        return (self.w_sound * sound + self.w_bpm * tempo + self.w_key * key) / \
+            max(1e-9, self.w_sound + self.w_bpm + self.w_key)
 
     def ahead(self, previous: int, last: int, trend: float) -> tuple:
         """Dove sarebbe il prossimo brano se la catena continuasse dritta.
 
-        Da `previous` a `last` c'è una direzione, sulla mappa e nel tempo;
+        Da `previous` a `last` c'è una direzione, nel suono e nel tempo;
         `trend` dice quanto proseguirla: a 0 si sta fermi su `last`, a 1 si
         fa un altro passo uguale. La tonalità non ha una direzione — è una
         ruota — e resta quella di `last`.
         """
-        coord = self.coords[last] + trend * (self.coords[last]
-                                             - self.coords[previous])
+        vector = self.vectors[last] + trend * (self.vectors[last]
+                                               - self.vectors[previous])
         bpm = self.bpm[last]
         if bpm and self.bpm[previous]:
             bpm = bpm + trend * (bpm - self.bpm[previous])
-        return coord, bpm, self.camelot[last]
+        return vector, bpm, self.camelot[last]
 
     def between(self, a: int, b: int) -> float:
         return float(self.to(a, [b])[0])
@@ -250,7 +259,7 @@ class TransitionCost:
     def parts(self, a: int, b: int) -> dict:
         """Le tre distanze separate: serve a mostrare PERCHÉ un brano è vicino."""
         return {
-            "map": float(self.map_distances(a)[b]),
+            "sound": float(self.sound_distances(self.vectors[a], [b])[0]),
             "bpm": bpm_distance(self.bpm[a], self.bpm[b]),
             "key": camelot_distance(self.camelot[a], self.camelot[b]),
         }

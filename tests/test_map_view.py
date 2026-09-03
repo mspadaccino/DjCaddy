@@ -197,9 +197,10 @@ def test_the_playlist_path_does_not_need_a_selection():
 
 
 def _line_cost():
-    """Quattro brani in fila su una retta: il costo è la distanza."""
-    coords = np.column_stack([np.arange(4.0), np.zeros(4)])
-    return TransitionCost(coords, [120] * 4, ["8A"] * 4)
+    """Quattro brani in fila nel suono: il costo cresce con l'angolo."""
+    angles = np.radians([0, 15, 30, 45])
+    vectors = np.column_stack([np.cos(angles), np.sin(angles)])
+    return TransitionCost(vectors, [120] * 4, ["8A"] * 4)
 
 
 def test_a_group_appended_starts_from_what_the_tail_reaches_cheapest():

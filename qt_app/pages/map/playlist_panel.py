@@ -102,7 +102,7 @@ def appended(current: list[str], incoming: list[str]
 
 
 # Sopra questa somiglianza (coseno sugli embedding, la stessa misura di
-# «Sounds like it») due brani della playlist si segnalano come lo stesso
+# w·sound di Quick List) due brani della playlist si segnalano come lo stesso
 # pezzo sotto nomi diversi. Alta apposta: verso 0.9 si pescano i vicini di
 # genere, qui si vuole lo stesso audio — rip, edit, radio cut. È solo una
 # tinta informativa: sbagliare per eccesso costa un'occhiata, non un brano.
@@ -491,7 +491,7 @@ class PlaylistPanel(QWidget):
     def set_library(self, lib: Library) -> None:
         self._lib = lib
         placed = lib.placed
-        self._cost = TransitionCost(lib.store.coords[:placed],
+        self._cost = TransitionCost(lib.store.embeddings[:placed],
                                     lib.frame["bpm"].tolist(),
                                     lib.frame["camelot"].tolist())
         # Gli indici dei capitoli appartenevano al frame di prima: se dopo

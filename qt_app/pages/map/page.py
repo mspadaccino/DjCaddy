@@ -195,7 +195,6 @@ class MapPage(QWidget):
         self._emb_dirty = True
         self._pl_selection: list[str] = []
         self._mixes: list[int] = []
-        self._alike: list[int] = []
         self._chain: list[str] = []
         self._overlay_queued = False
         self._choice_queued = False
@@ -490,7 +489,6 @@ class MapPage(QWidget):
             "selected": selected,
             "chained": [at_path[p] for p in self._chain if p in at_path],
             "mixes": list(self._mixes),
-            "alike": list(self._alike),
             "pl_selection": [at_path[p] for p in self._pl_selection
                              if p in at_path],
             "playing": at_path.get(state.now_playing),
@@ -709,9 +707,9 @@ class MapPage(QWidget):
         self._playlist.replace(indices)
         self._panels.setCurrentWidget(self._playlist)
 
-    def _on_suggestions(self, mixes: list[int], alike: list[int]) -> None:
-        if (mixes, alike) != (self._mixes, self._alike):
-            self._mixes, self._alike = list(mixes), list(alike)
+    def _on_suggestions(self, mixes: list[int]) -> None:
+        if mixes != self._mixes:
+            self._mixes = list(mixes)
             self._schedule_overlays()
 
     def _on_chain(self, walk: list[str]) -> None:

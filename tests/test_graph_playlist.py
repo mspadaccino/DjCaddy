@@ -5,6 +5,13 @@ from core.analysis.graph_playlist import CARD_SPAN, GraphPlaylist, suggestions
 from core.analysis.mixing import TransitionCost
 
 
+def _fan(*degrees) -> np.ndarray:
+    """Vettori unitari a ventaglio: la distanza di suono cresce con
+    l'angolo, che è quello che le rette di prima facevano con la x."""
+    angles = np.radians(degrees)
+    return np.column_stack([np.cos(angles), np.sin(angles)]).astype(np.float32)
+
+
 def test_start_places_two_tracks_symmetrically():
     graph = GraphPlaylist().start("a", "b")
     assert graph.tracks == ["a", "b"]
@@ -194,8 +201,8 @@ def test_straighten_of_an_empty_board_does_nothing():
 
 
 def _library():
-    coords = np.array([[0, 0], [1, 0], [2, 0], [10, 0]], dtype=np.float32)
-    return TransitionCost(coords, [128, 128, 128, 128], ["8A", "8A", "8A", "8A"])
+    return TransitionCost(_fan(0, 15, 30, 150), [128, 128, 128, 128],
+                          ["8A", "8A", "8A", "8A"])
 
 
 def test_suggestions_exclude_what_is_already_on_the_board():
@@ -294,8 +301,7 @@ def test_the_same_number_leaves_the_chain_alone():
 
 
 def test_suggestions_can_look_ahead_of_the_source():
-    coords = np.array([[0, 0], [1, 0], [2, 0], [-1, 0]], dtype=np.float32)
-    cost = TransitionCost(coords, [128] * 4, ["8A"] * 4)
+    cost = TransitionCost(_fan(0, 15, 30, -15), [128] * 4, ["8A"] * 4)
     # Sorgente 1, arrivata dalla 0: la 3 sta dietro, la 2 davanti. Ferma,
     # la rosa le dà alla pari; in tendenza la 2 passa avanti.
     assert [i for i, _, _ in suggestions(cost, 1, {0}, k=2)] == [2, 3]

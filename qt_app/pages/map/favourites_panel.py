@@ -1,7 +1,7 @@
 """La scheda Favourites: i brani preferiti, con tutti i dettagli soliti.
 
-La stella si mette e si toglie da qui come da Quick List, Sounds like it,
-Chain Maker e dalla Playlist — è la stessa domanda ovunque venga fatta
+La stella si mette e si toglie da qui come da Quick List, Chain Maker,
+Radio e dalla Playlist — è la stessa domanda ovunque venga fatta
 (`AppState.favourites`, `TrackTable.favorite_requested`). Qui è anche il
 gesto che porta i preferiti nella scaletta: si spuntano le righe volute e
 "Add selected tracks to playlist" le manda in coda, come ogni altra lista
@@ -54,8 +54,8 @@ class FavouritesPanel(QWidget):
 
         self._empty = _dim(
             "No favourites yet: click the ☆ next to ▶ on the seed row, or "
-            "the ★ column of Quick List, Sounds like it, Chain Maker and "
-            "the Playlist, to add a track here.")
+            "the ★ column of Quick List, Chain Maker, Radio and the "
+            "Playlist, to add a track here.")
 
         self._table = TrackTable(checkable=True, favouritable=True)
         wire_table(self._table)
