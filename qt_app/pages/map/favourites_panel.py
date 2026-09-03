@@ -54,7 +54,7 @@ class FavouritesPanel(QWidget):
 
         self._empty = _dim(
             "No favourites yet: click the ☆ next to ▶ on the seed row, or "
-            "the ★ column of Quick List, Chain Maker, Radio and the "
+            "the ★ column of Quick List, Chain Maker, Radio Mix and the "
             "Playlist, to add a track here.")
 
         self._table = TrackTable(checkable=True, favouritable=True)

@@ -571,3 +571,18 @@ def test_chain_trend_looks_ahead_of_the_source(qtbot, tmp_path, monkeypatch):
     ahead = list(panel._roster_table.model_.frame["_path"])
     assert still[:2] == ["/r/t4.mp3", "/r/t0.mp3"]
     assert ahead[:2] == ["/r/t4.mp3", "/r/t3.mp3"]
+
+
+def test_auto_chain_grows_the_chain_and_is_noted_apart_from_picks(
+        qtbot, tmp_path, monkeypatch):
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, journal = _radio_panel(qtbot, tmp_path)
+    panel._on_start_by_name(0)
+    panel._auto_steps.setValue(3)
+    panel._on_auto_chain()
+    walk = panel._walk()
+    assert len(walk) == 4 and walk[0] == "/r/t0.mp3"
+    assert panel._source == walk[-1]
+    lines = journal.read()
+    assert [line["kind"] for line in lines] == ["auto_chain"]
+    assert lines[0]["added"] == walk[1:] and lines[0]["steps"] == 3

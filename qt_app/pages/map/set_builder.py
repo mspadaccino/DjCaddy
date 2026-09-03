@@ -1,7 +1,7 @@
 """Build a set: i tre modi di passare dalla mappa a una scaletta.
 
 Quick List (cosa ci si mixa sopra), Chain Maker (un brano alla volta) e
-Radio (una playlist da un GRUPPO: i preferiti o il lazo), sopra un pannello
+Radio Mix (una playlist da un GRUPPO: i preferiti o il lazo), sopra un pannello
 unico di pesi e "quanti elencare", che sono gli stessi filtri di partenza
 per tutte. C'era una quarta scheda, Sounds like it, che rispondeva "cosa
 gli somiglia" sui 1280 numeri dell'embedding: da quando il termine sound
@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
 
 from core.analysis import mood_scale, radio
 from core.analysis.duplicates import folded, normalized_name, song_key
-from core.analysis.graph_playlist import GraphPlaylist, suggestions
+from core.analysis.graph_playlist import GraphPlaylist, auto_chain, suggestions
 from core.analysis.journal import Journal, facts
 from core.analysis.mixing import magic_sort, nearest, sorted_after
 from core.viz.board import _label, chain_table, roster_table
@@ -79,7 +79,11 @@ WAITING_FOR_THE_BUTTON = ("Nothing built yet — press the button above. The "
 
 # I titoli delle schede, senza conteggio: il conteggio ce lo appende
 # `_retitle` quando c'è qualcosa da contare.
-TAB_TITLES = ("✨ Quick List", "🔗 Chain Maker", "📻 Radio")
+TAB_TITLES = ("✨ Quick List", "🔗 Chain Maker", "📻 Radio Mix")
+
+# Quanti anelli aggiunge l'Auto chain in un colpo, e al massimo.
+AUTO_STEPS_DEFAULT = 8
+AUTO_STEPS_MAX = 50
 
 # Da dove parte la Radio: la scelta del menu, nell'ordine del menu.
 RADIO_SOURCES = ("Favourites", "Map selection")
@@ -246,7 +250,7 @@ class SetBuilderPanel(QWidget):
         self._count.setSingleStep(SUGGESTION_STEP)
         self._count.setValue(SUGGESTION_DEFAULT)
         self._count.setToolTip("How many to list — Quick List and "
-                               "Radio.")
+                               "Radio Mix.")
         self._count.valueChanged.connect(lambda _: self._on_knobs())
         weights.addWidget(self._count)
         weights.addStretch(1)
@@ -358,7 +362,9 @@ class SetBuilderPanel(QWidget):
             "1280 dimensions of the embedding: with BPM and key at 0 this "
             "is «what sounds like it», tempo and key aside. Only tracks "
             "that pass the filters are considered. The first row is the "
-            "seed itself.")
+            "seed itself. A ranking, not a set: the twenty are judged one "
+            "by one against the seed, and may well sound alike — Radio Mix "
+            "is the one that builds a list where they do not.")
         self._mixes_ask = QPushButton("✨ Make the list")
         self._mixes_ask.setToolTip(mixes_why)
         self._mixes_ask.clicked.connect(self._on_ask_mixes)
@@ -458,7 +464,27 @@ class SetBuilderPanel(QWidget):
         self._roster_add.setToolTip("One after the other: ticking three "
                                     "means 'then these three'.")
         self._roster_add.clicked.connect(self._on_roster_add)
-        gbox.addWidget(self._roster_add)
+        grow = QHBoxLayout()
+        grow.addWidget(self._roster_add, stretch=1)
+        self._auto = QPushButton("⚡ Auto chain")
+        auto_why = theme.hint(
+            "The chain grows on its own: the top of the roster is taken, "
+            "becomes the source, the roster is made again, and so on for "
+            "as many steps as the number here. Same cost, same weights, "
+            "same rules on copies as picking by hand — and Trend counts, "
+            "so a rising chain keeps rising. It starts from the track in "
+            "«Branch from». Unlike Radio Mix it judges tempo and key too, "
+            "keeps the order it chose, and does not care whether the fifth "
+            "track sounds like the first.")
+        self._auto.setToolTip(auto_why)
+        self._auto.clicked.connect(self._on_auto_chain)
+        grow.addWidget(self._auto)
+        self._auto_steps = QSpinBox()
+        self._auto_steps.setRange(1, AUTO_STEPS_MAX)
+        self._auto_steps.setValue(AUTO_STEPS_DEFAULT)
+        self._auto_steps.setToolTip(auto_why)
+        grow.addWidget(self._auto_steps)
+        gbox.addLayout(grow)
 
         by_name = QHBoxLayout()
         self._byhand_search = SearchPicker(
@@ -493,7 +519,7 @@ class SetBuilderPanel(QWidget):
         page = QWidget()
         box = QVBoxLayout(page)
         radio_why = theme.hint(
-            "A playlist from a GROUP, not from one seed. The group's taste "
+            "Radio Mix: a playlist from a GROUP, not from one seed. The group's taste "
             "is the centre of its embeddings — split in two or three if the "
             "group has two or three souls, each served in turn. Every pick "
             "must be close to that taste and unlike what is already picked, "
@@ -507,9 +533,9 @@ class SetBuilderPanel(QWidget):
         self._radio_from = QComboBox()
         self._radio_from.addItems(RADIO_SOURCES)
         self._radio_from.setToolTip(theme.hint(
-            "Favourites: every starred track is a seed. Map selection: the "
-            "lasso or box on the map — or the single seed, if that is all "
-            "there is."))
+            "Where Radio Mix starts from. Favourites: every starred track "
+            "is a seed. Map selection: the lasso or box on the map — or the "
+            "single seed, if that is all there is."))
         self._radio_from.currentIndexChanged.connect(
             lambda _: self._refresh_radio())
         knobs.addWidget(self._radio_from)
@@ -986,6 +1012,38 @@ class SetBuilderPanel(QWidget):
                     "cost": round(float(value), 4), "copies": len(copies)}
                    for n, (i, value, copies) in enumerate(self._roster_picks)],
             chosen=list(chosen))
+
+    def _on_auto_chain(self) -> None:
+        frame, at_path = self._lib.frame, self._lib.at_path
+        source_idx = at_path.get(self._source)
+        if source_idx is None:
+            return
+        walk = self._walk()
+        at = walk.index(self._source) if self._source in walk else 0
+        previous = at_path.get(walk[at - 1]) if at > 0 else None
+        added = auto_chain(
+            self._lib.cost,
+            [at_path[p] for p in self._graph.tracks if p in at_path],
+            source_idx, self._auto_steps.value(), previous=previous,
+            pool=self._pool,
+            key_of=lambda i: normalized_name(Path(frame.at[i, "path"])),
+            song_of=lambda i: song_key(Path(frame.at[i, "path"])),
+            trend=self._trend.value())
+        if not added:
+            return
+        paths = [frame.at[i, "path"] for i in added]
+        # Non è una scelta: è la macchina che prende il primo. Va nel
+        # quaderno con un nome suo, o chi imparerà dai «pick» imparerebbe
+        # che il primo della rosa è sempre quello giusto.
+        self._journal.record(
+            "auto_chain", source=self._source, steps=self._auto_steps.value(),
+            added=paths, trend=self._trend.value(),
+            weights=list(self.weights()))
+        previous_path = self._source
+        for path in paths:
+            self._graph.add(previous_path, path)
+            previous_path = path
+        self._chained(self._graph, previous_path)
 
     def _on_attach_by_name(self, index: int) -> None:
         if self._source is None or self._source not in self._graph:

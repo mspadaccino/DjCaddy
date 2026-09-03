@@ -425,3 +425,36 @@ def suggestions(cost: TransitionCost, seed: int, taken, k: int = 8,
             voices[name] = (track, value, [track])
             found.append(voices[name])
     return found
+
+
+def auto_chain(cost: TransitionCost, taken, source: int, steps: int,
+               previous: int | None = None, pool=None, key_of=None,
+               song_of=None, trend: float = 0.0) -> list[int]:
+    """La catena che cresce da sola: `steps` volte il primo della rosa.
+
+    È quello che si farebbe a mano prendendo sempre il candidato in cima —
+    stesso costo, stessa rosa, stesse regole sulle copie — senza fermarsi
+    a guardare. Ogni brano preso diventa la sorgente del passo dopo, e con
+    `trend` la direzione la danno gli ultimi due, come nel Chain Maker.
+
+    Torna i brani aggiunti nell'ordine in cui sono entrati; si ferma prima
+    se la rosa si svuota. `taken` sono i brani già sulla lavagna, che non
+    si ripropongono; `previous` è quello che sta prima di `source` nella
+    scaletta, che serve solo alla tendenza.
+    """
+    line = [int(previous)] if previous is not None else []
+    line.append(int(source))
+    on_board = {int(t) for t in taken} | {int(source)}
+    added: list[int] = []
+    for _ in range(max(0, steps)):
+        ahead = (cost.ahead(line[-2], line[-1], trend)
+                 if trend > 0 and len(line) >= 2 else None)
+        found = suggestions(cost, line[-1], on_board, k=1, pool=pool,
+                            key_of=key_of, song_of=song_of, ahead=ahead)
+        if not found:
+            break
+        track = found[0][0]
+        added.append(track)
+        on_board.add(track)
+        line.append(track)
+    return added
