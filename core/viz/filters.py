@@ -30,7 +30,8 @@ def span(frame: pd.DataFrame, column: str,
 
 def filter_tracks(frame: pd.DataFrame, genres: list[str], moods: list[str],
                   keys: list[str], bpm: tuple[float, float],
-                  groove: tuple[float, float]) -> pd.DataFrame:
+                  groove: tuple[float, float],
+                  genre_depth: int | None = None) -> pd.DataFrame:
     """I brani che passano i filtri della pagina.
 
     `frame` deve portare `genre_list` e `mood_list` (le etichette già
@@ -38,6 +39,10 @@ def filter_tracks(frame: pd.DataFrame, genres: list[str], moods: list[str],
     e almeno uno dei mood scelti — le etichette sono multi-label apposta, e
     "Minimal" e "Deep House" possono essere vere dello stesso brano. Una
     lista vuota vuol dire "tutti".
+
+    I generi di un brano sono in ordine di forza, il primo è quello che il
+    modello sente di più: `genre_depth` dice quanti guardarne dall'alto —
+    1 è "solo il genere principale", `None` è tutti, che è com'era.
 
     Un brano senza BPM o senza groove non viene escluso da un intervallo su
     quel valore: non sappiamo dove cade, e farlo sparire sarebbe rispondere
@@ -47,7 +52,7 @@ def filter_tracks(frame: pd.DataFrame, genres: list[str], moods: list[str],
     if genres:
         wanted = set(genres)
         kept = kept[kept["genre_list"].map(
-            lambda tags: bool(wanted & set(tags)))]
+            lambda tags: bool(wanted & set(tags[:genre_depth])))]
     if moods:
         wanted = set(moods)
         kept = kept[kept["mood_list"].map(

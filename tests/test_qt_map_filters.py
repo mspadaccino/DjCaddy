@@ -107,3 +107,20 @@ def test_reset_clears_the_macros_and_restores_the_leaves(qtbot):
     assert panel._macros.checked() == []
     assert len(_options(panel._genres)) == 5
     assert len(panel.kept(_frame())) == 4
+
+
+def test_look_at_narrows_the_genres_to_the_strongest_ones(qtbot):
+    from qt_app.pages.map.filters import GENRE_DEPTHS
+    panel = _panel(qtbot)
+    # Il brano 3 è "Funk / Soul - Disco; Electronic - House": Electronic è
+    # il suo secondo macro genere.
+    _tick(panel._macros, "Electronic")
+    assert list(panel.kept(_frame()).index) == [0, 1, 3]
+    panel._depth.setCurrentIndex(0)                # the 1st genre only
+    assert panel.genre_depth() == 1
+    assert list(panel.kept(_frame()).index) == [0, 1]
+    _tick(panel._genres, "Electronic - Deep House")
+    assert list(panel.kept(_frame()).index) == []  # è il secondo del brano 0
+    panel._on_reset()
+    assert panel.genre_depth() is None
+    assert panel._depth.currentText() == GENRE_DEPTHS[-1][0]

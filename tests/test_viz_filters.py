@@ -79,3 +79,11 @@ def test_a_single_value_still_makes_a_drawable_slider():
     # Uno slider che parte e finisce nello stesso punto non si disegna.
     flat = pd.DataFrame({"bpm": [128.0, 128.0]})
     assert span(flat, "bpm", 60.0, 200.0) == (128.0, 129.0)
+
+
+def test_genre_depth_looks_only_at_the_strongest_labels():
+    # Il brano 0 è "House; Minimal": Minimal è il suo secondo genere.
+    assert _kept(genres=["Minimal"]) == [0]
+    assert _kept(genres=["Minimal"], genre_depth=1) == []
+    assert _kept(genres=["Minimal"], genre_depth=2) == [0]
+    assert _kept(genres=["House"], genre_depth=1) == [0, 3]

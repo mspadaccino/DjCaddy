@@ -292,6 +292,12 @@ rest disappear from the list rather than greying out. A macro genre on its
 own lets every track under it through; tick leaves as well and only those
 pass. With no macro genre ticked the Genres list is the full one.
 
+A track carries up to four genres, strongest first. **Look at** says how
+deep the genre filters read: *the 1st genre only* keeps a track only when
+the chosen genre or macro genre is its main one; *the top 2*, *the top 3*,
+or *all its genres*, which is the default and the old behaviour — any of
+them will do.
+
 ### Building a set
 
 Magic sort answers *put these in the best order*. The set builder answers the

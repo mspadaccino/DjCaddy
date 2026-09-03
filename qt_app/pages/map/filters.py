@@ -10,7 +10,12 @@ I generi sono a due livelli — "Electronic - House" — e le due liste sono
 collegate: spuntato un macro genere, la lista dei generi mostra SOLO le
 sue foglie, le altre spariscono. Un macro spuntato senza foglie spuntate
 fa passare tutti i suoi brani; con delle foglie spuntate, solo quelle.
-Senza macro spuntati la lista dei generi è completa, come sempre. I filtri restringono TUTTO quello che la pagina propone — i punti,
+Senza macro spuntati la lista dei generi è completa, come sempre.
+
+Un brano porta fino a quattro generi, in ordine di forza. Il menu «Look
+at» dice quanti guardarne: solo il principale, i primi due, i primi tre o
+tutti. Vale per i macro e per le foglie insieme — è la stessa lista di
+etichette, letta più o meno in profondità. I filtri restringono TUTTO quello che la pagina propone — i punti,
 le proposte, la rosa — che è il motivo per cui il pannello è uno.
 """
 
@@ -19,14 +24,21 @@ from __future__ import annotations
 import pandas as pd
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (QDoubleSpinBox, QGridLayout, QHBoxLayout,
-                               QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QGridLayout,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
+                               QListWidgetItem, QPushButton, QVBoxLayout,
+                               QWidget)
 
 from core.viz.filters import filter_tracks, span
 from core.viz.map_figure import genre_level
 from qt_app import theme
 from qt_app.widgets.wheel_view import WheelView
+
+
+# Quanti generi guardare, dall'alto: il testo del menu e la profondità che
+# la regola riceve. `None` è tutti.
+GENRE_DEPTHS = (("the 1st genre only", 1), ("the top 2", 2),
+                ("the top 3", 3), ("all its genres", None))
 
 
 class CheckList(QWidget):
@@ -151,8 +163,25 @@ class FiltersPanel(QWidget):
         self._moods = CheckList("Moods")
         for picker in (self._genres, self._moods):
             picker.changed.connect(self._debounce.start)
+        self._depth = QComboBox()
+        for text, _ in GENRE_DEPTHS:
+            self._depth.addItem(text)
+        self._depth.setCurrentIndex(len(GENRE_DEPTHS) - 1)
+        self._depth.setToolTip(theme.hint(
+            "A track carries up to four genres, strongest first. This says "
+            "how many of them the genre filters look at: the 1st only means "
+            "a track passes only if the chosen genre (or macro genre) is "
+            "its main one; all its genres means any of them will do — the "
+            "old behaviour."))
+        self._depth.currentIndexChanged.connect(
+            lambda _: self._debounce.start())
+        depth_row = QHBoxLayout()
+        depth_row.setContentsMargins(0, 0, 0, 0)
+        depth_row.addWidget(QLabel("Look at"))
+        depth_row.addWidget(self._depth, stretch=1)
         genre_column = QVBoxLayout()
         genre_column.setContentsMargins(0, 0, 0, 0)
+        genre_column.addLayout(depth_row)
         genre_column.addWidget(self._macros)
         genre_column.addWidget(self._genres, stretch=1)
         # Fianco a fianco: sono la stessa domanda posta su due vocabolari, e
@@ -244,12 +273,16 @@ class FiltersPanel(QWidget):
             return ticked
         return self._under_macros() if self._macros.checked() else []
 
+    def genre_depth(self) -> int | None:
+        return GENRE_DEPTHS[self._depth.currentIndex()][1]
+
     # --- la regola, applicata ---
     def kept(self, frame: pd.DataFrame) -> pd.DataFrame:
         out = filter_tracks(
             frame, self.genres_wanted(), self._moods.checked(), self._keys,
             (self._bpm_low.value(), self._bpm_high.value()),
-            (self._gr_low.value(), self._gr_high.value()))
+            (self._gr_low.value(), self._gr_high.value()),
+            genre_depth=self.genre_depth())
         self._count.setText(
             f"{len(out):,} of {len(frame):,} tracks pass · ⓘ")
         return out
@@ -273,6 +306,9 @@ class FiltersPanel(QWidget):
         self._wheel.set_keys(self._keys)
         self._macros.clear_checks()
         self._genres.set_options(self._all_genres)
+        self._depth.blockSignals(True)
+        self._depth.setCurrentIndex(len(GENRE_DEPTHS) - 1)
+        self._depth.blockSignals(False)
         self._moods.clear_checks()
         for spin, edge in ((self._bpm_low, self._bpm_low.minimum()),
                            (self._bpm_high, self._bpm_high.maximum()),
