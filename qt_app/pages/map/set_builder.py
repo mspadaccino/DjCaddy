@@ -700,9 +700,12 @@ class SetBuilderPanel(QWidget):
                  + nearest(cost, self._seed, k=self._count.value(),
                            pool=self._pool))
         listed = []
-        for i, value in picks:
+        for n, (i, value) in enumerate(picks):
             parts = cost.parts(self._seed, i)
+            # Il numero in testa, seme compreso: le tinte dei doppioni
+            # dicono «copy of #3», e senza la colonna il 3 non si trova.
             listed.append({
+                "#": n + 1,
                 "cost": round(value, 3),
                 **reading(frame.loc[i], common),
                 "sound": round(parts["sound"], 3),
@@ -711,7 +714,7 @@ class SetBuilderPanel(QWidget):
                 "_path": frame.at[i, "path"],
             })
         shown = pd.DataFrame(listed, columns=[
-            "cost", "file", "BPM", "key", "energy", "groove", "emotion",
+            "#", "cost", "file", "BPM", "key", "energy", "groove", "emotion",
             "sound", "bpm cost", "key cost", "mood", "genres", "folder",
             "_path"])
         self._mixes_table.set_tracks(
