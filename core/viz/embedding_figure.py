@@ -55,6 +55,9 @@ GROUP = 10
 STRIP_SHARE = 0.05
 GAP_SHARE = 0.012
 
+# Il margine a destra, tenuto libero per la barra dei colori della distanza.
+RIGHT_MARGIN = 52
+
 
 def columns_for(dimensions: int, every: bool) -> int:
     """Quante colonne avrà l'impronta: tutte le dimensioni, o a gruppi."""
@@ -184,6 +187,19 @@ def strip_geometry(columns: int) -> tuple[float, float]:
     return width, -(gap + width / 2.0)
 
 
+def picture_width(columns: int) -> int:
+    """Quanto vorrebbe essere larga l'impronta: un pixel per colonna.
+
+    È la larghezza a cui il PNG si vede com'è — un pixel dell'immagine sopra
+    un pixel dello schermo, senza che il browser ne schiacci dieci in uno.
+    A 128 colonne ci sta in qualunque riquadro; a 1280 no, ed è lì che serve
+    poter scorrere di lato invece di guardare 1280 dimensioni spalmate su
+    ottocento pixel, dove ogni colonna è mezza colonna di qualcun altro.
+    """
+    width, centre = strip_geometry(columns)
+    return int(round(columns - (centre - width))) + RIGHT_MARGIN
+
+
 def _hover_points(rows: int, at: float) -> dict:
     """Un punto per riga, all'ascissa `at` e trasparente.
 
@@ -206,16 +222,24 @@ def _hover_points(rows: int, at: float) -> dict:
 
 
 def build_fingerprint_figure(rows: pd.DataFrame, source: str, columns: int,
-                             dark: bool = False) -> go.Figure:
+                             dark: bool = False,
+                             room: int | None = None) -> go.Figure:
     """L'impronta più i punti che la rendono interrogabile.
 
     `rows` sono i brani disegnati NELL'ORDINE delle righe dell'immagine, e
     l'indice di libreria viaggia in `customdata[0]` come su ogni altro
     grafico della pagina: è così che il ponte JS risale dal punto cliccato
     al brano, senza sapere niente di questa figura.
+
+    `room` sono i pixel che il riquadro ha davvero. Quando l'impronta non ci
+    sta, la figura si dichiara larga quanto le serve e la pagina scorre di
+    lato: schiacciare 1280 colonne in ottocento pixel non è mostrarle, è
+    mescolarle. Quando ci sta — 128 colonne ci stanno sempre — la larghezza
+    non si scrive, e il disegno resta elastico come gli altri due.
     """
     skin = SKIN["dark" if dark else "light"]
     width, centre = strip_geometry(columns)
+    natural = picture_width(columns)
     figure = go.Figure()
     if source:
         figure.add_trace(go.Image(source=source, hoverinfo="skip"))
@@ -230,7 +254,8 @@ def build_fingerprint_figure(rows: pd.DataFrame, source: str, columns: int,
         # la barra dei colori della distanza, che arriva coi contorni e non
         # può allargare il riquadro da sé — e un disegno che si stringe al
         # primo clic sarebbe peggio di quaranta pixel non usati.
-        height=640, margin={"l": 0, "r": 52, "t": 0, "b": 26},
+        height=640, margin={"l": 0, "r": RIGHT_MARGIN, "t": 0, "b": 26},
+        width=natural if room is not None and natural > room else None,
         paper_bgcolor=skin["paper"], plot_bgcolor=skin["plot"],
         showlegend=False,
         # Il mouse deve rispondere col brano della RIGA su cui sta, a

@@ -11,13 +11,20 @@ I gesti sono quelli della mappa, e non per simmetria: passare col mouse dice
 di che brano è la riga, un clic lo manda in seme, il lazo ne prende un
 gruppo. La colonna a sinistra è la distanza dal seme nelle 1280 dimensioni —
 quella vera, non l'ombra sul disegno.
+
+Le due manopole in alto costano cose diverse. Accorpare o no le dimensioni
+rifà l'immagine e basta; ordinare per distanza la lega invece al seme, e da
+lì in poi ogni seme nuovo vuole l'impronta rifatta — mezzo secondo, contro i
+millesimi della sola colonna. Per questo l'ordine di libreria resta il
+default: è quello che tiene il disegno fermo mentre si sceglie.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
+                               QVBoxLayout, QWidget)
 
 from core.viz.embedding_figure import (build_fingerprint_figure, columns_for,
                                        cosine_distances, distance_overlay,
@@ -25,6 +32,11 @@ from core.viz.embedding_figure import (build_fingerprint_figure, columns_for,
                                        rows_budget, unit_norms)
 from qt_app import theme
 from qt_app.widgets.plotly_view import PlotlyView
+
+
+# Le due pile possibili, e cosa vogliono dire. L'ordine di libreria è quello
+# in cui i brani sono andati sulla mappa; per distanza è il seme in cima.
+ORDERS = {"library order": "library", "distance from the seed": "distance"}
 
 
 def _dim(text: str = "") -> QLabel:
@@ -46,19 +58,38 @@ class EmbeddingPane(QWidget):
         self._rows = None
         self._columns = 0
         self._marks: dict | None = None
+        self._away_from: int | None = None
+        self._away = None
         self._ok = False
 
-        self._every = QCheckBox("Every dimension")
-        self._every.setToolTip(theme.hint(
-            "Off, each column is the average of ten consecutive dimensions "
-            "— 128 columns, the shape of the vector at a glance. On, one "
+        self._group = QCheckBox("Group nearest dimensions")
+        self._group.setChecked(True)
+        self._group.setToolTip(theme.hint(
+            "On, each column is the average of ten consecutive dimensions — "
+            "128 columns, the shape of the vector at a glance. Off, one "
             "column per dimension, all 1280 of them: the picture is ten "
-            "times wider and, at the same pixel budget, ten times fewer "
-            "tracks fit in it. The count below says how many are drawn."))
-        self._every.toggled.connect(lambda _: self._redraw())
+            "times wider (scroll sideways to walk it) and, at the same pixel "
+            "budget, ten times fewer tracks fit in it. The count below says "
+            "how many are drawn."))
+        self._group.toggled.connect(lambda _: self._redraw())
+
+        self._sort = QComboBox()
+        self._sort.addItems(list(ORDERS))
+        self._sort.setToolTip(theme.hint(
+            "Library order is the order the tracks went on the map: the "
+            "picture stays put when the seed changes, and only the distance "
+            "column is redrawn. By distance puts the seed's nearest "
+            "neighbours at the top and the strangers at the bottom — the "
+            "distance column becomes a readable gradient and the bands sort "
+            "themselves — at the price of redrawing the whole picture every "
+            "time the seed moves."))
+        self._sort.currentTextChanged.connect(lambda _: self._redraw())
 
         top = QHBoxLayout()
-        top.addWidget(self._every)
+        top.addWidget(self._group)
+        top.addSpacing(12)
+        top.addWidget(QLabel("Sort by"))
+        top.addWidget(self._sort)
         top.addStretch(1)
 
         self._info = _dim("")
@@ -88,16 +119,44 @@ class EmbeddingPane(QWidget):
     def set_cloud(self, frame, embeddings) -> None:
         """I brani da disegnare (già filtrati) e la matrice degli embedding."""
         if embeddings is not self._embeddings:
-            self._norms = None
+            self._norms, self._away, self._away_from = None, None, None
         self._frame, self._embeddings = frame, embeddings
         self._redraw()
 
     def update_overlays(self, marks: dict) -> None:
+        moved = self._seed_of(marks) != self._seed_of(self._marks)
         self._marks = marks
-        if self._ok:
+        if not self._ok:
+            return
+        # Ordinate per distanza, le righe DIPENDONO dal seme: un seme nuovo
+        # vuole l'impronta rifatta, non solo la sua colonna.
+        if moved and self._by_distance():
+            self._redraw()
+        else:
             self._push_distance()
 
     # ------------------------------------------------------------------
+    def _by_distance(self) -> bool:
+        return ORDERS[self._sort.currentText()] == "distance"
+
+    def _seed_of(self, marks: dict | None) -> int | None:
+        """Il seme di questi segni, se è un brano che abbiamo in matrice."""
+        seed = (marks or {}).get("seed")
+        if seed is None or self._embeddings is None:
+            return None
+        return int(seed) if seed < len(np.asarray(self._embeddings)) else None
+
+    def _distances(self, seed: int):
+        """Le distanze dal seme, tenute da parte: il disegno e la colonna le
+        chiedono tutte e due, e la matrice è mezzo giga da rileggere."""
+        if self._away_from != seed:
+            matrix = np.asarray(self._embeddings)
+            if self._norms is None:
+                self._norms = unit_norms(matrix)
+            self._away = cosine_distances(matrix, self._norms, matrix[seed])
+            self._away_from = seed
+        return self._away
+
     def _redraw(self) -> None:
         if self._frame is None or self._embeddings is None:
             return
@@ -116,7 +175,7 @@ class EmbeddingPane(QWidget):
         self._info.setVisible(False)
         self._view.setVisible(True)
 
-        every = self._every.isChecked()
+        every = not self._group.isChecked()
         columns = columns_for(matrix.shape[1], every)
         budget = rows_budget(columns)
         # Sopra il budget si disegna un campione stabile, come fa la mappa
@@ -125,31 +184,39 @@ class EmbeddingPane(QWidget):
         sampled = len(self._frame) > budget
         rows = (self._frame.sample(budget, random_state=0).sort_index()
                 if sampled else self._frame)
+        # Lo stesso campione, in un altro ordine: quali brani si vedono non
+        # dipende dal seme — solo dove finiscono nella pila.
+        seed = self._seed_of(self._marks) if self._by_distance() else None
+        if seed is not None:
+            wanted = rows["index"].to_numpy()
+            rows = rows.iloc[np.argsort(self._distances(seed)[wanted],
+                                        kind="stable")]
         self._rows, self._columns, self._ok = rows, columns, True
 
         quadro = fingerprint(matrix[rows["index"].to_numpy()], every)
         self._view.set_figure(build_fingerprint_figure(
             rows, fingerprint_source(quadro, theme.DARK), columns,
-            dark=theme.DARK))
+            dark=theme.DARK, room=self._view.width()))
         self._told.setText(
             f"{len(rows):,} track(s) drawn"
             + (f" of {len(self._frame):,} — a stable sample: the picture is "
                f"capped at {budget:,} rows with {columns} columns"
                if sampled else "")
-            + f" · {columns} column(s) of {matrix.shape[1]} dimensions · ⓘ")
+            + f" · {columns} column(s) of {matrix.shape[1]} dimensions"
+            + (" · nearest to the seed on top" if seed is not None
+               else " · no seed yet: rows stay in library order"
+               if self._by_distance() else "")
+            + " · ⓘ")
         if self._marks is not None:
             self._push_distance()
 
     def _push_distance(self) -> None:
         """La colonna della distanza: solo lei si rimanda a ogni gesto."""
-        seed = (self._marks or {}).get("seed")
-        matrix = np.asarray(self._embeddings)
-        if seed is None or seed >= len(matrix):
+        seed = self._seed_of(self._marks)
+        if seed is None:
             self._view.set_overlays(distance_overlay(None, self._columns))
             return
-        if self._norms is None:
-            self._norms = unit_norms(matrix)
         places = self._rows["index"].to_numpy()
-        away = cosine_distances(matrix, self._norms, matrix[seed])
         self._view.set_overlays(distance_overlay(
-            away[places], self._columns, places=places, dark=theme.DARK))
+            self._distances(seed)[places], self._columns, places=places,
+            dark=theme.DARK))

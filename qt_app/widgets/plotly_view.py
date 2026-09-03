@@ -103,6 +103,14 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
       // Lo zoom, il pan e le voci spente in legenda restano dove sono a
       // ogni aggiornamento: è il contratto di uirevision.
       spec.layout.uirevision = "djcaddy";
+      // Una figura può chiedere di essere più larga del riquadro — è come
+      // l'impronta degli embedding si fa scorrere di lato invece di
+      // schiacciare 1280 colonne in ottocento pixel. Plotly la larghezza
+      // la scrive nello stile del div, quindi va anche CANCELLATA quando la
+      // figura dopo non la chiede: restando lì, la misura del riquadro
+      // diventerebbe quella vecchia e il disegno non tornerebbe più elastico.
+      var div = document.getElementById("map");
+      div.style.width = spec.layout.width ? spec.layout.width + "px" : "";
       base = {data: spec.data, layout: spec.layout,
               notes: (spec.layout.annotations || [])};
       react(spec.data, spec.layout);

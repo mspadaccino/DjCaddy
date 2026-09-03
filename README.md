@@ -386,13 +386,23 @@ The column on the left is the **cosine distance from the seed**, across all
 1280 dimensions — the real distance, of which the map is the flattened
 shadow. Hover it for the number; click it and that row becomes the seed too.
 
-**Every dimension** switches between 128 columns (each one the average of ten
-consecutive dimensions) and all 1280. The picture is drawn as an image with a
-budget of three million pixels — a heatmap of 87,000 rows would mean shipping
-eleven million cells to the browser — so asking for every dimension costs
-rows: above the budget a stable random sample is drawn, and the caption says
-how many of how many. It is the same rule the map follows above 120,000
-points.
+**Group nearest dimensions** is on by default: each column is then the
+average of ten consecutive dimensions, 128 in all. Turn it off and every one
+of the 1280 gets a column of its own — the picture is then wider than the
+pane and **scrolls sideways**, one screen pixel per dimension, because
+squeezing 1280 columns into eight hundred pixels is not showing them. It also
+costs rows. The picture is drawn as an image with a budget of three million
+pixels (a heatmap of 87,000 rows would mean shipping eleven million cells to
+the browser), so above the budget a stable random sample is drawn and the
+caption says how many of how many — the same rule the map follows above
+120,000 points.
+
+**Sort by** chooses the pile. *Library order* is the order the tracks went on
+the map: the picture stays put when the seed changes, and only the distance
+column is redrawn. *Distance from the seed* puts the seed's nearest
+neighbours at the top and the strangers at the bottom — the distance column
+becomes a readable gradient and the bands sort themselves — at the price of
+redrawing the whole picture, about half a second, every time the seed moves.
 
 ### Building the map from the terminal
 

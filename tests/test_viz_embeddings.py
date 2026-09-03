@@ -14,7 +14,8 @@ from core.viz.embedding_figure import (GROUP, MAX_CELLS,
                                        build_fingerprint_figure, columns_for,
                                        cosine_distances, distance_overlay,
                                        fingerprint, fingerprint_source,
-                                       png_bytes, rows_budget, unit_norms)
+                                       picture_width, png_bytes, rows_budget,
+                                       unit_norms)
 
 
 def _rows(count: int) -> pd.DataFrame:
@@ -151,6 +152,22 @@ def test_a_click_on_the_distance_column_finds_the_same_track():
     away = np.array([0.1, 0.2, 0.3], dtype=np.float32)
     overlay = distance_overlay(away, columns=128, places=[4, 9, 30])
     assert list(overlay.data[1].customdata[:, 0]) == [4, 9, 30]
+
+
+def test_the_picture_asks_for_a_pixel_a_column():
+    # Un pixel dell'immagine sopra un pixel dello schermo: a 128 colonne ci
+    # sta ovunque, a 1280 no — ed è lì che il disegno va fatto scorrere.
+    assert picture_width(128) < 400
+    assert picture_width(1280) > 1400
+
+
+def test_the_wide_picture_declares_its_width_and_the_narrow_one_does_not():
+    rows = _rows(4)
+    tight = build_fingerprint_figure(rows, "", columns=1280, room=900)
+    assert tight.layout.width == picture_width(1280)
+    roomy = build_fingerprint_figure(rows, "", columns=128, room=900)
+    # Senza larghezza scritta il disegno resta elastico, come gli altri due.
+    assert roomy.layout.width is None
 
 
 def test_the_hovered_row_is_marked_across_the_whole_drawing():
