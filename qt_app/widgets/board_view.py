@@ -29,10 +29,17 @@ from qt_app.widgets.webchannel import attach_bridge, qwebchannel_source
 # arriva da Qt — quindi si tiene lo stato di tutti e tre e si consegna
 # quando ci sono gli ultimi due: un render prima del componentReady andrebbe
 # a una pagina che non ascolta ancora.
+#
+# E quello che la pagina dice a Qt si tiene in coda finché il canale non
+# c'è: la pagina si dichiara pronta prima che il canale si apra, quasi
+# sempre, e un «ready» buttato via voleva dire che Qt non rimandava il
+# payload arrivato troppo presto — la ruota Camelot restava grigia.
 _SHIM = """
 (function () {
-  var bridge = null, component_ready = false, queued = null;
-  function tell(msg) { if (bridge) bridge.event(JSON.stringify(msg)); }
+  var bridge = null, component_ready = false, queued = null, unsent = [];
+  function tell(msg) {
+    if (bridge) bridge.event(JSON.stringify(msg)); else unsent.push(msg);
+  }
   function flush() {
     if (component_ready && queued !== null) {
       var payload = queued; queued = null;
@@ -53,6 +60,8 @@ _SHIM = """
   });
   new QWebChannel(qt.webChannelTransport, function (channel) {
     bridge = channel.objects.bridge;
+    var backlog = unsent; unsent = [];
+    backlog.forEach(tell);
     tell({type: "channel"});
   });
 })();
@@ -122,10 +131,12 @@ class ComponentView(QWebEngineView):
 
     def _on_event(self, data: dict) -> None:
         kind = data.get("type")
-        if kind == "ready" and self._payload is not None:
+        if kind in ("ready", "channel") and self._payload is not None:
             # La pagina si è dichiarata dopo che il payload era già stato
             # mandato: lo shim l'ha in coda solo se il runJavaScript è
             # arrivato a pagina fatta; rimandarlo è innocuo (vale l'ultimo).
+            # Anche all'apertura del canale, che è l'unico dei due momenti
+            # che arriva di sicuro: il «ready» lo precede quasi sempre.
             self.set_payload(self._payload)
         elif kind == "value" and isinstance(data.get("value"), dict):
             self.value_changed.emit(data["value"])
