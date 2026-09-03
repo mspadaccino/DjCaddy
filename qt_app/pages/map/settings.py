@@ -19,7 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDoubleSpinBox,
-                               QFileDialog, QHBoxLayout, QLabel,
+                               QFileDialog, QHBoxLayout, QLabel, QMessageBox,
                                QPlainTextEdit, QProgressBar, QPushButton,
                                QSpinBox, QVBoxLayout)
 
@@ -75,6 +75,11 @@ class SettingsDialog(QDialog):
         self._queue: list[Path] = []
         self._was_running = False
         self._projecting = False
+        # I brani spariti dal disco: il job aggiunge e non toglie, quindi
+        # si controlla a parte, a ogni ricarica, sotto la cartella scelta
+        # (o quella dell'ultimo job).
+        self._missing: list[str] = []
+        self._checking = False
 
         self._timer = QTimer(self)
         self._timer.setInterval(2000)
@@ -143,6 +148,24 @@ class SettingsDialog(QDialog):
         workers_row.addWidget(self._workers)
         workers_row.addWidget(self._awake, stretch=1)
 
+        # --- i brani spariti ---
+        self._missing_told = _dim("")
+        self._prune = QPushButton("🧹 Remove missing tracks…")
+        self._prune.setEnabled(False)
+        self._prune.setToolTip(theme.hint(
+            "Adding tracks never removes any: a file deleted from the disk "
+            "stays on the map as a ghost — a point you can click, a track "
+            "the lists can propose. This checks every track under the "
+            "folder chosen above (or the last job's folder) against the "
+            "disk, lists the ones that are gone, and removes them from the "
+            "map after you confirm. Only under that folder, and only if "
+            "the folder is reachable: with the disk unplugged every track "
+            "would look gone."))
+        self._prune.clicked.connect(self._on_prune)
+        missing_row = QHBoxLayout()
+        missing_row.addWidget(self._missing_told, stretch=1)
+        missing_row.addWidget(self._prune)
+
         # --- il job ---
         self._bar = QProgressBar()
         self._bar.setTextVisible(False)
@@ -184,6 +207,7 @@ class SettingsDialog(QDialog):
         box.addWidget(self._choose)
         box.addLayout(workers_row)
         box.addWidget(self._launch)
+        box.addLayout(missing_row)
         box.addSpacing(10)
         box.addWidget(self._bar)
         box.addWidget(self._job_told)
@@ -222,6 +246,7 @@ class SettingsDialog(QDialog):
         self._project.setEnabled(umap_available() and len(store) > 0
                                  and not self._projecting)
         self._refresh_queue()
+        self._check_missing()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -289,6 +314,7 @@ class SettingsDialog(QDialog):
     def _on_listed(self, found: list[Path]) -> None:
         self._found = found
         self._refresh_queue()
+        self._check_missing()
 
     def _refresh_queue(self) -> None:
         if self._folder is None or self._store is None \
@@ -323,6 +349,91 @@ class SettingsDialog(QDialog):
         self._launch.setEnabled(False)
         self._job_told.setText(f"Started. Output in {DEFAULT_MAP_LOG}.")
         QTimer.singleShot(1500, self._on_tick)
+
+    # ------------------------------------------------------------------
+    # i brani spariti
+    # ------------------------------------------------------------------
+    def _root(self) -> Path | None:
+        """Sotto cosa cercare gli spariti: la cartella scelta qui, o quella
+        dell'ultimo job — che è dove la libreria sta."""
+        if self._folder is not None:
+            return self._folder
+        state = load_map_state()
+        return Path(state.folder) if state is not None and state.folder else None
+
+    def _check_missing(self) -> None:
+        if self._store is None or self._checking:
+            return
+        root = self._root()
+        self._prune.setEnabled(False)
+        if root is None:
+            self._missing_told.setText(
+                "Choose a folder above to check the map against the disk "
+                "for tracks that no longer exist.")
+            return
+        if not root.is_dir():
+            self._missing_told.setText(
+                f"{root} is not reachable — is the disk mounted? Nothing is "
+                "checked, and nothing is removed, until it is.")
+            return
+        self._checking = True
+        store = self._store
+        self._missing_told.setText(f"Checking the map against {root.name}…")
+        run_in_pool(lambda: store.missing_under(root),
+                    self._on_missing, self._on_missing_failed)
+
+    def _on_missing(self, found: list[str]) -> None:
+        self._checking = False
+        self._missing = list(found)
+        root = self._root()
+        name = root.name if root is not None else "the folder"
+        if found:
+            self._missing_told.setText(
+                f"<b>{len(found):,} track(s)</b> on the map no longer exist "
+                f"under <code>{name}</code>. They still show as points and "
+                "can be proposed until they are removed.")
+        else:
+            self._missing_told.setText(
+                f"Nothing missing under {name}: every track on the map is "
+                "still on the disk.")
+        self._prune.setEnabled(bool(found))
+
+    def _on_missing_failed(self, trouble: Exception) -> None:
+        self._checking = False
+        self._missing_told.setText(f"Could not check the disk: {trouble}")
+
+    def _on_prune(self) -> None:
+        if not self._missing:
+            return
+        shown = "\n".join(Path(p).name for p in self._missing[:12])
+        if len(self._missing) > 12:
+            shown += f"\n… and {len(self._missing) - 12:,} more"
+        answer = QMessageBox.question(
+            self, "Remove missing tracks",
+            f"{len(self._missing):,} track(s) on the map no longer exist on "
+            "the disk. Remove them from the map? The audio files are not "
+            "touched — they are already gone — and the tracks that stay "
+            f"keep their place.\n\n{shown}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer == QMessageBox.StandardButton.Yes:
+            self._remove_missing()
+
+    def _remove_missing(self) -> None:
+        store, doomed = self._store, list(self._missing)
+        if store is None or not doomed:
+            return
+        self._prune.setEnabled(False)
+        self._missing_told.setText(f"Removing {len(doomed):,}…")
+        run_in_pool(lambda: store.remove(doomed),
+                    self._on_removed, self._on_missing_failed)
+
+    def _on_removed(self, count: int) -> None:
+        self._missing = []
+        self._missing_told.setText(
+            f"Removed {count:,}. The tracks that stay keep their place, so "
+            "there is no need to recompute the projection.")
+        self.library_changed.emit()
 
     # ------------------------------------------------------------------
     # il monitor

@@ -254,6 +254,17 @@ another volume makes it a *different* library as far as the map is concerned.
 That is what `--relocate` is for — see
 [Building the map from the terminal](#building-the-map-from-the-terminal).
 
+**Adding never removes.** The job appends what is new and touches nothing
+else, so a track deleted from the disk stays on the map as a ghost: a point
+you can click, a track the lists can propose, a file that fails to play.
+Map settings checks for this at every reload — after a job, after choosing
+a folder — under the folder chosen there (or the last job's), and says how
+many tracks no longer exist; **Remove missing tracks…** lists them and
+takes them off the map after you confirm. Only under that folder, and only
+if the folder is reachable: with the disk unplugged every track would look
+gone, and nothing is removed. The tracks that stay keep their place, so no
+new projection is needed. The same thing from the terminal is `--prune`.
+
 ### Nearness is measured in 1280 dimensions, not on the map
 
 The `sound` term of the transition cost is `1 − cosine` between the two

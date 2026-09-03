@@ -472,3 +472,17 @@ def test_a_row_written_before_a_field_existed_still_loads(tmp_path):
         directory / "embeddings.f32")
     row = MapStore.load(directory).rows[0]
     assert row.get("valence") is None and row.get("energy_bass") is None
+
+
+def test_missing_under_names_the_tracks_gone_from_the_disk(tmp_path):
+    kept, gone = tmp_path / "lib" / "a.mp3", tmp_path / "lib" / "b.mp3"
+    kept.parent.mkdir()
+    kept.write_bytes(b"x")
+    gone.write_bytes(b"y")
+    store = MapStore.load(tmp_path / "map")
+    store.append([_profile(kept, 1.0), _profile(gone, 2.0)])
+    gone.unlink()
+    assert store.missing_under(tmp_path / "lib") == [str(gone)]
+    # Fuori dalla radice non si guarda: "lib" non è "lib2".
+    (tmp_path / "lib2").mkdir()
+    assert store.missing_under(tmp_path / "lib2") == []

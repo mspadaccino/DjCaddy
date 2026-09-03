@@ -485,6 +485,17 @@ class MapStore:
                 todo.append(path)
         return todo
 
+    def missing_under(self, root) -> list[str]:
+        """I brani della mappa che sotto `root` non esistono più sul disco.
+
+        Solo sotto `root`: una libreria su un secondo disco, montato o no,
+        non c'entra. Che `root` sia raggiungibile lo deve garantire chi
+        chiama — a disco staccato ogni riga risulterebbe sparita.
+        """
+        root = os.path.abspath(str(root))
+        return [row["path"] for row in self.rows
+                if under(row["path"], root) and not os.path.exists(row["path"])]
+
     def similar(self, index: int, k: int = 20,
                 limit: int | None = None) -> list[tuple[int, float]]:
         """I brani acusticamente più vicini, per coseno sugli embedding.
@@ -506,6 +517,13 @@ class MapStore:
         best = np.argpartition(-scores, min(k, len(scores) - 1))[:k]
         best = best[np.argsort(-scores[best])]
         return [(int(i), float(scores[i])) for i in best]
+
+
+def under(path, root: str) -> bool:
+    """Se `path` sta dentro `root`. Il confronto è sul confine di cartella:
+    senza, "/Volumes/X9" prenderebbe dentro anche "/Volumes/X9 Backup"."""
+    path = os.path.abspath(str(path))
+    return path == root or path.startswith(root + os.sep)
 
 
 def _row_of(profile: TrackProfile) -> dict:

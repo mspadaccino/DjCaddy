@@ -38,13 +38,6 @@ from core.analysis.map_projection import ProjectionSettings, project
 from core.analysis.map_store import MapStore, default_store_dir
 
 
-def _under(path, root: str) -> bool:
-    """Se `path` sta dentro `root`. Il confronto è sul confine di cartella:
-    senza, "/Volumes/X9" prenderebbe dentro anche "/Volumes/X9 Backup"."""
-    path = os.path.abspath(str(path))
-    return path == root or path.startswith(root + os.sep)
-
-
 def _human(seconds: float) -> str:
     if seconds < 90:
         return f"{seconds:.0f}s"
@@ -136,8 +129,7 @@ def prune(store: MapStore, radice: Path, parser) -> None:
             "risulterebbe sparito e la potatura svuoterebbe la mappa: monta "
             "la libreria e rilancia")
     root = os.path.abspath(radice)
-    doomed = [row["path"] for row in store.rows
-              if _under(row["path"], root) and not os.path.exists(row["path"])]
+    doomed = store.missing_under(root)
     if not doomed:
         print(f"Sotto {root} non manca niente: {len(store):,} righe intatte.")
         return
