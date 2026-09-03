@@ -85,6 +85,23 @@ TAB_TITLES = ("✨ Quick List", "🔗 Chain Maker", "📻 Radio Mix")
 AUTO_STEPS_DEFAULT = 8
 AUTO_STEPS_MAX = 50
 
+# Cosa chiede ogni scheda, e come risponde — nello stesso ordine.
+TAB_HINTS = (
+    "<b>What mixes out of this one?</b><br>One seed, ranked against the "
+    "whole library by the transition cost — sound, tempo and key with the "
+    "weights above. A list of options, judged one by one: they may well "
+    "sound alike. With a group selected instead, this tab holds the group "
+    "and magic sort.",
+    "<b>What comes next?</b><br>One track at a time: a roster of nine "
+    "mixes out of the last one, you take one, the roster is made again. "
+    "Trend looks a step ahead; Auto chain takes the top of the roster for "
+    "you, N times. The order you build is the order that comes out.",
+    "<b>More like these.</b><br>A playlist from a group — your favourites "
+    "or the map selection — not from one seed. Sound only, against the "
+    "group's taste; each pick is penalised for resembling the ones before, "
+    "so it covers the group without repeating. Magic-sorted at the end.",
+)
+
 # Da dove parte la Radio: la scelta del menu, nell'ordine del menu.
 RADIO_SOURCES = ("Favourites", "Map selection")
 
@@ -259,6 +276,10 @@ class SetBuilderPanel(QWidget):
         self._tabs.addTab(self._build_quicklist(), TAB_TITLES[0])
         self._tabs.addTab(self._build_chain(), TAB_TITLES[1])
         self._tabs.addTab(self._build_radio(), TAB_TITLES[2])
+        # La domanda di ogni scheda, sulla linguetta: si legge prima di
+        # aprirla, che è quando serve sapere quale aprire.
+        for tab, told in enumerate(TAB_HINTS):
+            self._tabs.setTabToolTip(tab, theme.hint(told))
 
         box = QVBoxLayout(self)
         box.addWidget(self._seed_told)
