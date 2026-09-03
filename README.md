@@ -363,6 +363,37 @@ reading a quadrant as "these are the fast ones" when it says "these are the
 faster half of what you are currently looking at" is a wrong conclusion drawn
 confidently.
 
+### The embedding fingerprint
+
+A third tab on the same tracks, and the one that shows what the other two
+hide. The map flattens 1280 numbers into two; this chart draws the 1280. One
+row per track, one column per dimension — or per ten of them — and the colour
+is how far that track sits from the others on that dimension: blue below the
+middle, red above, the page's own background for *like everyone else*. The
+centring is per column and not one scale for the whole picture, because the
+dimensions have wildly different means: on a single scale three or four large
+ones would decide every colour and the rest would be flat.
+
+It is not read one track at a time, it is read in **bands**. Rows that go the
+same way on the same columns are related, and that relatedness is exactly
+what the map draws as nearness — here you see it before it is flattened.
+
+The gestures are the map's: hovering a row says whose it is, clicking makes
+it the seed, the lasso takes a band as a selection. All three charts feed the
+same seed and the same selection.
+
+The column on the left is the **cosine distance from the seed**, across all
+1280 dimensions — the real distance, of which the map is the flattened
+shadow. Hover it for the number; click it and that row becomes the seed too.
+
+**Every dimension** switches between 128 columns (each one the average of ten
+consecutive dimensions) and all 1280. The picture is drawn as an image with a
+budget of three million pixels — a heatmap of 87,000 rows would mean shipping
+eleven million cells to the browser — so asking for every dimension costs
+rows: above the budget a stable random sample is drawn, and the caption says
+how many of how many. It is the same rule the map follows above 120,000
+points.
+
 ### Building the map from the terminal
 
 The same job the page launches, if you would rather drive it yourself:

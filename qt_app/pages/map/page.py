@@ -42,6 +42,7 @@ from qt_app.widgets.plotly_view import PlotlyView
 from qt_app.widgets.track_table import TrackTable, track_frame
 from qt_app.workers import run_in_pool
 
+from .embeddings import EmbeddingPane
 from .favourites_panel import FavouritesPanel
 from .filters import FiltersPanel
 from .library import Library, load_library
@@ -191,6 +192,7 @@ class MapPage(QWidget):
         self._top: list[str] = []
         self._sampled = False
         self._quad_dirty = True
+        self._emb_dirty = True
         self._pl_selection: list[str] = []
         self._mixes: list[int] = []
         self._alike: list[int] = []
@@ -278,9 +280,16 @@ class MapPage(QWidget):
         quad_view.deselected.connect(self._on_deselected)
         self._quad = QuadrantPane(quad_view)
 
+        emb_view = PlotlyView()
+        emb_view.point_clicked.connect(self._on_click)
+        emb_view.points_selected.connect(self._on_selected)
+        emb_view.deselected.connect(self._on_deselected)
+        self._emb = EmbeddingPane(emb_view)
+
         self._views = QTabWidget()
         self._views.addTab(self._map, "🗺️ Map")
         self._views.addTab(self._quad, "⊞ Quadrants")
+        self._views.addTab(self._emb, "🧬 Embeddings")
         self._views.currentChanged.connect(self._on_view_changed)
 
         # La didascalia porta i NUMERI (quanti brani, quanti in attesa); il
@@ -510,7 +519,7 @@ class MapPage(QWidget):
                 EMPTY_CLOUD, [], self._lib.store.coords[:self._lib.placed],
                 playlist=[], seed=None, dark=theme.DARK))
             self._caption.setText("No track matches these filters.")
-            self._quad_dirty = True
+            self._quad_dirty = self._emb_dirty = True
             return
 
         visible = visible.assign(
@@ -553,6 +562,15 @@ class MapPage(QWidget):
         else:
             self._quad_dirty = True
 
+        # L'impronta costa un PNG da qualche megabyte: si rifà solo quando
+        # la si sta guardando, come i quadranti.
+        if self._views.currentWidget() is self._emb:
+            self._emb.set_cloud(visible, self._lib.store.embeddings)
+            self._emb.update_overlays(marks)
+            self._emb_dirty = False
+        else:
+            self._emb_dirty = True
+
     def _refresh_caption(self) -> None:
         store, visible = self._lib.store, self._visible
         waiting = len(store) - self._lib.placed
@@ -586,6 +604,8 @@ class MapPage(QWidget):
         self._map.set_overlays(overlay_figure(coords, marks, dark=theme.DARK))
         if not self._quad_dirty:
             self._quad.update_overlays(marks)
+        if not self._emb_dirty:
+            self._emb.update_overlays(marks)
 
     # ------------------------------------------------------------------
     # la scelta: seme, gruppo, spunta in playlist
@@ -700,13 +720,18 @@ class MapPage(QWidget):
             self._schedule_overlays()
 
     def _on_view_changed(self, _index: int) -> None:
-        if (self._views.currentWidget() is self._quad and self._quad_dirty
-                and self._lib is not None and self._drawn is not None):
+        if self._lib is None or self._drawn is None:
+            return
+        if self._views.currentWidget() is self._quad and self._quad_dirty:
             self._quad.set_cloud(self._drawn, self._top, self._lib.frame,
                                  self._visible,
                                  labels=self._labels.isChecked())
             self._quad.update_overlays(self._marks())
             self._quad_dirty = False
+        if self._views.currentWidget() is self._emb and self._emb_dirty:
+            self._emb.set_cloud(self._visible, self._lib.store.embeddings)
+            self._emb.update_overlays(self._marks())
+            self._emb_dirty = False
 
     # ------------------------------------------------------------------
     # la fila del seme
