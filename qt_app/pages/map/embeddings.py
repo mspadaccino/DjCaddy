@@ -28,9 +28,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
 
 from core.viz.embedding_figure import (CELL_BUDGETS, build_fingerprint_figure,
                                        columns_for, cosine_distances,
-                                       distance_overlay, fingerprint,
-                                       fingerprint_source, rows_budget,
-                                       unit_norms)
+                                       fingerprint, fingerprint_source,
+                                       hover_overlay, rows_budget, unit_norms)
 from qt_app import theme
 from qt_app.widgets.plotly_view import PlotlyView
 
@@ -61,6 +60,7 @@ class EmbeddingPane(QWidget):
         self._marks: dict | None = None
         self._away_from: int | None = None
         self._away = None
+        self._shown_from: int | None = -1   # il seme dei contorni sul disegno
         self._ok = False
 
         self._group = QCheckBox("Group nearest dimensions")
@@ -141,16 +141,18 @@ class EmbeddingPane(QWidget):
         self._redraw()
 
     def update_overlays(self, marks: dict) -> None:
-        moved = self._seed_of(marks) != self._seed_of(self._marks)
+        seed = self._seed_of(marks)
         self._marks = marks
-        if not self._ok:
+        if not self._ok or seed == self._shown_from:
+            # Playlist, preferiti, chi suona: su questo disegno non cambiano
+            # niente, e i contorni qui pesano qualche centinaio di chilobyte.
             return
         # Ordinate per distanza, le righe DIPENDONO dal seme: un seme nuovo
         # vuole l'impronta rifatta, non solo la sua colonna.
-        if moved and self._by_distance():
+        if self._by_distance():
             self._redraw()
         else:
-            self._push_distance()
+            self._push_overlay()
 
     # ------------------------------------------------------------------
     def _by_distance(self) -> bool:
@@ -216,6 +218,8 @@ class EmbeddingPane(QWidget):
         self._view.set_figure(build_fingerprint_figure(
             rows, fingerprint_source(quadro, theme.DARK), columns,
             dark=theme.DARK, room=self._view.width()))
+        self._shown_from = -1
+        self._push_overlay()
         self._told.setText(
             f"{len(rows):,} track(s) drawn"
             + (f" of {len(self._frame):,} — a stable sample: the picture is "
@@ -226,16 +230,15 @@ class EmbeddingPane(QWidget):
                else " · no seed yet: rows stay in library order"
                if self._by_distance() else "")
             + " · ⓘ")
-        if self._marks is not None:
-            self._push_distance()
 
-    def _push_distance(self) -> None:
-        """La colonna della distanza: solo lei si rimanda a ogni gesto."""
+    def _push_overlay(self) -> None:
+        """I contorni: la colonna della distanza e i punti che il mouse legge.
+
+        Si rimandano quando cambia il seme — o quando l'impronta si rifà —
+        e mai per altro: sono le sole due cose che li cambiano."""
         seed = self._seed_of(self._marks)
-        if seed is None:
-            self._view.set_overlays(distance_overlay(None, self._columns))
-            return
-        places = self._rows["index"].to_numpy()
-        self._view.set_overlays(distance_overlay(
-            self._distances(seed)[places], self._columns, places=places,
-            dark=theme.DARK))
+        away = (None if seed is None
+                else self._distances(seed)[self._rows["index"].to_numpy()])
+        self._view.set_overlays(hover_overlay(
+            self._rows, self._columns, distances=away, dark=theme.DARK))
+        self._shown_from = seed

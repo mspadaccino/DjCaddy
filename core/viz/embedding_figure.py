@@ -278,20 +278,6 @@ def build_fingerprint_figure(rows: pd.DataFrame, source: str, columns: int,
     figure = go.Figure()
     if source:
         figure.add_trace(go.Image(source=source, hoverinfo="skip"))
-    # Il numero della riga viaggia in coda al `customdata` — in TESTA c'è
-    # l'indice di libreria, che il ponte JS legge sempre lì. Scritto
-    # nell'etichetta perché in un disegno alto ottantamila righe "dove sto"
-    # non si legge da nessuna parte, e sotto l'ordine per distanza quel
-    # numero è una classifica: riga 12 vuol dire dodicesimo più vicino.
-    figure.add_trace(go.Scattergl(
-        customdata=np.column_stack([
-            rows[["index", "name", "bpm", "camelot", "genres"]].to_numpy(),
-            np.arange(1, len(rows) + 1)]),
-        hovertemplate="<b>%{customdata[1]}</b><br>%{customdata[2]} BPM · "
-                      "%{customdata[3]}<br>%{customdata[4]}<br>"
-                      f"row %{{customdata[5]:,}} of {len(rows):,}"
-                      "<extra></extra>",
-        name="", **_hover_points(len(rows), columns / 2.0)))
     figure.update_layout(
         # Il margine a destra è tenuto libero SEMPRE, anche senza seme: ci va
         # la barra dei colori della distanza, che arriva coi contorni e non
@@ -310,6 +296,11 @@ def build_fingerprint_figure(rows: pd.DataFrame, source: str, columns: int,
         # scrive le etichette RUOTATE lungo il fianco del disegno.
         hovermode="closest", hoverdistance=-1,
         hoverlabel={"align": "left", "font": {"size": 11}},
+        # Trascinare SCORRE il disegno invece di ritagliarne un pezzo: su
+        # un'impronta larga più del riquadro è il gesto che serve, e il
+        # riquadro e il lazo restano nella barra degli strumenti, come sulla
+        # mappa.
+        dragmode="pan",
         # Il riquadro non si stira col contenuto: senza un intervallo fisso
         # l'apparire della colonna della distanza sposterebbe l'impronta.
         xaxis={"range": [centre - width, columns], "showgrid": False,
@@ -341,40 +332,58 @@ def build_fingerprint_figure(rows: pd.DataFrame, source: str, columns: int,
     return figure
 
 
-def distance_overlay(distances, columns: int, places=None,
-                     dark: bool = False) -> go.Figure:
-    """La colonna della distanza dal seme, da incollare sopra l'impronta.
+def hover_overlay(rows: pd.DataFrame, columns: int, distances=None,
+                  dark: bool = False) -> go.Figure:
+    """I contorni dell'impronta: la colonna della distanza e i punti del mouse.
 
-    Chiara vicino al seme, scura lontano, con la scala scritta accanto: senza
-    la barra dei colori una colonna sfumata direbbe l'ORDINE dei brani ma non
-    quanto sono distanti, e su una libreria dove tutto sta fra 0,3 e 0,5 è
-    proprio quel numero che cambia la lettura.
+    **Un solo tracciato che risponde al mouse**, e questa è la lezione della
+    versione prima: con due — uno sull'impronta e uno sulla colonna — il più
+    vicino vinceva a metà strada fra i due, e su tutta la fascia sinistra del
+    disegno l'etichetta diceva la distanza invece del brano. Adesso ce n'è
+    uno, e l'etichetta le dice tutte e due: che è poi quello che si vuole
+    sapere guardando una riga, chi è e quanto è lontano.
+
+    Stanno nei contorni e non nella base perché la distanza cambia a ogni
+    seme mentre l'impronta no: rimandare qualche centinaio di chilobyte di
+    `customdata` costa una frazione del PNG.
+
+    La colonna è chiara vicino al seme e scura lontano, con la scala scritta
+    accanto: senza la barra dei colori una colonna sfumata direbbe l'ORDINE
+    dei brani ma non quanto sono distanti, e su una libreria dove tutto sta
+    fra 0,3 e 0,5 è proprio quel numero che cambia la lettura.
     """
     figure = go.Figure()
-    values = np.asarray(distances, dtype=np.float32) if distances is not None \
-        else np.zeros(0, dtype=np.float32)
-    if not values.size:
+    if not len(rows):
         return figure
+    away = None if distances is None \
+        else np.asarray(distances, dtype=np.float32)
     width, centre = strip_geometry(columns)
-    figure.add_trace(go.Heatmap(
-        z=values.reshape(-1, 1), x0=centre, dx=width, y0=0.0, dy=1.0,
-        colorscale="Cividis", reversescale=True, hoverinfo="skip",
-        showlegend=False,
-        colorbar={"thickness": 9, "len": 0.4, "x": 1.0, "xanchor": "left",
-                  "tickfont": {"size": 9},
-                  "title": {"text": "dist", "font": {"size": 9}}}))
-    # I punti della colonna portano l'INDICE come primi, esattamente come
-    # quelli dell'impronta: un clic sulla colonna della distanza fa seme il
-    # brano di quella riga, come un clic qualunque sul disegno. Il ponte JS
-    # legge `customdata[0]` e non sa — né deve sapere — su quale dei due
-    # tracciati ha cliccato.
-    places = np.arange(len(values)) if places is None \
-        else np.asarray(places, dtype=int)
+    if away is not None and away.size:
+        figure.add_trace(go.Heatmap(
+            z=away.reshape(-1, 1), x0=centre, dx=width, y0=0.0, dy=1.0,
+            colorscale="Cividis", reversescale=True, showlegend=False,
+            # Muta al mouse: a rispondere è il tracciato dei punti, per tutte
+            # e due le zone del disegno e con una sola etichetta.
+            hoverinfo="skip",
+            colorbar={"thickness": 9, "len": 0.4, "x": 1.0, "xanchor": "left",
+                      "tickfont": {"size": 9},
+                      "title": {"text": "dist", "font": {"size": 9}}}))
+
+    # In TESTA al `customdata` c'è l'indice di libreria, che è dove il ponte
+    # JS lo cerca per fare seme la riga cliccata. Dopo il nome e i suoi
+    # numeri, poi la riga — che sotto l'ordine per distanza è una classifica:
+    # riga 12 vuol dire dodicesimo più vicino — e in fondo la distanza, se un
+    # seme c'è da cui misurarla.
+    told = rows[["index", "name", "bpm", "camelot", "genres"]].to_numpy()
+    place = np.arange(1, len(rows) + 1)
+    facts = [told, place[:, None]] + ([] if away is None else [away[:, None]])
     figure.add_trace(go.Scattergl(
-        customdata=np.column_stack([places, values,
-                                    np.arange(1, len(values) + 1)]),
-        hovertemplate=f"row %{{customdata[2]:,}} of {len(values):,}<br>"
-                      "cosine distance from the seed: "
-                      "%{customdata[1]:.3f}<extra></extra>",
-        name="", **_hover_points(len(values), centre)))
+        customdata=np.hstack(facts),
+        hovertemplate="<b>%{customdata[1]}</b><br>%{customdata[2]} BPM · "
+                      "%{customdata[3]}<br>%{customdata[4]}<br>"
+                      f"row %{{customdata[5]:,}} of {len(rows):,}"
+                      + ("" if away is None else
+                         " · %{customdata[6]:.3f} from the seed")
+                      + "<extra></extra>",
+        name="", **_hover_points(len(rows), columns / 2.0)))
     return figure

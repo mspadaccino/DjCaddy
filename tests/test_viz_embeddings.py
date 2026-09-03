@@ -12,8 +12,8 @@ import pandas as pd
 
 from core.viz.embedding_figure import (CELL_BUDGETS, GROUP, MAX_CELLS,
                                        build_fingerprint_figure, columns_for,
-                                       cosine_distances, distance_overlay,
-                                       fingerprint, fingerprint_source,
+                                       cosine_distances, fingerprint,
+                                       fingerprint_source, hover_overlay,
                                        picture_width, png_bytes, rows_budget,
                                        unit_norms)
 
@@ -137,8 +137,7 @@ def test_a_seed_without_a_vector_asks_for_no_distance():
 
 def test_the_index_travels_in_customdata_as_on_the_map():
     rows = _rows(5)
-    figure = build_fingerprint_figure(rows, "", columns=128, dark=True)
-    hover = figure.data[-1]
+    hover = hover_overlay(rows, columns=128, dark=True).data[-1]
     assert list(hover.customdata[:, 0]) == list(rows["index"])
     assert len(hover.y) == len(rows)
 
@@ -146,6 +145,8 @@ def test_the_index_travels_in_customdata_as_on_the_map():
 def test_the_picture_is_a_row_per_track_not_a_square_of_pixels():
     figure = build_fingerprint_figure(_rows(3), "data:image/png;base64,x",
                                       columns=128, dark=False)
+    # Trascinare scorre il disegno: il riquadro e il lazo stanno nella barra.
+    assert figure.layout.dragmode == "pan"
     # `False` esplicito: un `None` Plotly lo leggerebbe come "non detto" e
     # ci rimetterebbe il lato uguale delle immagini.
     assert figure.layout.yaxis.scaleanchor is False
@@ -155,34 +156,51 @@ def test_the_picture_is_a_row_per_track_not_a_square_of_pixels():
 
 def test_the_distance_column_stands_beside_the_picture():
     away = np.linspace(0.0, 0.5, 6, dtype=np.float32)
-    overlay = distance_overlay(away, columns=128, dark=True)
-    strip = overlay.data[0]
+    strip = hover_overlay(_rows(6), columns=128, distances=away,
+                          dark=True).data[0]
     assert strip.z.shape == (6, 1)
     assert strip.x0 < 0            # a sinistra dell'impronta, che parte da 0
-    assert list(overlay.data[1].customdata[:, 1]) == list(away)
+    assert list(strip.z[:, 0]) == list(away)
 
 
 def test_no_seed_means_no_column_at_all():
-    assert len(distance_overlay(None, columns=128).data) == 0
+    assert len(hover_overlay(_rows(0), columns=128).data) == 0
+    assert not [t for t in hover_overlay(_rows(3), columns=128).data
+                if t.type == "heatmap"]
 
 
-def test_a_click_on_the_distance_column_finds_the_same_track():
-    # Il ponte JS legge `customdata[0]` e non sa su quale tracciato ha
-    # cliccato: la colonna deve portare l'indice di libreria come l'impronta.
+def test_a_click_anywhere_on_the_row_finds_the_same_track():
+    # Il ponte JS legge `customdata[0]`: un clic sulla colonna della distanza
+    # e uno sull'impronta cadono sullo stesso tracciato, quindi sullo stesso
+    # brano — l'indice di libreria sta in testa in tutte e due i casi.
+    rows = _rows(3).assign(index=[4, 9, 30])
     away = np.array([0.1, 0.2, 0.3], dtype=np.float32)
-    overlay = distance_overlay(away, columns=128, places=[4, 9, 30])
-    assert list(overlay.data[1].customdata[:, 0]) == [4, 9, 30]
+    overlay = hover_overlay(rows, columns=128, distances=away)
+    assert list(overlay.data[-1].customdata[:, 0]) == [4, 9, 30]
 
 
 def test_the_row_number_rides_along_with_the_track():
     # In testa resta l'indice di libreria — il ponte JS legge quello — e il
     # numero di riga va in coda: sotto l'ordine per distanza è una classifica.
-    rows = _rows(4)
-    hover = build_fingerprint_figure(rows, "", columns=128).data[-1]
-    assert list(hover.customdata[:, 0]) == list(rows["index"])
+    hover = hover_overlay(_rows(4), columns=128).data[-1]
     assert list(hover.customdata[:, 5]) == [1, 2, 3, 4]
-    strip = distance_overlay(np.zeros(4, dtype=np.float32), columns=128)
-    assert list(strip.data[1].customdata[:, 2]) == [1, 2, 3, 4]
+
+
+def test_one_label_says_both_the_track_and_its_distance():
+    # Due tracciati che rispondono al mouse si contendevano il disegno, e a
+    # sinistra vinceva la distanza: il brano non si vedeva più. Uno solo, e
+    # l'etichetta le dice tutte e due.
+    away = np.array([0.0, 0.4, 0.5, 0.6], dtype=np.float32)
+    overlay = hover_overlay(_rows(4), columns=128, distances=away)
+    assert [t.type for t in overlay.data] == ["heatmap", "scattergl"]
+    hover = overlay.data[-1]
+    assert list(hover.customdata[:, 6]) == list(away)
+    assert "from the seed" in hover.hovertemplate
+    assert overlay.data[0].hoverinfo == "skip"
+    # Senza seme resta il solo tracciato del mouse, e senza la distanza.
+    bare = hover_overlay(_rows(4), columns=128)
+    assert [t.type for t in bare.data] == ["scattergl"]
+    assert "from the seed" not in bare.data[0].hovertemplate
 
 
 def test_the_picture_asks_for_a_pixel_a_column():

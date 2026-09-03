@@ -380,11 +380,18 @@ what the map draws as nearness — here you see it before it is flattened.
 
 The gestures are the map's: hovering a row says whose it is, clicking makes
 it the seed, the lasso takes a band as a selection. All three charts feed the
-same seed and the same selection.
+same seed and the same selection. Dragging scrolls the picture rather than
+cutting a box out of it — on a chart that can be wider than the pane that is
+the gesture you want — and the box and the lasso are a click away in the
+toolbar, which stays in the corner of the window even when the picture is
+scrolled sideways.
 
 The column on the left is the **cosine distance from the seed**, across all
 1280 dimensions — the real distance, of which the map is the flattened
-shadow. Hover it for the number; click it and that row becomes the seed too.
+shadow. Its number is in the same tooltip as everything else: one label per
+row, whether you point at the column or at the fingerprint, saying who the
+track is, which row it is, and how far it sits from the seed. Clicking the
+column seeds that row exactly like clicking the picture.
 
 **Group nearest dimensions** is on by default: each column is then the
 average of ten consecutive dimensions, 128 in all. Turn it off and every one

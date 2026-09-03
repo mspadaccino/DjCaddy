@@ -53,6 +53,13 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <style>
   html, body { margin: 0; height: 100%; background: BACKGROUND; }
   #map { width: 100%; height: 100%; }
+  /* Una figura può essere più larga del riquadro — l'impronta degli
+     embedding a 1280 colonne lo è — e allora la pagina scorre di lato.
+     Plotly la barra degli strumenti la incolla all'angolo in alto a destra
+     DELLA FIGURA, che così finisce fuori dallo schermo: fissata alla
+     finestra resta dov'è sempre stata per le figure che ci stanno, e
+     raggiungibile per quelle che non ci stanno. */
+  .modebar-container { position: fixed !important; }
 </style>
 </head><body><div id="map"></div>
 <script>
@@ -63,6 +70,10 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
   // STESSI oggetti fra un gesto e l'altro, ed è per identità che react
   // capisce di non doverli ridisegnare.
   var base = null;
+  // L'ultimo contorno ricevuto: se arriva prima della nuvola — o mentre
+  // quella di prima è ancora per strada — si riappiccica appena c'è una
+  // base sotto, invece di sparire senza dire niente.
+  var pending = null;
   function tell(msg) { if (bridge) bridge.event(JSON.stringify(msg)); }
 
   // Dal punto disegnato all'indice di libreria: customdata[0]. I tracciati
@@ -114,8 +125,10 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
       base = {data: spec.data, layout: spec.layout,
               notes: (spec.layout.annotations || [])};
       react(spec.data, spec.layout);
+      if (pending) window.djcaddy.overlays(pending);
     },
     overlays: function (spec) {
+      pending = spec;
       if (!base) return;   // nessuna nuvola sotto: non c'è dove appoggiarli
       var notes = ((spec.layout || {}).annotations) || [];
       // Un layout NUOVO a ogni giro: react confronta per riferimento, e un
