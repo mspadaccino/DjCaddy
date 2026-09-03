@@ -10,7 +10,7 @@ import struct
 import numpy as np
 import pandas as pd
 
-from core.viz.embedding_figure import (GROUP, MAX_CELLS,
+from core.viz.embedding_figure import (CELL_BUDGETS, GROUP, MAX_CELLS,
                                        build_fingerprint_figure, columns_for,
                                        cosine_distances, distance_overlay,
                                        fingerprint, fingerprint_source,
@@ -65,6 +65,26 @@ def test_asking_for_every_dimension_costs_rows():
     assert columns_for(1280, every=True) == 1280
     assert rows_budget(1280) == rows_budget(128) // GROUP
     assert rows_budget(128) * 128 <= MAX_CELLS
+
+
+def test_take_picks_the_rows_and_keeps_their_order():
+    # Prendere le righe dentro `fingerprint` o fuori deve dare lo stesso
+    # quadro: dentro si fa a blocchi, ed è solo per non copiare mezzo giga.
+    vectors = np.random.default_rng(4).random((8, GROUP * 3), dtype=np.float32)
+    wanted = [5, 0, 3]
+    assert np.array_equal(fingerprint(vectors, take=wanted),
+                          fingerprint(vectors[wanted]))
+
+
+def test_the_bigger_budget_holds_a_whole_library():
+    # 86.921 brani a 128 colonne sono 11,1 milioni di celle: il budget
+    # piccolo li campiona, quello grande li tiene tutti.
+    library = 86_921
+    assert rows_budget(128, CELL_BUDGETS["light · 3M pixels"]) < library
+    assert rows_budget(128, CELL_BUDGETS["full · 12M pixels"]) > library
+    # A 1280 colonne non ci sta nemmeno il grande, e va detto invece che
+    # promesso: dieci volte le colonne, un decimo delle righe.
+    assert rows_budget(1280, CELL_BUDGETS["full · 12M pixels"]) < library
 
 
 # --- il PNG scritto a mano ---

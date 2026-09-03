@@ -391,11 +391,18 @@ average of ten consecutive dimensions, 128 in all. Turn it off and every one
 of the 1280 gets a column of its own — the picture is then wider than the
 pane and **scrolls sideways**, one screen pixel per dimension, because
 squeezing 1280 columns into eight hundred pixels is not showing them. It also
-costs rows. The picture is drawn as an image with a budget of three million
-pixels (a heatmap of 87,000 rows would mean shipping eleven million cells to
-the browser), so above the budget a stable random sample is drawn and the
-caption says how many of how many — the same rule the map follows above
-120,000 points.
+costs rows, because the picture has a pixel budget.
+
+**Picture** is that budget: *light* is three million pixels — 23,437 rows at
+128 columns, redrawn in about half a second — and *full* is twelve million,
+enough to hold a library of ninety thousand tracks whole at a second and a
+half a redraw, which is what a redraw of the map costs too. Above whatever
+the budget allows, a stable random sample of what the filters leave is drawn
+and the caption says how many of how many — the same rule the map follows
+above 120,000 points. Every drawn row is a real track either way: what a
+sample costs you is the rest of the library, never the truth about a row.
+(Both budgets sample at 1280 columns: the whole library there would be a
+hundred and ten million pixels.)
 
 **Sort by** chooses the pile. *Library order* is the order the tracks went on
 the map: the picture stays put when the seed changes, and only the distance

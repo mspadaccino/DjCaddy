@@ -26,10 +26,11 @@ import numpy as np
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
                                QVBoxLayout, QWidget)
 
-from core.viz.embedding_figure import (build_fingerprint_figure, columns_for,
-                                       cosine_distances, distance_overlay,
-                                       fingerprint, fingerprint_source,
-                                       rows_budget, unit_norms)
+from core.viz.embedding_figure import (CELL_BUDGETS, build_fingerprint_figure,
+                                       columns_for, cosine_distances,
+                                       distance_overlay, fingerprint,
+                                       fingerprint_source, rows_budget,
+                                       unit_norms)
 from qt_app import theme
 from qt_app.widgets.plotly_view import PlotlyView
 
@@ -85,11 +86,27 @@ class EmbeddingPane(QWidget):
             "time the seed moves."))
         self._sort.currentTextChanged.connect(lambda _: self._redraw())
 
+        self._budget = QComboBox()
+        self._budget.addItems(list(CELL_BUDGETS))
+        self._budget.setToolTip(theme.hint(
+            "How many pixels the picture may cost, which is how many tracks "
+            "fit in it: above the budget a stable random sample of what the "
+            "filters leave is drawn, and the count below says how many of "
+            "how many. Light redraws in about half a second; full holds a "
+            "library of ninety thousand tracks whole, at a second and a half "
+            "a redraw — the same price the map pays for one of its own. "
+            "Every drawn row is a real track either way: it is the rest of "
+            "the library that is missing, never the truth about a row."))
+        self._budget.currentTextChanged.connect(lambda _: self._redraw())
+
         top = QHBoxLayout()
         top.addWidget(self._group)
         top.addSpacing(12)
         top.addWidget(QLabel("Sort by"))
         top.addWidget(self._sort)
+        top.addSpacing(12)
+        top.addWidget(QLabel("Picture"))
+        top.addWidget(self._budget)
         top.addStretch(1)
 
         self._info = _dim("")
@@ -177,7 +194,7 @@ class EmbeddingPane(QWidget):
 
         every = not self._group.isChecked()
         columns = columns_for(matrix.shape[1], every)
-        budget = rows_budget(columns)
+        budget = rows_budget(columns, CELL_BUDGETS[self._budget.currentText()])
         # Sopra il budget si disegna un campione stabile, come fa la mappa
         # sopra `MAX_POINTS`: `sort_index` lo rimette nell'ordine della
         # libreria, o le righe uscirebbero rimescolate a ogni ridisegno.
@@ -193,7 +210,9 @@ class EmbeddingPane(QWidget):
                                         kind="stable")]
         self._rows, self._columns, self._ok = rows, columns, True
 
-        quadro = fingerprint(matrix[rows["index"].to_numpy()], every)
+        # Le righe si prendono DENTRO `fingerprint`, a blocchi: indicizzare
+        # qui vorrebbe dire copiarsi accanto mezzo giga di matrice.
+        quadro = fingerprint(matrix, every, take=rows["index"].to_numpy())
         self._view.set_figure(build_fingerprint_figure(
             rows, fingerprint_source(quadro, theme.DARK), columns,
             dark=theme.DARK, room=self._view.width()))

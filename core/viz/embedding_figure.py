@@ -45,6 +45,20 @@ from core.viz.map_figure import SKIN
 # così il costo si vede invece di essere una regola nascosta.
 MAX_CELLS = 3_000_000
 
+# I due budget fra cui si sceglie, e cosa costano misurati su una libreria da
+# 86.921 brani a 128 colonne: il primo ne disegna 23.437 e si rifà in mezzo
+# secondo con un PNG da 3,9 MB; il secondo li tiene tutti — 11,1 milioni di
+# celle — in un secondo e mezzo e 14,2 MB, che è quanto costa già un ridisegno
+# della mappa. Sopra il budget scelto si campiona comunque, e la didascalia
+# sotto al disegno dice sempre quanti brani di quanti sono finiti nel quadro.
+CELL_BUDGETS = {"light · 3M pixels": MAX_CELLS,
+                "full · 12M pixels": 12_000_000}
+
+# A blocchi di quante righe si prendono i vettori dalla matrice. Prenderli
+# tutti in un colpo vorrebbe dire copiare mezzo giga accanto al mezzo giga
+# che la matrice già occupa; a blocchi il di più resta una ventina di mega.
+GATHER = 4096
+
 # Quante dimensioni finiscono in una colonna quando si accorpa. Dieci è ciò
 # che porta le 1280 di questo modello a 128 colonne esatte: una larghezza che
 # sta su uno schermo senza che il browser debba schiacciarla.
@@ -64,13 +78,37 @@ def columns_for(dimensions: int, every: bool) -> int:
     return int(dimensions) if every else int(dimensions) // GROUP
 
 
-def rows_budget(columns: int) -> int:
+def rows_budget(columns: int, cells: int = MAX_CELLS) -> int:
     """Quante righe si possono disegnare con quelle colonne."""
-    return max(1, MAX_CELLS // max(1, int(columns)))
+    return max(1, int(cells) // max(1, int(columns)))
 
 
-def fingerprint(vectors, every: bool = False) -> np.ndarray:
+def _binned(matrix: np.ndarray, take: np.ndarray, every: bool) -> np.ndarray:
+    """Le righe `take` della matrice, accorpate in colonne, prese a blocchi.
+
+    A blocchi perché il quadro finito è piccolo — 87.000 × 128 float sono
+    quaranta mega — mentre le righe da cui esce sono mezzo giga: prenderle
+    tutte insieme raddoppierebbe la memoria della mappa per il tempo di una
+    media.
+    """
+    columns = matrix.shape[1] if every else matrix.shape[1] // GROUP
+    out = np.empty((len(take), columns), dtype=np.float32)
+    for at in range(0, len(take), GATHER):
+        block = matrix[take[at:at + GATHER]]
+        # Le dimensioni che avanzano si lasciano fuori: una colonna fatta di
+        # due dimensioni accanto a colonne da dieci non è confrontabile.
+        out[at:at + len(block)] = block if every else block[
+            :, :columns * GROUP].reshape(len(block), columns, GROUP).mean(
+                axis=2)
+    return out
+
+
+def fingerprint(vectors, every: bool = False, take=None) -> np.ndarray:
     """I vettori ridotti a un quadro di valori fra −1 e +1.
+
+    `take` sono le righe da prendere, nell'ordine in cui vanno disegnate:
+    passarle qui invece di indicizzare fuori è ciò che tiene la copia dentro
+    a un blocco per volta.
 
     Ogni colonna si centra sulla PROPRIA mediana e si scala sul proprio
     scarto: le 1280 dimensioni hanno medie e ampiezze molto diverse fra loro,
@@ -86,12 +124,9 @@ def fingerprint(vectors, every: bool = False) -> np.ndarray:
     matrix = np.asarray(vectors, dtype=np.float32)
     if matrix.ndim != 2 or not matrix.size:
         return np.zeros((0, 0), dtype=np.float32)
-    if not every:
-        columns = matrix.shape[1] // GROUP
-        # Le dimensioni che avanzano si lasciano fuori: una colonna fatta di
-        # due dimensioni accanto a colonne da dieci non è confrontabile.
-        matrix = matrix[:, :columns * GROUP].reshape(
-            len(matrix), columns, GROUP).mean(axis=2)
+    take = np.arange(len(matrix)) if take is None \
+        else np.asarray(take, dtype=int)
+    matrix = _binned(matrix, take, every)
     centre = np.median(matrix, axis=0)
     spread = np.percentile(np.abs(matrix - centre), 90, axis=0)
     return np.clip((matrix - centre) / np.maximum(spread, 1e-9),
