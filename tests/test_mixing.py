@@ -165,3 +165,39 @@ def test_a_stroke_that_goes_somewhere_is_a_path():
     assert not closed_shape([(0, 0), (1, 0), (2, 0), (3, 0)])
     assert not closed_shape([(0, 0), (1, 1), (2, 0), (3, 1)])
     assert not closed_shape([(0, 0), (1, 0)])       # due punti non recintano
+
+
+# --- la tendenza: cercare da dove la catena sta andando ---
+
+def _line():
+    coords = np.array([[0, 0], [1, 0], [2, 0], [3, 0], [-1, 0]], dtype=np.float32)
+    return TransitionCost(coords, [120, 124, 128, 132, 116],
+                          ["8A", "8A", "8A", "8A", "8A"])
+
+
+def test_from_point_at_a_track_is_the_cost_from_that_track():
+    cost = _line()
+    point = (cost.coords[1], cost.bpm[1], cost.camelot[1])
+    assert np.allclose(cost.from_point(point, [0, 2, 3]), cost.to(1, [0, 2, 3]))
+
+
+def test_ahead_continues_the_step_on_the_map_and_in_tempo():
+    cost = _line()
+    coord, bpm, key = cost.ahead(previous=0, last=1, trend=1.0)
+    assert np.allclose(coord, [2, 0]) and bpm == 128 and key == "8A"
+    coord, bpm, _ = cost.ahead(previous=0, last=1, trend=0.0)
+    assert np.allclose(coord, [1, 0]) and bpm == 124
+
+
+def test_ahead_keeps_the_last_tempo_when_one_is_unknown():
+    cost = TransitionCost([[0, 0], [1, 0]], [None, 124], ["8A", "8A"])
+    assert cost.ahead(0, 1, 1.0)[1] == 124
+
+
+def test_nearest_looks_ahead_when_told_to():
+    cost = _line()
+    # Da 1, il più vicino è 0 o 2 alla pari (e 0 viene prima). Guardando
+    # avanti di un passo pieno il punto è la 2 stessa, e la 3 batte la 0.
+    assert [i for i, _ in nearest(cost, 1, k=2)] == [0, 2]
+    ahead = cost.ahead(0, 1, 1.0)
+    assert [i for i, _ in nearest(cost, 1, k=2, ahead=ahead)] == [2, 3]

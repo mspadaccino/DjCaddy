@@ -210,15 +210,39 @@ class TransitionCost:
 
     def to(self, source: int, targets) -> np.ndarray:
         """Il costo D(source, t) per ogni t in `targets`."""
+        return self.from_point((self.coords[source], self.bpm[source],
+                                self.camelot[source]), targets)
+
+    def from_point(self, point, targets) -> np.ndarray:
+        """Il costo da un punto che non è un brano: `(coordinate, bpm,
+        camelot)`. Serve alla tendenza del Chain Maker, che cerca vicino a
+        dove la catena STA ANDANDO, non a dove è arrivata."""
         targets = np.asarray(list(targets), dtype=int)
         if not len(targets):
             return np.empty(0, dtype=np.float32)
-        on_map = self.map_distances(source)[targets]
-        tempo = np.array([bpm_distance(self.bpm[source], self.bpm[t]) for t in targets])
-        key = np.array([camelot_distance(self.camelot[source], self.camelot[t])
+        coord, bpm, camelot = point
+        delta = self.coords[targets] - np.asarray(coord, dtype=np.float32)
+        on_map = np.hypot(delta[:, 0], delta[:, 1]) / self.scale
+        tempo = np.array([bpm_distance(bpm, self.bpm[t]) for t in targets])
+        key = np.array([camelot_distance(camelot, self.camelot[t])
                         for t in targets])
         return (self.w_map * on_map + self.w_bpm * tempo + self.w_key * key) / \
             max(1e-9, self.w_map + self.w_bpm + self.w_key)
+
+    def ahead(self, previous: int, last: int, trend: float) -> tuple:
+        """Dove sarebbe il prossimo brano se la catena continuasse dritta.
+
+        Da `previous` a `last` c'è una direzione, sulla mappa e nel tempo;
+        `trend` dice quanto proseguirla: a 0 si sta fermi su `last`, a 1 si
+        fa un altro passo uguale. La tonalità non ha una direzione — è una
+        ruota — e resta quella di `last`.
+        """
+        coord = self.coords[last] + trend * (self.coords[last]
+                                             - self.coords[previous])
+        bpm = self.bpm[last]
+        if bpm and self.bpm[previous]:
+            bpm = bpm + trend * (bpm - self.bpm[previous])
+        return coord, bpm, self.camelot[last]
 
     def between(self, a: int, b: int) -> float:
         return float(self.to(a, [b])[0])
@@ -233,17 +257,20 @@ class TransitionCost:
 
 
 def nearest(cost: TransitionCost, seed: int, k: int = 20,
-            pool=None) -> list[tuple[int, float]]:
+            pool=None, ahead=None) -> list[tuple[int, float]]:
     """I `k` brani con la transizione più economica da `seed`.
 
     `pool` limita la ricerca a un sottoinsieme (i brani che passano i filtri
-    della pagina): senza, si cerca in tutta la libreria.
+    della pagina): senza, si cerca in tutta la libreria. Con `ahead` — un
+    punto da `TransitionCost.ahead` — si misura da lì invece che dal seme,
+    che resta comunque escluso.
     """
     candidates = np.arange(len(cost.bpm)) if pool is None else np.asarray(list(pool), dtype=int)
     candidates = candidates[candidates != seed]
     if not len(candidates):
         return []
-    costs = cost.to(seed, candidates)
+    costs = (cost.from_point(ahead, candidates) if ahead is not None
+             else cost.to(seed, candidates))
     order = np.argsort(costs)[:k]
     return [(int(candidates[i]), float(costs[i])) for i in order]
 

@@ -356,14 +356,17 @@ def _free_cell(taken) -> tuple[float, float] | None:
 
 
 def suggestions(cost: TransitionCost, seed: int, taken, k: int = 8,
-                pool=None, key_of=None,
-                song_of=None) -> list[tuple[int, float, list[int]]]:
+                pool=None, key_of=None, song_of=None,
+                ahead=None) -> list[tuple[int, float, list[int]]]:
     """La rosa di brani da cui scegliere il prossimo, escluso il già preso.
 
     È `nearest` con una regola in più: quello che sta già sulla lavagna non
     si ripropone. Va escluso DOPO aver cercato e non prima, o si chiederebbe
     `k` candidati e se ne otterrebbero meno — per questo si pesca largo e si
     taglia dopo.
+
+    `ahead` passa a `nearest` così com'è: la rosa si cerca attorno a dove
+    la catena sta andando, non attorno all'ultimo brano.
 
     Ogni voce è `(brano, costo, copie)`. Senza `key_of` ogni brano fa voce a
     sé e `copie` contiene lui soltanto.
@@ -403,7 +406,7 @@ def suggestions(cost: TransitionCost, seed: int, taken, k: int = 8,
 
     found: list[tuple[int, float, list[int]]] = []
     voices: dict = {}
-    for track, value in nearest(cost, seed, reach, pool):
+    for track, value in nearest(cost, seed, reach, pool, ahead=ahead):
         if track in taken:
             continue
         if key_of is None:

@@ -291,3 +291,15 @@ def test_the_same_number_leaves_the_chain_alone():
     from core.viz.board import reordered
     walk = ["a", "b", "c"]
     assert reordered(walk, {1: 2}) == walk
+
+
+def test_suggestions_can_look_ahead_of_the_source():
+    coords = np.array([[0, 0], [1, 0], [2, 0], [-1, 0]], dtype=np.float32)
+    cost = TransitionCost(coords, [128] * 4, ["8A"] * 4)
+    # Sorgente 1, arrivata dalla 0: la 3 sta dietro, la 2 davanti. Ferma,
+    # la rosa le dà alla pari; in tendenza la 2 passa avanti.
+    assert [i for i, _, _ in suggestions(cost, 1, {0}, k=2)] == [2, 3]
+    ahead = cost.ahead(0, 1, 1.0)
+    found = suggestions(cost, 1, {0}, k=2, ahead=ahead)
+    assert [i for i, _, _ in found] == [2, 3]
+    assert found[0][1] < found[1][1]
