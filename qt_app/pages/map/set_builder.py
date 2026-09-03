@@ -91,6 +91,12 @@ def _dim(text: str, wrap: bool = True) -> QLabel:
     return label
 
 
+def _scale(low: str, high: str) -> QLabel:
+    """La scritta accanto a una manopola: cosa vale lo zero e cosa vale
+    l'uno. Il tooltip spiega, questa si legge senza fermarsi."""
+    return _dim(f"0 {low} · 1 {high}", wrap=False)
+
+
 def numbered_rows(frame: pd.DataFrame, indices, common: dict) -> pd.DataFrame:
     """Le righe scelte con il numero d'ordine davanti, come `selection_rows`
     di Streamlit: l'ordine è quello che arriva e non si tocca."""
@@ -478,6 +484,7 @@ class SetBuilderPanel(QWidget):
             "source; on the first track it does nothing."))
         self._trend.valueChanged.connect(lambda _: self._refresh_roster())
         branch.addWidget(self._trend)
+        branch.addWidget(_scale("around the source", "a step ahead"))
         gbox.addLayout(branch)
 
         self._roster_told = QLabel("")
@@ -556,6 +563,8 @@ class SetBuilderPanel(QWidget):
             "expect near-doubles. Higher spreads the list out."))
         self._variety.valueChanged.connect(lambda _: self._retune())
         knobs.addWidget(self._variety)
+        knobs.addWidget(_scale("close, doubles allowed", "spread out"))
+        knobs.addSpacing(12)
         knobs.addWidget(QLabel("Drift"))
         self._drift = QDoubleSpinBox()
         self._drift.setRange(0.0, 1.0)
@@ -567,6 +576,7 @@ class SetBuilderPanel(QWidget):
             "that drifts away from where it started."))
         self._drift.valueChanged.connect(lambda _: self._retune())
         knobs.addWidget(self._drift)
+        knobs.addWidget(_scale("stays around the group", "wanders off"))
         knobs.addStretch(1)
         box.addLayout(knobs)
 
