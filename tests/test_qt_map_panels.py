@@ -243,9 +243,9 @@ def test_unticking_survives_a_knob_touch(qtbot):
 
 
 def test_every_pickable_list_can_be_taken_or_cleared_in_one_gesture(qtbot):
-    """Select all / none sulle tre tabelle a spunte di Build a set: le liste
-    arrivano a venti righe, e prenderle tutte non è un gesto da fare riga
-    per riga."""
+    """Select all / none sulle quattro tabelle a spunte di Build a set: le
+    liste arrivano a venti righe, e prenderle tutte non è un gesto da fare
+    riga per riga."""
     from PySide6.QtWidgets import QPushButton
 
     from qt_app.pages.map.library import Library
@@ -261,12 +261,12 @@ def test_every_pickable_list_can_be_taken_or_cleared_in_one_gesture(qtbot):
     panel.set_library(lib)
 
     labels = [b.text() for b in panel.findChildren(QPushButton)]
-    assert labels.count("Select all") == 3      # gruppo, Quick List, Sounds
-    assert labels.count("Select none") == 3
+    assert labels.count("Select all") == 4      # gruppo, Quick, Sounds, Radio
+    assert labels.count("Select none") == 4
 
     panel.set_choice(None, [0, 1, 2], [0, 1, 2])
     for table in (panel._group_table, panel._mixes_table,
-                  panel._alike_table):
+                  panel._alike_table, panel._radio_table):
         table.set_tracks(numbered_rows(frame, [0, 1, 2], common={}))
         table.set_all_picked(True)
         assert len(table.selected_paths()) == 3
@@ -438,3 +438,137 @@ def test_save_disables_after_writing_and_wakes_on_a_real_change(
     panel._save_again.click()
     assert "two.mp3" in out.read_text()
     assert not panel._save_again.isEnabled()   # riscritto: di nuovo spento
+
+
+# --- Radio e appunti ---
+
+def _radio_library():
+    """Otto brani in un piano, a ventaglio: due attorno all'asse x, due
+    attorno all'asse y, gli altri in mezzo o fuori. Venti gradi l'uno
+    dall'altro almeno, che è sotto la soglia dei gemelli. Gli embedding
+    stanno in uno store finto, che è tutto quello che la radio chiede allo
+    store."""
+    from types import SimpleNamespace
+    from qt_app.pages.map.library import Library
+
+    angles = [0, 20, 40, 90, 70, 110, -30, 150]
+    vectors = np.array([[np.cos(np.radians(a)), np.sin(np.radians(a))]
+                        for a in angles], dtype=np.float32)
+    frame = pd.DataFrame([
+        {"name": f"t{n}.mp3", "bpm": 124.0, "camelot": "8A", "energy": 0.5,
+         "danceability": 0.5, "valence": 0.1, "valence_rank": 0.5,
+         "moods": "", "genres": "House", "top_genre": "House",
+         "folder": "/r", "path": f"/r/t{n}.mp3", "duration": 200.0}
+        for n in range(8)])
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    coords = np.column_stack([np.arange(8.0), np.zeros(8)])
+    cost = TransitionCost(coords, frame["bpm"].tolist(),
+                          frame["camelot"].tolist())
+    store = SimpleNamespace(embeddings=vectors)
+    return Library(store=store, frame=frame, common={}, at_path=at_path,
+                   cost=cost)
+
+
+def _radio_panel(qtbot, tmp_path):
+    from core.analysis.journal import Journal
+    from qt_app.pages.map.set_builder import SetBuilderPanel
+    from qt_app.state import AppState, _save_favourites
+
+    state = AppState()
+    state.favourites = []
+    journal = Journal(tmp_path / "choices.jsonl")
+    panel = SetBuilderPanel(state, wire_table=lambda table: None,
+                            journal=journal)
+    qtbot.addWidget(panel)
+    panel.set_library(_radio_library())
+    panel.set_pool(np.arange(8))
+    return panel, state, journal
+
+
+def test_radio_from_the_map_selection_tunes_around_the_group(qtbot, tmp_path,
+                                                             monkeypatch):
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, _ = _radio_panel(qtbot, tmp_path)
+    panel._radio_from.setCurrentIndex(1)               # Map selection
+    panel.set_choice(None, [0, 1], [0, 1])
+    assert panel._radio_ask.isEnabled()
+    panel._variety.setValue(0.0)
+    panel._count.setValue(5)
+    panel._on_ask_radio()
+    # Attorno all'asse x, senza i semi: resta fuori solo la 7, a 150 gradi.
+    assert set(panel._radio_shown) == {2, 3, 4, 5, 6}
+    assert len(panel._radio_table.selected_paths()) == 5    # tutte spuntate
+    assert panel._tabs.tabText(3).endswith(f"({len(panel._radio_shown)})")
+
+
+def test_radio_flag_switches_to_the_favourites(qtbot, tmp_path, monkeypatch):
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, _ = _radio_panel(qtbot, tmp_path)
+    panel.set_choice(None, [0, 1], [0, 1])
+    assert not panel._radio_ask.isEnabled()            # niente preferiti
+    state.toggle_favourite("/r/t3.mp3")
+    assert panel._radio_ask.isEnabled()
+    panel._variety.setValue(0.0)
+    panel._count.setValue(5)
+    panel._on_ask_radio()
+    # Attorno all'asse y: fuori la 0 e la 6, le più lontane dai 90 gradi.
+    assert set(panel._radio_shown) == {1, 2, 4, 5, 7}
+    # Un preferito in più cambia il gruppo: la lista si chiude da sé.
+    state.toggle_favourite("/r/t0.mp3")
+    assert panel._radio_key is None and not panel._radio_ask.isHidden()
+
+
+def test_radio_again_turns_the_unticked_into_noes(qtbot, tmp_path, monkeypatch):
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, journal = _radio_panel(qtbot, tmp_path)
+    panel._radio_from.setCurrentIndex(1)
+    panel.set_choice(0, [], [0])                       # il seme solo
+    panel._variety.setValue(0.0)
+    panel._on_ask_radio()
+    first = panel._radio_shown[0]
+    row = list(panel._radio_table.model_.frame["_path"]).index(
+        panel._lib.frame.at[first, "path"])
+    panel._radio_table.toggle_pick(row)                # via il primo
+    panel._on_radio_again()
+    assert first not in panel._radio_shown
+    assert panel._radio_negatives == [first]
+    heard = []
+    panel.replace_playlist.connect(heard.append)
+    panel._send_radio("replace")
+    assert heard and first not in heard[0]
+    kinds = [line["kind"] for line in journal.read()]
+    assert kinds == ["radio_again", "radio_sent"]
+    assert journal.read()[1]["negatives"] == [f"/r/t{first}.mp3"]
+
+
+def test_chain_pick_is_noted_with_the_roster_it_came_from(qtbot, tmp_path,
+                                                          monkeypatch):
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, journal = _radio_panel(qtbot, tmp_path)
+    panel._on_start_by_name(0)
+    panel._roster_table.toggle_pick(0)
+    panel._on_roster_add()
+    panel._on_chain_send()
+    lines = journal.read()
+    assert [line["kind"] for line in lines] == ["pick", "chain_sent"]
+    pick = lines[0]
+    assert pick["source"]["path"] == "/r/t0.mp3"
+    assert pick["chosen"] == [pick["shown"][0]["path"]]
+    assert pick["shown"][0]["rank"] == 0 and pick["weights"] == [1.0, 1.0, 1.0]
+    assert lines[1]["walk"] == ["/r/t0.mp3", pick["chosen"][0]]
+
+
+def test_chain_trend_looks_ahead_of_the_source(qtbot, tmp_path, monkeypatch):
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, _ = _radio_panel(qtbot, tmp_path)
+    # Catena 1 → 2 sulla retta: fermo, da 2 la 1 è presa e 3 batte... alla
+    # pari con niente; con la tendenza il punto sta sulla 3 e la 4 passa
+    # davanti alla 0.
+    panel._on_chain_reorder(["/r/t1.mp3", "/r/t2.mp3"])
+    assert panel._roster_told.text().endswith("</b>")
+    still = list(panel._roster_table.model_.frame["_path"])
+    panel._trend.setValue(1.0)
+    assert "looking ahead" in panel._roster_told.text()
+    ahead = list(panel._roster_table.model_.frame["_path"])
+    assert still[0] == "/r/t3.mp3" and ahead[:2] == ["/r/t3.mp3", "/r/t4.mp3"]
+    assert still.index("/r/t0.mp3") < still.index("/r/t4.mp3")

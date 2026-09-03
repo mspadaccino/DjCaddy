@@ -1,15 +1,21 @@
-"""Build a set: i tre modi di passare dalla mappa a una scaletta.
+"""Build a set: i quattro modi di passare dalla mappa a una scaletta.
 
-Le stesse tre schede della pagina Streamlit — Quick List (cosa ci si mixa
-sopra), Sounds like it (cosa gli somiglia), Chain Maker (un brano alla
-volta) — sopra un pannello unico di pesi e "quanti elencare", che sono gli
-stessi filtri di partenza per tutte e tre.
+Le tre schede della pagina Streamlit — Quick List (cosa ci si mixa sopra),
+Sounds like it (cosa gli somiglia), Chain Maker (un brano alla volta) — più
+Radio (una playlist da un GRUPPO: i preferiti o il lazo), sopra un pannello
+unico di pesi e "quanti elencare", che sono gli stessi filtri di partenza
+per tutte.
 
 Le regole vengono tutte da core: `nearest`, `magic_sort`, `sorted_after`,
-`store.similar`, `suggestions`, `chain_table`, `roster_table`. Qui ci sono i
-widget e la disciplina delle liste: una lista si apre quando la si chiede
-("Make the list"), resta viva finché il seme è quello — si ricalcola con i
-pesi e con i filtri — e si richiude da sé quando il seme cambia.
+`store.similar`, `suggestions`, `chain_table`, `roster_table`, `radio.tune`.
+Qui ci sono i widget e la disciplina delle liste: una lista si apre quando
+la si chiede ("Make the list"), resta viva finché il seme è quello — si
+ricalcola con i pesi e con i filtri — e si richiude da sé quando il seme
+cambia.
+
+Ogni scelta fatta qui — il brano preso dalla rosa, quello tolto dalla
+catena, la lista mandata avanti — finisce nel `Journal`: non cambia niente
+oggi, ma è la materia con cui domani i pesi si regoleranno da soli.
 """
 
 from __future__ import annotations
@@ -25,9 +31,10 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
                                QPushButton, QSpinBox, QStackedWidget,
                                QTabWidget, QVBoxLayout, QWidget)
 
-from core.analysis import mood_scale
+from core.analysis import mood_scale, radio
 from core.analysis.duplicates import folded, normalized_name, song_key
 from core.analysis.graph_playlist import GraphPlaylist, suggestions
+from core.analysis.journal import Journal, facts
 from core.analysis.mixing import magic_sort, nearest, sorted_after
 from core.viz.board import _label, chain_table, roster_table
 from core.viz.track_columns import READING_ORDER, genre_colors, reading
@@ -68,9 +75,13 @@ WAITING_FOR_THE_BUTTON = ("Nothing built yet — press the button above. The "
                           "map are looking around, not choosing what comes "
                           "next.")
 
-# I titoli delle tre schede, senza conteggio: il conteggio ce lo appende
+# I titoli delle schede, senza conteggio: il conteggio ce lo appende
 # `_retitle` quando c'è qualcosa da contare.
-TAB_TITLES = ("✨ Quick List", "🎯 Sounds like it", "🔗 Chain Maker")
+TAB_TITLES = ("✨ Quick List", "🎯 Sounds like it", "🔗 Chain Maker",
+              "📻 Radio")
+
+# Da dove parte la Radio: la scelta del menu, nell'ordine del menu.
+RADIO_SOURCES = ("Favourites", "Map selection")
 
 
 def _dim(text: str, wrap: bool = True) -> QLabel:
@@ -167,10 +178,12 @@ class SetBuilderPanel(QWidget):
     suggestions_changed = Signal(list, list)
     chain_changed = Signal(list)
 
-    def __init__(self, state: AppState, wire_table, parent=None) -> None:
+    def __init__(self, state: AppState, wire_table,
+                 journal: Journal | None = None, parent=None) -> None:
         super().__init__(parent)
         self._state = state
         self._wire = wire_table
+        self._journal = journal or Journal()
         self._lib: Library | None = None
         self._pool: np.ndarray = np.empty(0, dtype=int)
         self._seed: int | None = None
@@ -181,7 +194,14 @@ class SetBuilderPanel(QWidget):
         self._asked_alike: str | None = None
         self._graph = GraphPlaylist()
         self._source: str | None = None
+        self._roster_picks: list = []
+        # La radio: da cosa è stata sintonizzata (sorgente e semi), cosa ha
+        # proposto, e i no raccolti finché i semi sono quelli.
+        self._radio_key: tuple | None = None
+        self._radio_shown: list[int] = []
+        self._radio_negatives: list[int] = []
         self._build()
+        state.favourites_changed.connect(lambda _: self._refresh_radio())
 
     # ------------------------------------------------------------------
     # costruzione
@@ -215,6 +235,7 @@ class SetBuilderPanel(QWidget):
         self._tabs.addTab(self._build_quicklist(), TAB_TITLES[0])
         self._tabs.addTab(self._build_alike(), TAB_TITLES[1])
         self._tabs.addTab(self._build_chain(), TAB_TITLES[2])
+        self._tabs.addTab(self._build_radio(), TAB_TITLES[3])
 
         box = QVBoxLayout(self)
         box.addWidget(self._seed_told)
@@ -443,6 +464,20 @@ class SetBuilderPanel(QWidget):
         self._unchain = QPushButton("🗑 Remove it from the chain")
         self._unchain.clicked.connect(self._on_unchain)
         branch.addWidget(self._unchain)
+        branch.addWidget(QLabel("Trend"))
+        self._trend = QDoubleSpinBox()
+        self._trend.setRange(0.0, 1.0)
+        self._trend.setSingleStep(0.1)
+        self._trend.setValue(0.0)
+        self._trend.setToolTip(theme.hint(
+            "Where the chain is GOING, not just where it is. At 0 the roster "
+            "sits around the source track, as always. Above 0 it looks one "
+            "step ahead along the line from the previous track to the "
+            "source — on the map and in tempo — and proposes what lies "
+            "there: a rising set keeps rising. Needs a track before the "
+            "source; on the first track it does nothing."))
+        self._trend.valueChanged.connect(lambda _: self._refresh_roster())
+        branch.addWidget(self._trend)
         gbox.addLayout(branch)
 
         self._roster_told = QLabel("")
@@ -484,6 +519,93 @@ class SetBuilderPanel(QWidget):
         self._chain.addWidget(start)
         self._chain.addWidget(going)
         return self._chain
+
+    def _build_radio(self) -> QWidget:
+        page = QWidget()
+        box = QVBoxLayout(page)
+        radio_why = theme.hint(
+            "A playlist from a GROUP, not from one seed. The group's taste "
+            "is the centre of its embeddings — split in two or three if the "
+            "group has two or three souls, each served in turn. Every pick "
+            "must be close to that taste and unlike what is already picked, "
+            "so no twenty versions of the same track; near-identical twins "
+            "stay out altogether. Acoustic only: tempo and key are not "
+            "judged here — the list comes out magic-sorted, so it mixes. "
+            "Only tracks that pass the filters are considered.")
+
+        knobs = QHBoxLayout()
+        knobs.addWidget(QLabel("From"))
+        self._radio_from = QComboBox()
+        self._radio_from.addItems(RADIO_SOURCES)
+        self._radio_from.setToolTip(theme.hint(
+            "Favourites: every starred track is a seed. Map selection: the "
+            "lasso or box on the map — or the single seed, if that is all "
+            "there is."))
+        self._radio_from.currentIndexChanged.connect(
+            lambda _: self._refresh_radio())
+        knobs.addWidget(self._radio_from)
+        knobs.addSpacing(12)
+        knobs.addWidget(QLabel("Variety"))
+        self._variety = QDoubleSpinBox()
+        self._variety.setRange(0.0, 1.0)
+        self._variety.setSingleStep(0.1)
+        self._variety.setValue(0.5)
+        self._variety.setToolTip(theme.hint(
+            "How much a candidate pays for sounding like what is already "
+            "picked. At 0 it is pure closeness to the group's taste — "
+            "expect near-doubles. Higher spreads the list out."))
+        self._variety.valueChanged.connect(lambda _: self._retune())
+        knobs.addWidget(self._variety)
+        knobs.addWidget(QLabel("Drift"))
+        self._drift = QDoubleSpinBox()
+        self._drift.setRange(0.0, 1.0)
+        self._drift.setSingleStep(0.1)
+        self._drift.setValue(0.0)
+        self._drift.setToolTip(theme.hint(
+            "After each pick the taste moves a little towards it. At 0 the "
+            "list stays around the group; higher and it becomes a journey "
+            "that drifts away from where it started."))
+        self._drift.valueChanged.connect(lambda _: self._retune())
+        knobs.addWidget(self._drift)
+        knobs.addStretch(1)
+        box.addLayout(knobs)
+
+        self._radio_told = QLabel("")
+        self._radio_told.setWordWrap(True)
+        box.addWidget(self._radio_told)
+        self._radio_ask = QPushButton("📻 Tune in")
+        self._radio_ask.setToolTip(radio_why)
+        self._radio_ask.clicked.connect(self._on_ask_radio)
+        box.addWidget(self._radio_ask)
+        self._radio_wait = _dim(WAITING_FOR_THE_BUTTON)
+        box.addWidget(self._radio_wait)
+        self._radio_table = TrackTable(checkable=True, favouritable=True)
+        self._radio_table.setToolTip(radio_why)
+        self._wire(self._radio_table)
+        box.addWidget(self._pick_row(self._radio_table,
+                                     reset=self._on_reset_radio))
+        box.addWidget(self._radio_table, stretch=1)
+        self._radio_doubles = _dim("")
+        self._radio_doubles.setToolTip(DOUBLES_HINT)
+        self._radio_doubles.setVisible(False)
+        box.addWidget(self._radio_doubles)
+        self._radio_again = QPushButton("🔄 Again, minus the unticked")
+        self._radio_again.setToolTip(theme.hint(
+            "The unticked rows become no's: they are dropped, the taste "
+            "moves away from them, and the list is made again. The no's "
+            "are remembered until the group changes."))
+        self._radio_again.clicked.connect(self._on_radio_again)
+        self._radio_add = QPushButton("➕ Add selected to the playlist")
+        self._radio_add.clicked.connect(lambda: self._send_radio("append"))
+        self._radio_send = QPushButton("↺ Send as a new playlist")
+        self._radio_send.setToolTip("Starts over: what is in the playlist "
+                                    "now is dropped.")
+        self._radio_send.clicked.connect(lambda: self._send_radio("replace"))
+        row = QHBoxLayout()
+        for button in (self._radio_again, self._radio_add, self._radio_send):
+            row.addWidget(button)
+        box.addLayout(row)
+        return page
 
     # ------------------------------------------------------------------
     # il contesto: libreria, filtri, scelta
@@ -530,12 +652,14 @@ class SetBuilderPanel(QWidget):
         self._refresh_quick()
         self._refresh_alike()
         self._refresh_roster()
+        self._retune()
 
     def _refresh_all(self) -> None:
         self._refresh_seed_told()
         self._refresh_quick()
         self._refresh_alike()
         self._refresh_chain()
+        self._refresh_radio()
 
     def _refresh_seed_told(self) -> None:
         if self._lib is None or self._seed is None:
@@ -860,13 +984,17 @@ class SetBuilderPanel(QWidget):
             self._roster_table.set_tracks(pd.DataFrame(columns=READING_ORDER))
             return
         source = frame.iloc[source_idx]
+        ahead = self._ahead(source_idx)
         self._roster_told.setText(
-            f"<b>Mixes out of — {_label(str(source['name']))}</b>")
+            f"<b>Mixes out of — {_label(str(source['name']))}</b>"
+            + (" · looking ahead" if ahead is not None else ""))
         taken = {at_path[p] for p in self._graph.tracks if p in at_path}
         picks = suggestions(
             cost, source_idx, taken, k=FRONTIER_SIZE, pool=self._pool,
             key_of=lambda i: normalized_name(Path(frame.at[i, "path"])),
-            song_of=lambda i: song_key(Path(frame.at[i, "path"])))
+            song_of=lambda i: song_key(Path(frame.at[i, "path"])),
+            ahead=ahead)
+        self._roster_picks = picks
         table = roster_table(frame, picks, source, common)
         if not len(table):
             self._roster_table.set_tracks(pd.DataFrame(columns=READING_ORDER))
@@ -879,6 +1007,19 @@ class SetBuilderPanel(QWidget):
         table = table[[c for c in order if c in table.columns]]
         self._roster_table.set_tracks(
             table, genre_colors(frame, table["genres"], dark=theme.DARK))
+
+    def _ahead(self, source_idx: int) -> tuple | None:
+        """Il punto un passo avanti alla sorgente, se c'è una tendenza da
+        seguire: serve un brano PRIMA della sorgente nella scaletta."""
+        trend = self._trend.value()
+        walk = self._walk()
+        at = walk.index(self._source) if self._source in walk else 0
+        if trend <= 0 or at == 0:
+            return None
+        previous = self._lib.at_path.get(walk[at - 1])
+        if previous is None:
+            return None
+        return self._lib.cost.ahead(previous, source_idx, trend)
 
     # --- i gesti della catena ---
     def _chained(self, graph: GraphPlaylist, source: str | None) -> None:
@@ -913,6 +1054,9 @@ class SetBuilderPanel(QWidget):
 
     def _on_unchain(self) -> None:
         if self._source in self._graph and len(self._graph) > 1:
+            self._journal.record(
+                "unchain", path=self._source,
+                neighbours=self._graph.neighbours(self._source))
             self._graph.remove(self._source)
             tracks = self._graph.tracks
             self._chained(self._graph, tracks[-1] if tracks else None)
@@ -922,6 +1066,7 @@ class SetBuilderPanel(QWidget):
         wanted = [p for p in self._roster_table.selected_paths()]
         if not wanted:
             return
+        self._note_pick(wanted)
         # In fila uno dietro l'altro: spuntarne tre vuol dire "poi questi
         # tre", non tre rami dalla stessa sorgente.
         previous = self._source
@@ -929,6 +1074,24 @@ class SetBuilderPanel(QWidget):
             self._graph.add(previous, path)
             previous = path
         self._chained(self._graph, previous)
+
+    def _note_pick(self, chosen: list[str]) -> None:
+        """L'appunto della scelta: la rosa com'era, con i numeri di ogni
+        candidato e il suo posto in lista, e chi è stato preso. Il posto
+        conta perché si tende a prendere il primo: chi imparerà da qui deve
+        poterlo scontare."""
+        frame, at_path = self._lib.frame, self._lib.at_path
+        source_idx = at_path.get(self._source)
+        if source_idx is None:
+            return
+        self._journal.record(
+            "pick", tab="chain",
+            source=facts(frame.iloc[source_idx]),
+            weights=list(self.weights()), trend=self._trend.value(),
+            shown=[{**facts(frame.iloc[i]), "rank": n,
+                    "cost": round(float(value), 4), "copies": len(copies)}
+                   for n, (i, value, copies) in enumerate(self._roster_picks)],
+            chosen=list(chosen))
 
     def _on_attach_by_name(self, index: int) -> None:
         if self._source is None or self._source not in self._graph:
@@ -943,10 +1106,145 @@ class SetBuilderPanel(QWidget):
 
     def _on_chain_append(self) -> None:
         at_path = self._lib.at_path
+        self._journal.record("chain_sent", how="append", walk=self._walk())
         self.append_playlist.emit(
             [at_path[p] for p in self._walk() if p in at_path])
 
     def _on_chain_send(self) -> None:
         at_path = self._lib.at_path
+        self._journal.record("chain_sent", how="replace", walk=self._walk())
         self.replace_playlist.emit(
             [at_path[p] for p in self._walk() if p in at_path])
+
+    # ------------------------------------------------------------------
+    # Radio
+    # ------------------------------------------------------------------
+    def _radio_seeds(self) -> list[int]:
+        """I semi secondo il menu: i preferiti, o quello che c'è sulla
+        mappa — il gruppo, o il seme solo se è tutto quello che c'è."""
+        at_path = self._lib.at_path
+        if self._radio_from.currentIndex() == 0:
+            return [at_path[p] for p in self._state.favourites if p in at_path]
+        if self._selected:
+            return list(self._selected)
+        return [self._seed] if self._seed is not None else []
+
+    def _refresh_radio(self) -> None:
+        if self._lib is None:
+            return
+        seeds = self._radio_seeds()
+        source = RADIO_SOURCES[self._radio_from.currentIndex()]
+        key = (source, tuple(self._lib.frame.at[i, "path"] for i in seeds))
+        if key != self._radio_key:
+            # Semi nuovi: la lista di prima parlava di un altro gruppo, e i
+            # suoi no con lei.
+            self._radio_key = None
+            self._radio_shown, self._radio_negatives = [], []
+            self._radio_table.clear_picks()
+        can = bool(seeds) and self._lib.store is not None
+        if not seeds:
+            self._radio_told.setText(
+                "No favourites yet — star some tracks first."
+                if self._radio_from.currentIndex() == 0 else
+                "Nothing on the map — click a seed, or drag the lasso or "
+                "the box around a group.")
+        elif self._lib.store is None:
+            self._radio_told.setText("No embeddings to tune from.")
+        else:
+            self._radio_told.setText(
+                f"<b>Tuned from {len(seeds)} track(s)</b> — {source}.")
+        self._radio_ask.setVisible(self._radio_key is None)
+        self._radio_ask.setEnabled(can)
+        self._radio_wait.setVisible(self._radio_key is None)
+        for widget in (self._radio_table, self._radio_again,
+                       self._radio_add, self._radio_send):
+            widget.setVisible(self._radio_key is not None)
+        if self._radio_key is None:
+            self._radio_doubles.setVisible(False)
+            self._retitle(3, 0)
+
+    def _on_ask_radio(self) -> None:
+        if self._lib is None or self._lib.store is None:
+            return
+        seeds = self._radio_seeds()
+        if not seeds:
+            return
+        source = RADIO_SOURCES[self._radio_from.currentIndex()]
+        self._radio_key = (source,
+                           tuple(self._lib.frame.at[i, "path"] for i in seeds))
+        self._show_radio()
+
+    def _on_reset_radio(self) -> None:
+        self._radio_key = None
+        self._radio_negatives = []
+        self._radio_table.clear_picks()
+        self._refresh_radio()
+
+    def _retune(self) -> None:
+        """Una manopola toccata a lista aperta: si rifà con gli stessi no."""
+        if self._radio_key is not None and self._lib is not None:
+            self._show_radio()
+
+    def _show_radio(self) -> None:
+        frame, common, store = self._lib.frame, self._lib.common, self._lib.store
+        seeds = self._radio_seeds()
+        picks = radio.tune(store.embeddings[:len(frame)], seeds,
+                           pool=self._pool, k=self._count.value(),
+                           variety=self._variety.value(),
+                           drift=self._drift.value(),
+                           negatives=self._radio_negatives)
+        ordered = magic_sort(self._lib.cost, picks)
+        self._radio_shown = ordered
+        shown = numbered_rows(frame, ordered, common)
+        self._radio_table.set_tracks(
+            shown, genre_colors(frame, shown["genres"], dark=theme.DARK))
+        # Tutte spuntate: la lista È la proposta, si toglie chi non convince.
+        self._radio_table.set_all_picked(True)
+        marks, told = double_marks(list(shown["_path"]),
+                                   self._vectors_for(ordered))
+        self._radio_table.set_marks(marks)
+        self._radio_doubles.setText(told or "")
+        self._radio_doubles.setVisible(told is not None)
+        self._radio_ask.setVisible(False)
+        self._radio_wait.setVisible(False)
+        for widget in (self._radio_table, self._radio_again,
+                       self._radio_add, self._radio_send):
+            widget.setVisible(True)
+        self._radio_again.setEnabled(bool(ordered))
+        self._retitle(3, len(ordered))
+
+    def _radio_unticked(self) -> list[int]:
+        ticked = set(self._radio_table.selected_paths())
+        frame = self._lib.frame
+        return [i for i in self._radio_shown
+                if frame.at[i, "path"] not in ticked]
+
+    def _on_radio_again(self) -> None:
+        if self._radio_key is None:
+            return
+        fresh = self._radio_unticked()
+        self._radio_negatives = list(dict.fromkeys(
+            self._radio_negatives + fresh))
+        frame = self._lib.frame
+        self._journal.record(
+            "radio_again", source=self._radio_key[0],
+            seeds=list(self._radio_key[1]),
+            negatives=[frame.at[i, "path"] for i in self._radio_negatives],
+            variety=self._variety.value(), drift=self._drift.value())
+        self._show_radio()
+
+    def _send_radio(self, how: str) -> None:
+        at_path, frame = self._lib.at_path, self._lib.frame
+        wanted = [at_path[p] for p in self._radio_table.selected_paths()
+                  if p in at_path]
+        if not wanted:
+            return
+        self._journal.record(
+            "radio_sent", how=how, source=self._radio_key[0],
+            seeds=list(self._radio_key[1]),
+            shown=[frame.at[i, "path"] for i in self._radio_shown],
+            ticked=[frame.at[i, "path"] for i in wanted],
+            negatives=[frame.at[i, "path"] for i in self._radio_negatives],
+            variety=self._variety.value(), drift=self._drift.value())
+        (self.append_playlist if how == "append"
+         else self.replace_playlist).emit(wanted)

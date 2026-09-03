@@ -30,6 +30,7 @@ from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml,
                                      playlist_positions, read_m3u8,
                                      read_title_artist)
 from core.analysis.duplicates import song_key
+from core.analysis.journal import Journal
 from core.analysis.mixing import TransitionCost, magic_sort
 from core.viz.board import (DEFAULT_HEIGHT, HEIGHT_FIELDS, HEIGHT_MEANING,
                             board_payload, reordered)
@@ -292,9 +293,11 @@ class PlaylistPanel(QWidget):
 
     picked_changed = Signal(list)
 
-    def __init__(self, state: AppState, wire_table, parent=None) -> None:
+    def __init__(self, state: AppState, wire_table,
+                 journal: Journal | None = None, parent=None) -> None:
         super().__init__(parent)
         self._state = state
+        self._journal = journal or Journal()
         self._lib: Library | None = None
         self._cost: TransitionCost | None = None    # pesi fermi (1,1,1)
         self._chapters: list[list[int]] | None = None
@@ -821,6 +824,11 @@ class PlaylistPanel(QWidget):
     def _write_out(self) -> None:
         path, build = self._saved_to
         path.write_text(build(self._tracks_for_export()), "utf-8")
+        # Una playlist salvata è una sequenza voluta: l'appunto che vale di
+        # più per chi vorrà imparare "cosa viene dopo".
+        self._journal.record("playlist_saved", file=str(path),
+                             format=path.suffix.lstrip("."),
+                             paths=list(self._state.playlist))
         # Come in un foglio Excel: appena scritto non c'è più niente di
         # nuovo da riscrivere, e il bottone lo dice spegnendosi. Torna vivo
         # alla prima mutazione vera della playlist — vedi `_on_playlist_changed`.
