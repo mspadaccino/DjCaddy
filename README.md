@@ -117,19 +117,21 @@ thousand tracks are in and the projection has run once.
 ### 2 · Find your way around
 
 Every track is a point, and points that sound alike sit together. **Click a
-point** to make it the *seed*: the tables below fill with what sounds like it
-and what mixes out of it. Narrow the picture with the filters — genres, BPM,
+point** to make it the *seed*: the tables below fill with what mixes out of
+it. Narrow the picture with the filters — genres, BPM,
 groove, energy — and use the point-size control to read a second quantity off
 the same picture.
 
 ### 3 · Build a set
 
-Two ways, and they answer different questions:
+Three ways, and they answer different questions:
 
 - *Put these in the best order.* **Box-select** a group and run **magic
   sort**, or **draw a lasso** across the clusters to plan an arc.
 - *What comes next?* Go to **Build a set** and grow the chain one track at a
   time from the ranked candidates.
+- *More like these.* Star some favourites, or select a group, and let
+  **Radio** tune a playlist from the whole group's taste.
 
 Both write into the same **playlist**, which is what the **board** draws as
 cards. Export it as **M3U8** or **rekordbox XML**.
@@ -159,8 +161,9 @@ I play next, out of ninety thousand tracks?*
 
 - **Click a point** (or pick a track by name) to make it the seed, and see
   what mixes out of it, ranked by the transition cost
-  `w1·distance on the map + w2·BPM gap + w3·Camelot distance`, with the three
-  weights on sliders.
+  `w1·sound distance + w2·BPM gap + w3·Camelot distance`, with the three
+  weights on sliders. Sound is measured on the full embedding, not on the
+  map — see [below](#nearness-is-measured-in-1280-dimensions-not-on-the-map).
 - **Draw a lasso**, which does one of two things depending on the shape you
   draw. A **line** through the clusters takes the tracks it passes near, in
   the order it meets them — a way to plan an arc (start in ambient, cross
@@ -171,6 +174,8 @@ I play next, out of ninety thousand tracks?*
   that visits every track once — an open travelling-salesman problem, solved
   nearest-neighbour then 2-opt — so each track melts into the next.
 - **Grow a set one track at a time** in [Build a set](#building-a-set).
+- **Tune a playlist from a group** — your favourites, or a lasso — with
+  [Radio](#radio-a-playlist-from-a-group).
 - **Export** the result as M3U8 or rekordbox XML.
 
 Both the selection and the set builder write to the same **playlist**, which
@@ -247,17 +252,21 @@ another volume makes it a *different* library as far as the map is concerned.
 That is what `--relocate` is for — see
 [Building the map from the terminal](#building-the-map-from-the-terminal).
 
-### Two kinds of nearness, and they are not the same
+### Nearness is measured in 1280 dimensions, not on the map
 
-*Sounds like it* is the cosine over the full **1280 dimensions** — the real
-one. *Mixes out of it* ranks by the transition cost, which uses the **two
-projected coordinates** plus tempo and key. The 2D map is a shadow of the
-embedding: convenient to look at, and flattened. A track can sound close and
-mix badly, or the reverse, and the two tabs under a seed exist to let you ask
-both questions.
+The `sound` term of the transition cost is `1 − cosine` between the two
+tracks' full **1280-dimension** fingerprints — the real nearness. It used to
+be the distance on the map, and the map is a shadow of the embedding:
+convenient to look at, and flattened. Two tracks close in the shadow are not
+always close in the embedding, and the reverse. So the map is for looking,
+and the cost measures where the truth is.
+
+One consequence: set **w·BPM and w·key to 0** and Quick List becomes *what
+sounds like it*, tempo and key aside. That question used to have a tab of its
+own; now it is three knobs away, which is why the tab is gone.
 
 **Genre and mood never enter proximity.** The transition cost takes exactly
-three things — position on the map, BPM gap, Camelot distance — and no label.
+three things — sound distance, BPM gap, Camelot distance — and no label.
 Genres are a **filter**: they narrow the universe before the question is
 asked, and say nothing about how close two tracks are once it has been. This
 is deliberate: the whole point of the embedding is that it hears things a
@@ -298,6 +307,44 @@ four of the nine slots. They are gathered under one row marked `×4`, and
 putting one down blocks the rest — a set should not take the same record
 twice. Which copy is a real question, so the roster names them by folder and
 lets you choose rather than picking for you.
+
+**Trend: where the chain is going, not where it is.** By default the roster
+sits around the track you stand on. Turn **Trend** up and it looks one step
+ahead along the line from the previous track to this one — in sound and in
+tempo — and proposes what lies there: a set that has been rising keeps
+rising. At 1 the step is as long as the last one; on the first track of a
+chain there is no line yet, and Trend does nothing.
+
+### Radio: a playlist from a group
+
+Quick List and the chain start from **one** track. Radio starts from a
+**group** — your **Favourites**, or the **map selection** (the lasso or box,
+or the single seed if that is all there is), chosen with the *From* menu —
+and answers *what goes in that direction?*
+
+The group's taste is the centre of its fingerprints. If the group has two or
+three souls — techno and bossa nova in the same favourites — the centre would
+sit in the middle of nothing, so Radio splits it and serves each part in
+turn. Every pick has to be close to the taste **and** unlike what is already
+picked (**Variety**, 0 to 1): at 0 it is pure closeness and you get
+near-doubles, higher spreads the list out. Twins that sound nearly identical
+to a seed or a pick stay out altogether. **Drift** moves the taste a little
+towards each pick: at 0 the list stays around the group, higher and it
+becomes a journey that leaves where it started.
+
+Untick what you do not want and press **Again, minus the unticked**: the
+unticked become no's, the taste moves away from them, and the list is made
+again. The no's are remembered until the group changes. Radio judges sound
+only — tempo and key are not in its choice — and hands the picks to magic
+sort, so the list comes out in an order that mixes.
+
+**Every choice is written down.** The track you take from the roster and the
+eight you leave, the ones you drop from the chain, the chains and Radio lists
+you send to the playlist, the playlists you save: each is one line in
+`choices.jsonl`, next to `favourites.json` in the cache folder. Nothing reads
+it yet. It is the raw material for two things the app cannot do without
+data: learning the three weights from what you actually pick, and learning
+*what usually comes next* from the sets you build.
 
 ### The board
 
@@ -739,11 +786,8 @@ number of any track can be rebuilt from `embeddings.f32` alone.
 | | what it measures |
 |---|---|
 | `similarity` | cosine between the two **1280-dimension** fingerprints — the real nearness |
-| `sound` | distance on the **2-D projection**, which is that nearness flattened for drawing |
+| `sound` | `1 − similarity`, clipped to 0..1: the same nearness as a distance |
 | `cost` | the transition cost: `sound`, `bpm cost` and `key cost` in one number |
-
-`similarity` and `sound` answer the same question at two resolutions, and
-they can disagree: the map is a shadow, and shadows lose a dimension.
 
 ### Vibe, sections, loudness
 
@@ -987,8 +1031,10 @@ Key engine modules (`core/analysis/`):
 | `map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
 | `map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
 | `map_job.py` | the map build as a long, resumable background job |
-| `mixing.py` | Camelot wheel, transition cost, signed tempo/key shifts, path-drawn playlists, magic sort |
+| `mixing.py` | Camelot wheel, transition cost (cosine on the embeddings + tempo + key), the point one step ahead for Trend, signed tempo/key shifts, path-drawn playlists, magic sort |
 | `graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, the roster of what comes next |
+| `radio.py` | a playlist from a group: split into souls, maximal marginal relevance, drift, negatives |
+| `journal.py` | `choices.jsonl`: one line per choice made in Build a set, for learning later |
 | `energy.py` | the four raw energy measures, and the library-wide ranking that turns them into a 1–10 |
 | `mood_scale.py` | the mood words onto one dark→bright axis (valence), by rank or by the model's real weights |
 | `essentia_tags.py`, `tag_job.py` | genre/mood inference and the batch tagging job |
