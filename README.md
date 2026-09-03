@@ -131,7 +131,7 @@ Three ways, and they answer different questions:
 - *What comes next?* Go to **Build a set** and grow the chain one track at a
   time from the ranked candidates.
 - *More like these.* Star some favourites, or select a group, and let
-  **Radio** tune a playlist from the whole group's taste.
+  **Radio Mix** tune a playlist from the whole group's taste.
 
 Both write into the same **playlist**, which is what the **board** draws as
 cards. Export it as **M3U8** or **rekordbox XML**.
@@ -161,9 +161,11 @@ I play next, out of ninety thousand tracks?*
 
 - **Click a point** (or pick a track by name) to make it the seed, and see
   what mixes out of it, ranked by the transition cost
-  `w1·sound distance + w2·BPM gap + w3·Camelot distance`, with the three
-  weights on sliders. Sound is measured on the full embedding, not on the
-  map — see [below](#nearness-is-measured-in-1280-dimensions-not-on-the-map).
+  `(w1·sound distance + w2·BPM gap + w3·Camelot distance) / (w1+w2+w3)`,
+  with the three weights on sliders — divided by their sum, so the weights
+  are proportions and `1,1,1` means the same as `2,2,2`. Sound is measured
+  on the full embedding, not on the map — see
+  [below](#nearness-is-measured-in-1280-dimensions-not-on-the-map).
 - **Draw a lasso**, which does one of two things depending on the shape you
   draw. A **line** through the clusters takes the tracks it passes near, in
   the order it meets them — a way to plan an arc (start in ambient, cross
@@ -175,7 +177,7 @@ I play next, out of ninety thousand tracks?*
   nearest-neighbour then 2-opt — so each track melts into the next.
 - **Grow a set one track at a time** in [Build a set](#building-a-set).
 - **Tune a playlist from a group** — your favourites, or a lasso — with
-  [Radio](#radio-a-playlist-from-a-group).
+  [Radio Mix](#radio-mix-a-playlist-from-a-group).
 - **Export** the result as M3U8 or rekordbox XML.
 
 Both the selection and the set builder write to the same **playlist**, which
@@ -315,16 +317,26 @@ tempo — and proposes what lies there: a set that has been rising keeps
 rising. At 1 the step is as long as the last one; on the first track of a
 chain there is no line yet, and Trend does nothing.
 
-### Radio: a playlist from a group
+**Auto chain: the chain grows on its own.** Press it and the top of the
+roster is taken, becomes the source, the roster is made again, and so on
+for as many steps as the number beside the button. It is exactly what you
+would do by hand always taking the first candidate: same cost, same
+weights, same rule on copies, and Trend counts. It starts from the track in
+*Branch from*, so you can grow a branch off the middle. The steps go into
+the journal as `auto_chain`, not as picks — the machine taking the first
+row is not a choice of yours, and must not teach anything that the first
+row is always right.
 
-Quick List and the chain start from **one** track. Radio starts from a
+### Radio Mix: a playlist from a group
+
+Quick List and the chain start from **one** track. Radio Mix starts from a
 **group** — your **Favourites**, or the **map selection** (the lasso or box,
 or the single seed if that is all there is), chosen with the *From* menu —
 and answers *what goes in that direction?*
 
 The group's taste is the centre of its fingerprints. If the group has two or
 three souls — techno and bossa nova in the same favourites — the centre would
-sit in the middle of nothing, so Radio splits it and serves each part in
+sit in the middle of nothing, so Radio Mix splits it and serves each part in
 turn. Every pick has to be close to the taste **and** unlike what is already
 picked (**Variety**, 0 to 1): at 0 it is pure closeness and you get
 near-doubles, higher spreads the list out. Twins that sound nearly identical
@@ -334,17 +346,62 @@ becomes a journey that leaves where it started.
 
 Untick what you do not want and press **Again, minus the unticked**: the
 unticked become no's, the taste moves away from them, and the list is made
-again. The no's are remembered until the group changes. Radio judges sound
-only — tempo and key are not in its choice — and hands the picks to magic
-sort, so the list comes out in an order that mixes.
+again. The no's are remembered until the group changes. Radio Mix judges
+sound only — tempo and key are not in its choice — and hands the picks to
+magic sort, so the list comes out in an order that mixes.
 
 **Every choice is written down.** The track you take from the roster and the
-eight you leave, the ones you drop from the chain, the chains and Radio lists
-you send to the playlist, the playlists you save: each is one line in
+eight you leave, the ones you drop from the chain, the chains and Radio Mix
+lists you send to the playlist, the playlists you save: each is one line in
 `choices.jsonl`, next to `favourites.json` in the cache folder. Nothing reads
 it yet. It is the raw material for two things the app cannot do without
 data: learning the three weights from what you actually pick, and learning
 *what usually comes next* from the sets you build.
+
+### The tools, side by side
+
+They all read the same three numbers per track — the fingerprint, the BPM,
+the key — and they still answer different questions, because they use them
+differently.
+
+| | starts from | measures | how it picks | what comes out |
+|---|---|---|---|---|
+| **Quick List** | one seed | the cost `D` (sound + BPM + key) | ranks every track against the seed, once | a ranking of options — they may sound alike |
+| **Chain Maker** | the last track of the chain | `D` from that track (or one step ahead, with Trend) | you take one of nine, and the roster is made again | a chain in the order you built it |
+| **Auto chain** | the last track of the chain | the same | takes the top of the roster, N times | a chain in the order it chose |
+| **Magic sort** | a group you already have | `D` between every pair | nearest-neighbour path, then 2-opt | the same tracks, reordered |
+| **Radio Mix** | a group (favourites or selection) | sound only, against the group's centre | one at a time, each pick penalised for resembling the ones before | a set that covers the group without repeating — then magic-sorted |
+
+**What magic sort minimises.** The sum of `D` along the row: `D(1st,2nd) +
+D(2nd,3rd) + …`. Not the distance from a seed, not an average — only
+consecutive neighbours count, which is why two tracks far from each other
+can sit at opposite ends without penalty. `D` is symmetric, `D(A,B) =
+D(B,A)`: none of its three terms has a sign, so magic sort does not know
+whether a step goes up or down in tempo, only how big the step is. The
+direction shows in the `Δbpm` and `Δkey` columns and never enters the
+order. The weights are the three sliders of Build a set, shared with Quick
+List and the chain; the **playlist's own** magic sort and its *from
+previous* column use a copy at fixed weights `1,1,1`, so the numbers in the
+playlist do not move when you touch a slider elsewhere.
+
+**Quick List and Radio Mix are two different machines**, not one machine
+with a different input. Quick List judges each candidate alone against the
+seed, and twenty near-copies of the seed are a fine answer, because it is a
+list of options you choose from. Radio Mix builds a set: the score of the
+twentieth pick depends on the nineteen before it, the taste it measures
+against can move, and the no's you give it push the taste the other way.
+Quick List uses tempo and key in the ranking; Radio Mix leaves them to magic
+sort at the end.
+
+**Is Radio Mix an automatic chain?** Only in one corner: with Drift at 1 and
+Variety at 0 the taste *is* the last pick and each track is found next to
+the previous one, which is what Auto chain does. Everywhere else they part
+ways. Auto chain chooses with the full cost, tempo and key included, keeps
+the order it chose, and does not mind if the fifth track sounds like the
+first; Radio Mix chooses on sound alone, reorders at the end, and is built
+to keep the fifth unlike the first. If you want *start here and go on by
+yourself, mixably*, that is Auto chain. If you want *twenty tracks that
+stand for this group*, that is Radio Mix.
 
 ### The board
 
@@ -1032,8 +1089,8 @@ Key engine modules (`core/analysis/`):
 | `map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
 | `map_job.py` | the map build as a long, resumable background job |
 | `mixing.py` | Camelot wheel, transition cost (cosine on the embeddings + tempo + key), the point one step ahead for Trend, signed tempo/key shifts, path-drawn playlists, magic sort |
-| `graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, the roster of what comes next |
-| `radio.py` | a playlist from a group: split into souls, maximal marginal relevance, drift, negatives |
+| `graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, the roster of what comes next, and Auto chain |
+| `radio.py` | Radio Mix: a playlist from a group — split into souls, maximal marginal relevance, drift, negatives |
 | `journal.py` | `choices.jsonl`: one line per choice made in Build a set, for learning later |
 | `energy.py` | the four raw energy measures, and the library-wide ranking that turns them into a 1–10 |
 | `mood_scale.py` | the mood words onto one dark→bright axis (valence), by rank or by the model's real weights |
