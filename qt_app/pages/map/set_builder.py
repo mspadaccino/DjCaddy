@@ -1165,7 +1165,8 @@ class SetBuilderPanel(QWidget):
                            pool=self._pool, k=self._count.value(),
                            variety=self._variety.value(),
                            drift=self._drift.value(),
-                           negatives=self._radio_negatives)
+                           negatives=self._radio_negatives,
+                           song_of=lambda i: song_key(Path(frame.at[i, "path"])))
         ordered = magic_sort(self._lib.cost, picks)
         self._radio_shown = ordered
         shown = numbered_rows(frame, ordered, common)

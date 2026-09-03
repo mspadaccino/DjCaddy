@@ -84,3 +84,13 @@ def test_a_two_souled_group_gets_picks_from_both():
     picks = tune(vectors, seeds=[0, 1], k=4, variety=0.0)
     assert sorted(picks) == [2, 3, 4, 5]
     assert picks[0] in (2, 3) and picks[1] in (4, 5)   # a turno
+
+
+def test_copies_of_a_seed_or_of_a_pick_stay_out_by_name():
+    # 1 è un'altra copia del seme 0, 3 è una copia della 2: nessuna delle
+    # due entra, anche se suonano abbastanza diverse da non essere gemelle.
+    vectors = _fan(0, 30, 60, 90, 120)
+    songs = {0: "a", 1: "a", 2: "b", 3: "b", 4: "c"}
+    assert tune(vectors, seeds=[0], k=5, variety=0.0) == [1, 2, 3, 4]
+    assert tune(vectors, seeds=[0], k=5, variety=0.0,
+                song_of=songs.get) == [2, 4]

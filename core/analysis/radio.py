@@ -19,6 +19,12 @@ Quattro regole, una per ogni modo in cui la versione ingenua fallisce:
   viaggio che se ne allontana.
 - **I no contano.** I brani scartati (`negatives`) spingono il profilo
   dall'altra parte, alla Rocchio, e non vengono riproposti.
+- **Lo stesso pezzo una volta sola.** Con `song_of` — la funzione che
+  dice, dato un brano, quale canzone è — le copie di un seme o di un già
+  preso non entrano, anche se suonano abbastanza diverse da passare la
+  soglia dei gemelli (un altro master, un altro bitrate). È la regola del
+  Chain Maker, per la stessa ragione: un set non prende lo stesso disco
+  due volte.
 
 Il modulo è puro: prende matrici e indici, restituisce indici in ordine di
 scelta. L'ordine mixabile lo dà poi `magic_sort`, non lui.
@@ -109,11 +115,12 @@ def split(vectors, max_parts: int = 3,
 
 def tune(embeddings, seeds, pool=None, k: int = 20, variety: float = 0.5,
          drift: float = 0.0, negatives=(), twin_min: float = 0.97,
-         max_parts: int = 3) -> list[int]:
+         max_parts: int = 3, song_of=None) -> list[int]:
     """I `k` brani che la radio propone da `seeds`, in ordine di scelta.
 
     `pool` limita i candidati (i brani che passano i filtri); senza, tutta
-    la libreria. Semi e negativi non si ripropongono mai.
+    la libreria. Semi e negativi non si ripropongono mai, e con `song_of`
+    nemmeno le loro copie.
     """
     matrix = unit(embeddings)
     seeds = [int(i) for i in dict.fromkeys(seeds)]
@@ -121,9 +128,11 @@ def tune(embeddings, seeds, pool=None, k: int = 20, variety: float = 0.5,
     if not seeds or k <= 0 or not len(matrix):
         return []
     out = set(seeds) | set(negatives)
+    blocked = {song_of(i) for i in seeds} if song_of else set()
     candidates = np.arange(len(matrix)) if pool is None \
         else np.asarray(list(pool), dtype=int)
-    candidates = np.array([c for c in candidates if int(c) not in out],
+    candidates = np.array([c for c in candidates if int(c) not in out
+                           and (song_of is None or song_of(int(c)) not in blocked)],
                           dtype=int)
     if not len(candidates):
         return []
@@ -155,6 +164,12 @@ def tune(embeddings, seeds, pool=None, k: int = 20, variety: float = 0.5,
         picked.append(chosen)
         taken_from[part] += 1
         alive[best] = False
+        if song_of is not None:
+            # Le altre copie del preso escono con lui.
+            song = song_of(chosen)
+            for n in np.flatnonzero(alive):
+                if song_of(int(candidates[n])) == song:
+                    alive[n] = False
         closest = np.maximum(closest, rows @ rows[best])
         if drift > 0:
             profiles[part] = unit((1 - drift) * profiles[part]
