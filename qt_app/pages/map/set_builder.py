@@ -91,10 +91,21 @@ def _dim(text: str, wrap: bool = True) -> QLabel:
     return label
 
 
-def _scale(low: str, high: str) -> QLabel:
-    """La scritta accanto a una manopola: cosa vale lo zero e cosa vale
-    l'uno. Il tooltip spiega, questa si legge senza fermarsi."""
-    return _dim(f"0 {low} · 1 {high}", wrap=False)
+def _knob(into: QHBoxLayout, name: str, value: float, low: str, high: str,
+          why: str) -> QDoubleSpinBox:
+    """Una manopola 0..1 con la sua etichetta. Il tooltip — sull'una e
+    sull'altra — apre con cosa vale lo zero e cosa vale l'uno, poi spiega."""
+    told = theme.hint(f"<b>0 = {low} · 1 = {high}</b><br>{why}")
+    label = QLabel(name)
+    label.setToolTip(told)
+    into.addWidget(label)
+    spin = QDoubleSpinBox()
+    spin.setRange(0.0, 1.0)
+    spin.setSingleStep(0.1)
+    spin.setValue(value)
+    spin.setToolTip(told)
+    into.addWidget(spin)
+    return spin
 
 
 def numbered_rows(frame: pd.DataFrame, indices, common: dict) -> pd.DataFrame:
@@ -470,21 +481,15 @@ class SetBuilderPanel(QWidget):
         self._unchain = QPushButton("🗑 Remove it from the chain")
         self._unchain.clicked.connect(self._on_unchain)
         branch.addWidget(self._unchain)
-        branch.addWidget(QLabel("Trend"))
-        self._trend = QDoubleSpinBox()
-        self._trend.setRange(0.0, 1.0)
-        self._trend.setSingleStep(0.1)
-        self._trend.setValue(0.0)
-        self._trend.setToolTip(theme.hint(
+        self._trend = _knob(
+            branch, "Trend", 0.0, "around the source", "a step ahead",
             "Where the chain is GOING, not just where it is. At 0 the roster "
             "sits around the source track, as always. Above 0 it looks one "
             "step ahead along the line from the previous track to the "
             "source — on the map and in tempo — and proposes what lies "
             "there: a rising set keeps rising. Needs a track before the "
-            "source; on the first track it does nothing."))
+            "source; on the first track it does nothing.")
         self._trend.valueChanged.connect(lambda _: self._refresh_roster())
-        branch.addWidget(self._trend)
-        branch.addWidget(_scale("around the source", "a step ahead"))
         gbox.addLayout(branch)
 
         self._roster_told = QLabel("")
@@ -552,31 +557,18 @@ class SetBuilderPanel(QWidget):
             lambda _: self._refresh_radio())
         knobs.addWidget(self._radio_from)
         knobs.addSpacing(12)
-        knobs.addWidget(QLabel("Variety"))
-        self._variety = QDoubleSpinBox()
-        self._variety.setRange(0.0, 1.0)
-        self._variety.setSingleStep(0.1)
-        self._variety.setValue(0.5)
-        self._variety.setToolTip(theme.hint(
+        self._variety = _knob(
+            knobs, "Variety", 0.5, "close, doubles allowed", "spread out",
             "How much a candidate pays for sounding like what is already "
             "picked. At 0 it is pure closeness to the group's taste — "
-            "expect near-doubles. Higher spreads the list out."))
+            "expect near-doubles. Higher spreads the list out.")
         self._variety.valueChanged.connect(lambda _: self._retune())
-        knobs.addWidget(self._variety)
-        knobs.addWidget(_scale("close, doubles allowed", "spread out"))
-        knobs.addSpacing(12)
-        knobs.addWidget(QLabel("Drift"))
-        self._drift = QDoubleSpinBox()
-        self._drift.setRange(0.0, 1.0)
-        self._drift.setSingleStep(0.1)
-        self._drift.setValue(0.0)
-        self._drift.setToolTip(theme.hint(
+        self._drift = _knob(
+            knobs, "Drift", 0.0, "stays around the group", "wanders off",
             "After each pick the taste moves a little towards it. At 0 the "
             "list stays around the group; higher and it becomes a journey "
-            "that drifts away from where it started."))
+            "that drifts away from where it started.")
         self._drift.valueChanged.connect(lambda _: self._retune())
-        knobs.addWidget(self._drift)
-        knobs.addWidget(_scale("stays around the group", "wanders off"))
         knobs.addStretch(1)
         box.addLayout(knobs)
 
