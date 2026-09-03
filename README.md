@@ -274,6 +274,13 @@ asked, and say nothing about how close two tracks are once it has been. This
 is deliberate: the whole point of the embedding is that it hears things a
 genre name has already thrown away.
 
+The genre filter is in two linked lists, because the labels are two-level.
+**Macro genres** is the first half — Electronic, Rock, Funk / Soul, fifteen
+in all. Tick one and the **Genres** list shows only the leaves under it; the
+rest disappear from the list rather than greying out. A macro genre on its
+own lets every track under it through; tick leaves as well and only those
+pass. With no macro genre ticked the Genres list is the full one.
+
 ### Building a set
 
 Magic sort answers *put these in the best order*. The set builder answers the

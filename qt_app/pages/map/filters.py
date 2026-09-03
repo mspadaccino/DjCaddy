@@ -2,9 +2,15 @@
 
 La regola — quali brani passano — sta in `core.viz.filters.filter_tracks`,
 uguale per le due app. Qui ci sono la ruota Camelot (il frontend riusato),
-le due liste spuntabili di generi e mood, gli intervalli di BPM e groove, e
-un segnale solo: `changed`, quando la domanda "quali brani sto guardando"
-cambia. I filtri restringono TUTTO quello che la pagina propone — i punti,
+le liste spuntabili di macro generi, generi e mood, gli intervalli di BPM
+e groove, e un segnale solo: `changed`, quando la domanda "quali brani sto
+guardando" cambia.
+
+I generi sono a due livelli — "Electronic - House" — e le due liste sono
+collegate: spuntato un macro genere, la lista dei generi mostra SOLO le
+sue foglie, le altre spariscono. Un macro spuntato senza foglie spuntate
+fa passare tutti i suoi brani; con delle foglie spuntate, solo quelle.
+Senza macro spuntati la lista dei generi è completa, come sempre. I filtri restringono TUTTO quello che la pagina propone — i punti,
 le proposte, la rosa — che è il motivo per cui il pannello è uno.
 """
 
@@ -18,6 +24,7 @@ from PySide6.QtWidgets import (QDoubleSpinBox, QGridLayout, QHBoxLayout,
                                QPushButton, QVBoxLayout, QWidget)
 
 from core.viz.filters import filter_tracks, span
+from core.viz.map_figure import genre_level
 from qt_app import theme
 from qt_app.widgets.wheel_view import WheelView
 
@@ -50,15 +57,21 @@ class CheckList(QWidget):
         self._search.textChanged.connect(self._on_search)
         self._list.itemChanged.connect(lambda _: self.changed.emit())
 
-    def set_options(self, names: list[str]) -> None:
+    def set_options(self, names: list[str], keep: bool = False) -> None:
+        """Le voci nuove. Con `keep` le spunte sopravvivono alle voci che
+        restano: serve quando la lista si restringe, non quando cambia
+        libreria."""
+        kept = set(self.checked()) if keep else set()
         self._list.blockSignals(True)
         self._list.clear()
         for name in names:
             item = QListWidgetItem(name)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setCheckState(Qt.CheckState.Checked if name in kept
+                               else Qt.CheckState.Unchecked)
             self._list.addItem(item)
         self._list.blockSignals(False)
+        self._on_search(self._search.text())
 
     def checked(self) -> list[str]:
         return [self._list.item(i).text() for i in range(self._list.count())
@@ -123,14 +136,29 @@ class FiltersPanel(QWidget):
         wheel_row.addWidget(self._wheel)
         wheel_row.addStretch(1)
 
+        self._macros = CheckList("Macro genres")
+        self._macros.setToolTip(theme.hint(
+            "The first half of the Discogs label — Electronic, Rock, Funk / "
+            "Soul. Tick one and the Genres list below shows only what sits "
+            "under it; every track of the macro genre passes unless you "
+            "narrow it further there."))
+        # Quindici voci al massimo: una lista corta, che non ruba altezza
+        # a quella dei generi.
+        self._macros._list.setMaximumHeight(110)
+        self._macros.changed.connect(self._on_macros)
         self._genres = CheckList("Genres")
+        self._all_genres: list[str] = []
         self._moods = CheckList("Moods")
         for picker in (self._genres, self._moods):
             picker.changed.connect(self._debounce.start)
+        genre_column = QVBoxLayout()
+        genre_column.setContentsMargins(0, 0, 0, 0)
+        genre_column.addWidget(self._macros)
+        genre_column.addWidget(self._genres, stretch=1)
         # Fianco a fianco: sono la stessa domanda posta su due vocabolari, e
         # in colonna si rubavano l'altezza a vicenda.
         lists_row = QHBoxLayout()
-        lists_row.addWidget(self._genres, stretch=1)
+        lists_row.addLayout(genre_column, stretch=1)
         lists_row.addWidget(self._moods, stretch=1)
 
         # I decimali coprono la precisione con cui lo store scrive i numeri
@@ -177,7 +205,12 @@ class FiltersPanel(QWidget):
         mood_counts = pd.Series(
             [m for tags in frame["mood_list"] for m in tags if m]
         ).value_counts()
-        self._genres.set_options(list(genre_counts.index))
+        self._all_genres = list(genre_counts.index)
+        macro_counts = pd.Series(
+            [genre_level(g, "parent") for g in self._all_genres]
+        ).value_counts() if self._all_genres else pd.Series(dtype=int)
+        self._macros.set_options(list(macro_counts.index))
+        self._genres.set_options(self._all_genres)
         self._moods.set_options(list(mood_counts.index))
 
         tempo = span(frame, "bpm", 60.0, 200.0)
@@ -195,10 +228,26 @@ class FiltersPanel(QWidget):
         self._keys = []
         self._wheel.set_keys(self._keys)
 
+    def _under_macros(self) -> list[str]:
+        """Le foglie dei macro generi spuntati — tutte, senza macro."""
+        macros = set(self._macros.checked())
+        if not macros:
+            return list(self._all_genres)
+        return [g for g in self._all_genres
+                if genre_level(g, "parent") in macros]
+
+    def genres_wanted(self) -> list[str]:
+        """I generi che la regola riceve: le foglie spuntate, o tutte quelle
+        dei macro spuntati, o niente (cioè tutti)."""
+        ticked = self._genres.checked()
+        if ticked:
+            return ticked
+        return self._under_macros() if self._macros.checked() else []
+
     # --- la regola, applicata ---
     def kept(self, frame: pd.DataFrame) -> pd.DataFrame:
         out = filter_tracks(
-            frame, self._genres.checked(), self._moods.checked(), self._keys,
+            frame, self.genres_wanted(), self._moods.checked(), self._keys,
             (self._bpm_low.value(), self._bpm_high.value()),
             (self._gr_low.value(), self._gr_high.value()))
         self._count.setText(
@@ -206,6 +255,13 @@ class FiltersPanel(QWidget):
         return out
 
     # --- i gesti ---
+    def _on_macros(self) -> None:
+        # La lista dei generi si restringe alle foglie dei macro spuntati;
+        # le spunte sulle foglie che restano sopravvivono, le altre cadono
+        # con la voce.
+        self._genres.set_options(self._under_macros(), keep=True)
+        self._debounce.start()
+
     def _on_key(self, code: str) -> None:
         self._keys = ([k for k in self._keys if k != code]
                       if code in self._keys else self._keys + [code])
@@ -215,7 +271,8 @@ class FiltersPanel(QWidget):
     def _on_reset(self) -> None:
         self._keys = []
         self._wheel.set_keys(self._keys)
-        self._genres.clear_checks()
+        self._macros.clear_checks()
+        self._genres.set_options(self._all_genres)
         self._moods.clear_checks()
         for spin, edge in ((self._bpm_low, self._bpm_low.minimum()),
                            (self._bpm_high, self._bpm_high.maximum()),
