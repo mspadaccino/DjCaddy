@@ -243,11 +243,19 @@ def build_fingerprint_figure(rows: pd.DataFrame, source: str, columns: int,
     figure = go.Figure()
     if source:
         figure.add_trace(go.Image(source=source, hoverinfo="skip"))
+    # Il numero della riga viaggia in coda al `customdata` — in TESTA c'è
+    # l'indice di libreria, che il ponte JS legge sempre lì. Scritto
+    # nell'etichetta perché in un disegno alto ottantamila righe "dove sto"
+    # non si legge da nessuna parte, e sotto l'ordine per distanza quel
+    # numero è una classifica: riga 12 vuol dire dodicesimo più vicino.
     figure.add_trace(go.Scattergl(
-        customdata=rows[["index", "name", "bpm", "camelot",
-                         "genres"]].to_numpy(),
+        customdata=np.column_stack([
+            rows[["index", "name", "bpm", "camelot", "genres"]].to_numpy(),
+            np.arange(1, len(rows) + 1)]),
         hovertemplate="<b>%{customdata[1]}</b><br>%{customdata[2]} BPM · "
-                      "%{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+                      "%{customdata[3]}<br>%{customdata[4]}<br>"
+                      f"row %{{customdata[5]:,}} of {len(rows):,}"
+                      "<extra></extra>",
         name="", **_hover_points(len(rows), columns / 2.0)))
     figure.update_layout(
         # Il margine a destra è tenuto libero SEMPRE, anche senza seme: ci va
@@ -328,8 +336,10 @@ def distance_overlay(distances, columns: int, places=None,
     places = np.arange(len(values)) if places is None \
         else np.asarray(places, dtype=int)
     figure.add_trace(go.Scattergl(
-        customdata=np.column_stack([places, values]),
-        hovertemplate="cosine distance from the seed: "
+        customdata=np.column_stack([places, values,
+                                    np.arange(1, len(values) + 1)]),
+        hovertemplate=f"row %{{customdata[2]:,}} of {len(values):,}<br>"
+                      "cosine distance from the seed: "
                       "%{customdata[1]:.3f}<extra></extra>",
         name="", **_hover_points(len(values), centre)))
     return figure

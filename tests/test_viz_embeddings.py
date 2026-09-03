@@ -154,6 +154,17 @@ def test_a_click_on_the_distance_column_finds_the_same_track():
     assert list(overlay.data[1].customdata[:, 0]) == [4, 9, 30]
 
 
+def test_the_row_number_rides_along_with_the_track():
+    # In testa resta l'indice di libreria — il ponte JS legge quello — e il
+    # numero di riga va in coda: sotto l'ordine per distanza è una classifica.
+    rows = _rows(4)
+    hover = build_fingerprint_figure(rows, "", columns=128).data[-1]
+    assert list(hover.customdata[:, 0]) == list(rows["index"])
+    assert list(hover.customdata[:, 5]) == [1, 2, 3, 4]
+    strip = distance_overlay(np.zeros(4, dtype=np.float32), columns=128)
+    assert list(strip.data[1].customdata[:, 2]) == [1, 2, 3, 4]
+
+
 def test_the_picture_asks_for_a_pixel_a_column():
     # Un pixel dell'immagine sopra un pixel dello schermo: a 128 colonne ci
     # sta ovunque, a 1280 no — ed è lì che il disegno va fatto scorrere.

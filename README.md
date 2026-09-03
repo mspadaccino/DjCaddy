@@ -403,6 +403,9 @@ column is redrawn. *Distance from the seed* puts the seed's nearest
 neighbours at the top and the strangers at the bottom — the distance column
 becomes a readable gradient and the bands sort themselves — at the price of
 redrawing the whole picture, about half a second, every time the seed moves.
+Either way the tooltip ends with the row's number out of the total, which
+under that second order is a ranking: row 12 is the twelfth nearest thing you
+own to the seed.
 
 ### Building the map from the terminal
 
