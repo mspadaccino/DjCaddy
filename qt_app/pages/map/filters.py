@@ -154,9 +154,6 @@ class FiltersPanel(QWidget):
             "Soul. Tick one and the Genres list below shows only what sits "
             "under it; every track of the macro genre passes unless you "
             "narrow it further there."))
-        # Quindici voci al massimo: una lista corta, che non ruba altezza
-        # a quella dei generi.
-        self._macros._list.setMaximumHeight(110)
         self._macros.changed.connect(self._on_macros)
         self._genres = CheckList("Genres")
         self._all_genres: list[str] = []
@@ -178,16 +175,14 @@ class FiltersPanel(QWidget):
         depth_row = QHBoxLayout()
         depth_row.setContentsMargins(0, 0, 0, 0)
         depth_row.addWidget(QLabel("Look at"))
-        depth_row.addWidget(self._depth, stretch=1)
-        genre_column = QVBoxLayout()
-        genre_column.setContentsMargins(0, 0, 0, 0)
-        genre_column.addLayout(depth_row)
-        genre_column.addWidget(self._macros)
-        genre_column.addWidget(self._genres, stretch=1)
-        # Fianco a fianco: sono la stessa domanda posta su due vocabolari, e
-        # in colonna si rubavano l'altezza a vicenda.
+        depth_row.addWidget(self._depth)
+        depth_row.addStretch(1)
+        # Tre colonne fianco a fianco: macro generi, generi, mood. Sono la
+        # stessa domanda posta su tre vocabolari, e in colonna si rubavano
+        # l'altezza a vicenda.
         lists_row = QHBoxLayout()
-        lists_row.addLayout(genre_column, stretch=1)
+        lists_row.addWidget(self._macros, stretch=1)
+        lists_row.addWidget(self._genres, stretch=1)
         lists_row.addWidget(self._moods, stretch=1)
 
         # I decimali coprono la precisione con cui lo store scrive i numeri
@@ -221,6 +216,7 @@ class FiltersPanel(QWidget):
 
         box = QVBoxLayout(self)
         box.addLayout(wheel_row)
+        box.addLayout(depth_row)
         box.addLayout(lists_row, stretch=1)
         box.addLayout(grid)
         box.addWidget(reset)
