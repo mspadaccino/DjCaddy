@@ -62,7 +62,14 @@ class AppState(QObject):
         self.favourites: list[str] = _load_favourites()
         self.now_playing: str | None = None
         self._running_jobs: set[str] = set()
-        self._queue: list[str] = []   # quello che resta da suonare in fila
+        # La fila in cui sta il brano in ascolto — la playlist di «Play
+        # all», o le righe della tabella dove si è premuto ▶ — e a che
+        # posto: è su questa che ⏮ e ⏭ del lettore vanno avanti e indietro.
+        # `_auto` dice se a fine brano si passa da soli al prossimo: solo
+        # per «Play all», un ▶ singolo finisce e si ferma come sempre.
+        self._row: list[str] = []
+        self._at = 0
+        self._auto = False
 
     # --- seed e selezione ---
     def set_seed(self, path: str | None) -> None:
@@ -121,14 +128,18 @@ class AppState(QObject):
             self.favourites_changed.emit(self.favourites)
 
     # --- ascolto ---
-    def play(self, path: str) -> None:
-        self._queue = []           # un ▶ singolo interrompe la fila in corso
+    def play(self, path: str, row: list[str] | None = None) -> None:
+        """Un ▶ singolo: suona `path` e si ferma lì. `row` è la lista da
+        cui lo si è preso — le righe della tabella, nell'ordine mostrato —
+        ed è quella su cui ⏮ e ⏭ si muovono; senza, non c'è dove andare."""
+        row = list(row) if row and path in row else [path]
+        self._row, self._at, self._auto = row, row.index(path), False
         if path != self.now_playing:
             self.now_playing = path
             self.now_playing_changed.emit(path)
 
     def stop(self) -> None:
-        self._queue = []
+        self._row, self._at, self._auto = [], 0, False
         if self.now_playing is not None:
             self.now_playing = None
             self.now_playing_changed.emit(None)
@@ -137,7 +148,7 @@ class AppState(QObject):
         """Suona `paths` in fila: uno dopo l'altro, nell'ordine dato."""
         if not paths:
             return
-        self._queue = list(paths[1:])
+        self._row, self._at, self._auto = list(paths), 0, True
         first = paths[0]
         if first != self.now_playing:
             self.now_playing = first
@@ -145,11 +156,28 @@ class AppState(QObject):
         else:
             self.advance()          # stesso brano in testa: passa al successivo
 
+    def can_skip(self, step: int) -> bool:
+        """C'è un brano `step` posti più in là nella fila? (−1 indietro,
+        +1 avanti). Comanda l'accensione di ⏮ e ⏭."""
+        return self.now_playing is not None and \
+            0 <= self._at + step < len(self._row)
+
+    def skip(self, step: int) -> None:
+        """Salta di `step` posti nella fila, se c'è dove andare. La fila
+        resta la stessa, e resta anche il suo modo: una «Play all» che si
+        manda avanti a mano continua da sola dal brano raggiunto."""
+        if not self.can_skip(step):
+            return
+        self._at += step
+        path = self._row[self._at]
+        if path != self.now_playing:
+            self.now_playing = path
+            self.now_playing_changed.emit(path)
+
     def advance(self) -> None:
         """Il brano in ascolto è finito: il prossimo della fila, o lo stop."""
-        if self._queue:
-            self.now_playing = self._queue.pop(0)
-            self.now_playing_changed.emit(self.now_playing)
+        if self._auto and self.can_skip(1):
+            self.skip(1)
         else:
             self.stop()
 

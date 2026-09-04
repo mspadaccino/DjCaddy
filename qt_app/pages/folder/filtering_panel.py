@@ -195,8 +195,7 @@ class FilteringPanel(QWidget):
         self._picks.setVisible(False)
 
         self._table = TrackTable(checkable=True, library_menu=False)
-        self._table.play_requested.connect(state.play)
-        self._table.row_activated.connect(state.play)
+        self._table.wire_play(state.play)
         self._table.reveal_requested.connect(reveal_in_files)
         self._table.selection_paths_changed.connect(
             lambda _: self._refresh_chosen())

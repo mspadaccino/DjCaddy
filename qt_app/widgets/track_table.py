@@ -585,6 +585,20 @@ class TrackTable(QTableView):
             if name in shown:
                 self.setColumnWidth(shown.index(name), width)
 
+    def paths(self) -> list[str]:
+        """I `_path` di tutte le righe, dall'alto in basso, come si vedono
+        adesso — ordinamento compreso."""
+        return [p for p in (self._model.path_at(r)
+                            for r in range(self._model.rowCount())) if p]
+
+    def wire_play(self, play, on_activate: bool = True) -> None:
+        """Il ▶ di una riga — e il doppio clic, se `on_activate` — chiama
+        `play(path, rows)` con la fila della tabella dietro: è la lista in
+        cui ⏮ e ⏭ del lettore poi si muovono."""
+        self.play_requested.connect(lambda p: play(p, self.paths()))
+        if on_activate:
+            self.row_activated.connect(lambda p: play(p, self.paths()))
+
     def selected_paths(self) -> list[str]:
         """I `_path` delle righe scelte, dall'alto in basso.
 

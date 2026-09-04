@@ -132,8 +132,7 @@ class TagPage(QWidget):
 
         self._queue_told = dim("")
         self._queue_table = TrackTable(checkable=True, library_menu=False)
-        self._queue_table.play_requested.connect(self._state.play)
-        self._queue_table.row_activated.connect(self._state.play)
+        self._queue_table.wire_play(self._state.play)
         self._queue_table.reveal_requested.connect(reveal_in_files)
         self._queue_table.selection_paths_changed.connect(
             lambda _: self._push_queue())

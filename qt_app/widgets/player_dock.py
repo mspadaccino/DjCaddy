@@ -112,12 +112,17 @@ class PlayerDock(QWidget):
         self._clock.setAlignment(Qt.AlignmentFlag.AlignRight
                                  | Qt.AlignmentFlag.AlignVCenter)
 
-        close = QPushButton("✕")
-        close.setFlat(True)
-        close.setCursor(Qt.CursorShape.PointingHandCursor)
-        theme.style(close, lambda: (
-            f"QPushButton {{ background: transparent; color: {theme.FADED};"
-            f" border: none; }} QPushButton:hover {{ color: {theme.INK}; }}"))
+        # ⏮ e ⏭ in coda all'onda: si muovono nella fila da cui il brano è
+        # arrivato — la playlist di «Play all», o le righe della tabella
+        # in cui si è premuto ▶ — e si spengono dove la fila finisce.
+        self._back = self._flat("⏮", "Previous track in the list this one "
+                                     "was played from.")
+        self._back.clicked.connect(lambda: self._state.skip(-1))
+        self._forward = self._flat("⏭", "Next track in the list this one "
+                                        "was played from.")
+        self._forward.clicked.connect(lambda: self._state.skip(1))
+
+        close = self._flat("✕", "")
         close.clicked.connect(self._state.stop)
 
         row = QHBoxLayout(self)
@@ -125,8 +130,21 @@ class PlayerDock(QWidget):
         row.setSpacing(12)
         row.addWidget(self._toggle)
         row.addLayout(wavebox, stretch=1)
+        row.addWidget(self._back)
+        row.addWidget(self._forward)
         row.addWidget(self._clock)
         row.addWidget(close)
+
+    def _flat(self, glyph: str, why: str) -> QPushButton:
+        button = QPushButton(glyph)
+        button.setFlat(True)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip(why)
+        theme.style(button, lambda: (
+            f"QPushButton {{ background: transparent; color: {theme.FADED};"
+            f" border: none; }} QPushButton:hover {{ color: {theme.INK}; }}"
+            f" QPushButton:disabled {{ color: {theme.HOVER}; }}"))
+        return button
 
     # --- quello che la pagina Wave chiede in più ---
     @property
@@ -155,6 +173,8 @@ class PlayerDock(QWidget):
     def _on_now_playing(self, path: str | None) -> None:
         if self._pending_seek is not None and self._pending_seek[0] != path:
             self._pending_seek = None   # nel frattempo si è scelto altro
+        self._back.setEnabled(self._state.can_skip(-1))
+        self._forward.setEnabled(self._state.can_skip(1))
         if path is None:
             self._player.stop()
             self._path = None
