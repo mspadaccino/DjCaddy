@@ -69,16 +69,17 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
      comporrebbe col translate che Plotly scrive nell'attributo transform
      e il punto girerebbe per la mappa. Il fill sta nei keyframes perché
      Plotly lo scrive inline a `none`, e solo l'animazione vince sull'inline.
-     Il colore è `SKIN["playing"]` del tema in corso, passato come
+     Il colore è `SKIN["playing"]` del tema in corso — bianco sullo
+     scuro, quasi nero sul chiaro — passato come
      variabile CSS così da seguirlo al cambio senza rifare la pagina. */
   .scatterlayer .trace .point { animation: djcaddy-beat 1.2s ease-out infinite; }
   @keyframes djcaddy-beat {
-    0%   { stroke-width: 2.5px; fill: var(--playing); fill-opacity: .15; }
-    12%  { stroke-width: 7px;   fill: var(--playing); fill-opacity: .8; }
-    28%  { stroke-width: 2.5px; fill: var(--playing); fill-opacity: .15; }
-    40%  { stroke-width: 7px;   fill: var(--playing); fill-opacity: .8; }
-    60%  { stroke-width: 2.5px; fill: var(--playing); fill-opacity: .15; }
-    100% { stroke-width: 2.5px; fill: var(--playing); fill-opacity: .15; }
+    0%   { stroke-width: 3.5px; fill: var(--playing); fill-opacity: .25; }
+    12%  { stroke-width: 9px;   fill: var(--playing); fill-opacity: .95; }
+    28%  { stroke-width: 3.5px; fill: var(--playing); fill-opacity: .25; }
+    40%  { stroke-width: 9px;   fill: var(--playing); fill-opacity: .95; }
+    60%  { stroke-width: 3.5px; fill: var(--playing); fill-opacity: .25; }
+    100% { stroke-width: 3.5px; fill: var(--playing); fill-opacity: .25; }
   }
 </style>
 </head><body><div id="map"></div>

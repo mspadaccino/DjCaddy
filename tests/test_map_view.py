@@ -306,10 +306,12 @@ def test_with_nothing_playing_there_is_no_cross():
 def test_no_two_rings_share_a_colour():
     """Il rosa era ambra, e l'ambra accanto al giallo della catena erano due
     gialli: si distinguevano per diametro, cioe' bisognava misurarli."""
+    # «playing» non è in lista: si distingue perché batte, non per il
+    # colore — è l'inchiostro del tema, e sta accanto al seme senza
+    # confondersi proprio perché si muove.
     for theme in ("light", "dark"):
         rings = [SKIN[theme][k] for k in
-                 ("chained", "ink", "mixes", "alike", "playing",
-                  "pl_selection")]
+                 ("chained", "ink", "mixes", "alike", "pl_selection")]
         assert len(set(rings)) == len(rings), theme
 
 

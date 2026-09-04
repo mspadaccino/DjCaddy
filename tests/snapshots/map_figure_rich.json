@@ -485,9 +485,9 @@
   {
    "hoverinfo": "skip",
    "marker": {
-    "color": "#d92b2b",
+    "color": "#101418",
     "line": {
-     "width": 2.5
+     "width": 3.5
     },
     "size": 18,
     "symbol": "circle-open"

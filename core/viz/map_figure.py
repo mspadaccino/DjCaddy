@@ -175,13 +175,13 @@ SKIN = {
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
               "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
               "chained": "#f2cc0c", "mixes": "#1f9dd0",
-              "alike": "#8a4fd6", "playing": "#d92b2b",
+              "alike": "#8a4fd6", "playing": "#101418",
               "pl_selection": "#ff8a1e"},
     "dark": {"paper": "#0e1117", "plot": "#0e1117", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
              "chained": "#ffe94d", "mixes": "#5fd0f5",
-             "alike": "#c08cff", "playing": "#ff5c5c",
+             "alike": "#c08cff", "playing": "#ffffff",
              "pl_selection": "#ffb454"},
 }
 
@@ -438,7 +438,8 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
     # Il brano che sta suonando: un anello che PULSA, non un segno fermo,
     # perché non dice cosa quel brano È — come lo dicono gli altri sei
     # segni — ma cosa sta succedendo adesso, e in mezzo a un nodo di cerchi
-    # concentrici è il movimento a distinguerlo. È l'unico tracciato SVG
+    # concentrici è il movimento a distinguerlo, non il colore: bianco sul
+    # tema scuro, quasi nero su quello chiaro, grosso. È l'unico tracciato SVG
     # della figura (Scatter, non Scattergl): la pulsazione è un'animazione
     # CSS della pagina (`PlotlyView`), che trova questo punto proprio
     # perché è il solo nel livello SVG — e non costa un ridisegno della
@@ -449,7 +450,7 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             name="playing", showlegend=True, hoverinfo="skip",
             # Sui simboli «-open» il bordo prende `color`, non `line.color`.
             marker={"symbol": "circle-open", "size": 18,
-                    "color": skin["playing"], "line": {"width": 2.5}}))
+                    "color": skin["playing"], "line": {"width": 3.5}}))
 
     if seed is not None and seed < len(coords):
         figure.add_trace(go.Scattergl(

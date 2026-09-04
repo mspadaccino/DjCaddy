@@ -355,7 +355,7 @@
    "chained": "#f2cc0c",
    "mixes": "#1f9dd0",
    "alike": "#8a4fd6",
-   "playing": "#d92b2b",
+   "playing": "#101418",
    "pl_selection": "#ff8a1e"
   },
   "dark": {
@@ -369,7 +369,7 @@
    "chained": "#ffe94d",
    "mixes": "#5fd0f5",
    "alike": "#c08cff",
-   "playing": "#ff5c5c",
+   "playing": "#ffffff",
    "pl_selection": "#ffb454"
   }
  },
