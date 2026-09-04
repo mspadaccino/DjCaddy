@@ -53,7 +53,15 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <script src="plotly.min.js"></script>
 <style>
   html, body { margin: 0; height: 100%; background: BACKGROUND; }
-  :root { --playing: PLAYING; }
+  :root { --playing: PLAYING; --ink: INK; --dim: DIM; }
+  /* La barra degli strumenti — zoom, pan, riquadro, lazo, ripristina —
+     sempre in vista e coi colori del tema: di suo Plotly la mostra solo
+     al passaggio del mouse, in un grigio scuro semitrasparente che sul
+     fondo scuro non si vede. I colori Plotly li scrive in regole sue,
+     per id: da qui gli `!important`. */
+  .modebar-btn .icon path { fill: var(--dim) !important; }
+  .modebar-btn:hover .icon path,
+  .modebar-btn.active .icon path { fill: var(--ink) !important; }
   #map { width: 100%; height: 100%; }
   /* Una figura può essere più larga del riquadro — l'impronta degli
      embedding a 1280 colonne lo è — e allora la pagina scorre di lato.
@@ -89,7 +97,8 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <script>
 (function () {
   var bridge = null;
-  var config = {displaylogo: false, scrollZoom: true, responsive: true};
+  var config = {displaylogo: false, displayModeBar: true, scrollZoom: true,
+                responsive: true};
   // La base è la nuvola dell'ultima `render`: i suoi tracciati restano gli
   // STESSI oggetti fra un gesto e l'altro, ed è per identità che react
   // capisce di non doverli ridisegnare.
@@ -221,7 +230,8 @@ class PlotlyView(QWebEngineView):
         bridge = attach_bridge(self.page())
         bridge.received.connect(self._on_event)
         self.setHtml(_PAGE.replace("BACKGROUND", theme.BACKGROUND)
-                     .replace("PLAYING", _playing_colour()),
+                     .replace("PLAYING", _playing_colour())
+                     .replace("INK", theme.INK).replace("DIM", theme.FADED),
                      QUrl.fromLocalFile(str(plotly_package_data()) + "/"))
         theme.bus().changed.connect(self._on_theme)
 
@@ -234,7 +244,9 @@ class PlotlyView(QWebEngineView):
         self.page().runJavaScript(
             f"document.body.style.background = '{theme.BACKGROUND}';"
             f"document.documentElement.style.setProperty('--playing', "
-            f"'{_playing_colour()}');")
+            f"'{_playing_colour()}');"
+            f"document.documentElement.style.setProperty('--ink', "
+            f"'{theme.INK}');")
 
     def set_figure(self, figure) -> None:
         """Mostra (o aggiorna) la figura di base — un oggetto con `to_json`,
