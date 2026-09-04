@@ -3,6 +3,11 @@
 Qui c'è la logica — a chi tocca quale capitolo, in che ordine dentro al
 capitolo, e le aree colorate che la lavagna disegna sotto le schede. Le
 tabelle, i bottoni e lo stato di sessione stanno nelle app.
+
+I capitoli stessi — quote, fasce, colori — stanno in `core.analysis.arc`,
+perché li legge anche il Journey, che fa il lavoro opposto: qui una
+playlist fatta si ripartisce nell'arco, là l'arco sceglie i brani. I nomi
+si riesportano da qui per chi li ha sempre importati da qui.
 """
 
 from __future__ import annotations
@@ -10,47 +15,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from core.analysis.arc import CHAPTER_COLORS, CHAPTERS, chapter_score
 from core.analysis.mixing import camelot_distance
 
-CHAPTERS = [
-    {"name": "Intro",   "icon": "🌅", "quota": 0.15,
-     "bpm": (0.00, 0.15), "arousal": (0.00, 0.25),
-     "valence": (0.30, 0.50), "groove": (0.20, 0.40)},
-    {"name": "Buildup", "icon": "🔨", "quota": 0.25,
-     "bpm": (0.15, 0.40), "arousal": (0.25, 0.60),
-     "valence": (0.40, 0.60), "groove": (0.75, 0.95)},
-    {"name": "Tension", "icon": "🌀", "quota": 0.20,
-     "bpm": (0.40, 0.70), "arousal": (0.60, 0.80),
-     "valence": (0.00, 0.20), "groove": (0.80, 1.00)},
-    {"name": "Climax",  "icon": "⚡", "quota": 0.25,
-     "bpm": (0.70, 1.00), "arousal": (0.85, 1.00),
-     "valence": (0.75, 1.00), "groove": (0.00, 0.90)},
-    {"name": "Release", "icon": "🌙", "quota": 0.15,
-     "bpm": (0.30, 0.50), "arousal": (0.30, 0.50),
-     "valence": (0.20, 0.45), "groove": (0.30, 0.60)},
-]
-
-CHAPTER_COLORS = {
-    "Intro":   "#8e9aa6",
-    "Buildup": "#f2a33c",
-    "Tension": "#7b4fbf",
-    "Climax":  "#e0503b",
-    "Release": "#3d9be0",
-}
-
-
-def _chapter_score(pct_bpm: float, pct_arousal: float,
-                   pct_valence: float, pct_groove: float,
-                   ch: dict) -> float:
-    """How well a track fits a chapter: 0 (perfect) to 4 (worst)."""
-    def _dist(value: float, lo: float, hi: float) -> float:
-        if lo <= value <= hi:
-            return 0.0
-        return min(abs(value - lo), abs(value - hi))
-    return (_dist(pct_bpm, *ch["bpm"])
-            + _dist(pct_arousal, *ch["arousal"])
-            + _dist(pct_valence, *ch["valence"])
-            + _dist(pct_groove, *ch["groove"]))
+__all__ = ["CHAPTERS", "CHAPTER_COLORS", "assign_chapters",
+           "board_chapter_regions"]
 
 
 def assign_chapters(frame: pd.DataFrame,
@@ -87,7 +56,7 @@ def assign_chapters(frame: pd.DataFrame,
     scores = np.zeros((n, len(CHAPTERS)), dtype=np.float64)
     for j, ch in enumerate(CHAPTERS):
         for k in range(n):
-            scores[k, j] = _chapter_score(
+            scores[k, j] = chapter_score(
                 pct_bpm[k], pct_arousal[k], pct_valence[k], pct_groove[k], ch)
 
     quotas = [max(1, round(ch["quota"] * n)) for ch in CHAPTERS]

@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QMenu, QStyle,
                                QStyledItemDelegate, QStyleOptionButton,
                                QTableView)
 
-from core.viz.chapters import CHAPTER_COLORS
+from core.analysis.arc import CHAPTER_COLORS
 from core.viz.track_columns import (ENERGY_COLORS, EMOTION_COLORS,
                                     EMOTION_OPTIONS, GROOVE_COLORS,
                                     KEY_COLORS, LEVELS, READING_ORDER, reading)
