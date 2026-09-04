@@ -367,7 +367,7 @@ def along_path(coords, points, radius: float, pool=None,
 # --------------------------------------------------------------------------
 
 def magic_sort(cost: TransitionCost, indices, start: int | None = None,
-               passes: int = 2) -> list[int]:
+               end: int | None = None, passes: int = 2) -> list[int]:
     """Ordina `indices` in modo che ogni brano si fonda col successivo.
 
     È il cammino minimo che tocca tutti i nodi una volta: TSP aperto, che è
@@ -375,9 +375,15 @@ def magic_sort(cost: TransitionCost, indices, start: int | None = None,
     un percorso, poi 2-opt per raddrizzarne gli incroci — perché qui i nodi
     sono le decine di brani di una serata, non una libreria intera, e su
     quelle dimensioni la soluzione esatta non varrebbe l'attesa.
+
+    `start` e `end`, se stanno fra gli indici, restano ai due capi: il
+    Journey sa dove deve arrivare, e un ordine che gli spostasse l'arrivo
+    in mezzo non sarebbe più il suo.
     """
     nodes = [int(i) for i in indices]
     if len(nodes) <= 2:
+        if len(nodes) == 2 and end == nodes[0] and start != end:
+            return nodes[::-1]
         return nodes
 
     # Matrice dei costi una volta sola: il 2-opt la interroga O(n²) volte per
@@ -385,24 +391,32 @@ def magic_sort(cost: TransitionCost, indices, start: int | None = None,
     matrix = np.array([cost.to(node, nodes) for node in nodes], dtype=np.float32)
 
     begin = nodes.index(start) if start in nodes else 0
+    # L'arrivo, se chiesto, si tiene da parte e si attacca in coda: il
+    # vicino più vicino non deve poterlo prendere a metà strada.
+    finish = (nodes.index(end) if end in nodes and nodes.index(end) != begin
+              else None)
     route = [begin]
-    left = set(range(len(nodes))) - {begin}
+    left = set(range(len(nodes))) - {begin} - {finish}
     while left:
         current = route[-1]
         nxt = min(left, key=lambda j: matrix[current, j])
         route.append(nxt)
         left.discard(nxt)
+    if finish is not None:
+        route.append(finish)
 
     def length(order: list[int]) -> float:
         return float(sum(matrix[a, b] for a, b in zip(order, order[1:])))
 
     # 2-opt: si rovescia il tratto fra due posizioni se accorcia il totale.
-    # Il primo nodo resta fermo — è il brano da cui l'utente vuole partire.
+    # Il primo nodo resta fermo — è il brano da cui l'utente vuole partire —
+    # e l'ultimo pure, quando è stato chiesto.
+    last = len(route) - (1 if finish is not None else 0)
     for _ in range(passes):
         improved = False
         best = length(route)
-        for i in range(1, len(route) - 1):
-            for j in range(i + 1, len(route)):
+        for i in range(1, last - 1):
+            for j in range(i + 1, last):
                 candidate = route[:i] + route[i:j + 1][::-1] + route[j + 1:]
                 value = length(candidate)
                 if value < best - 1e-6:

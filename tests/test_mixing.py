@@ -157,6 +157,29 @@ def test_magic_sort_with_too_few_tracks_to_sort():
     cost = _library()
     assert magic_sort(cost, [2]) == [2]
     assert magic_sort(cost, [2, 1]) == [2, 1]
+    assert magic_sort(cost, [2, 1], end=2) == [1, 2]     # l'arrivo va in coda
+
+
+def test_magic_sort_keeps_the_end_where_it_was_asked():
+    # Cinque brani in fila nel suono. Da 0 a 2 passando per gli altri: il
+    # vicino più vicino da solo chiuderebbe su 4, l'arrivo chiesto è 2.
+    cost = TransitionCost(_fan(0, 15, 30, 45, 60), [128] * 5, ["8A"] * 5)
+    order = magic_sort(cost, [3, 1, 4, 0, 2], start=0, end=2)
+    assert order[0] == 0 and order[-1] == 2
+    assert set(order) == {0, 1, 2, 3, 4}
+    # Senza arrivo la fila naturale finisce sul 4.
+    assert magic_sort(cost, [3, 1, 4, 0, 2], start=0) == [0, 1, 2, 3, 4]
+    # Un arrivo che coincide con la partenza non conta.
+    assert magic_sort(cost, [3, 1, 4, 0, 2], start=0, end=0)[0] == 0
+
+
+def test_magic_sort_two_opt_never_moves_a_pinned_end():
+    # Il 2-opt rovescia tratti: con l'arrivo fermo non deve poterlo toccare,
+    # qualunque sia l'ordine in cui la matrice lo tenta.
+    cost = TransitionCost(_fan(0, 40, 10, 50, 20, 30), [128] * 6, ["8A"] * 6)
+    for end in range(1, 6):
+        order = magic_sort(cost, list(range(6)), start=0, end=end)
+        assert order[0] == 0 and order[-1] == end and len(set(order)) == 6
 
 
 def test_a_stroke_that_comes_back_is_a_fence():
