@@ -586,3 +586,38 @@ def test_auto_chain_grows_the_chain_and_is_noted_apart_from_picks(
     lines = journal.read()
     assert [line["kind"] for line in lines] == ["auto_chain"]
     assert lines[0]["added"] == walk[1:] and lines[0]["steps"] == 3
+
+
+# --- la lavagna sotto la tabella ---
+def test_the_board_sits_under_the_table_in_the_same_tab(qtbot):
+    """La lavagna è la vista della playlist e sta nella sua scheda, sotto la
+    tabella e con uno splitter fra i due — non in una scheda «Chapters» a
+    parte, dove sembrava un accessorio dei capitoli."""
+    from PySide6.QtWidgets import QSplitter
+
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.playlist_panel import PlaylistPanel
+    from qt_app.state import AppState
+
+    class _FakeStore:
+        coords = np.zeros((3, 2))
+        embeddings = np.zeros((3, 4))
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame))
+    state = AppState()
+    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    assert not hasattr(panel, "board_widget")
+    split = panel._playlist_controls
+    assert isinstance(split, QSplitter) and split.count() == 2
+    assert split.widget(0).isAncestorOf(panel._table)
+    assert split.widget(1).isAncestorOf(panel._board)
+    assert split.widget(1).isAncestorOf(panel._ch_create)
+    # Vuota, la playlist non mostra né tabella né lavagna; piena, tutte e due.
+    assert split.isHidden()
+    state.set_playlist(["/x/one.mp3", "/x/two.mp3"])
+    assert not split.isHidden()

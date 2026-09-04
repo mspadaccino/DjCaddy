@@ -382,7 +382,6 @@ class MapPage(QWidget):
         self._panels = QTabWidget()
         self._panels.addTab(self._filters, "🔎 Filters")
         self._panels.addTab(self._builder, "🎛️ Build a set")
-        self._panels.addTab(self._playlist.board_widget, "📖 Chapters")
         self._panels.addTab(self._playlist, PLAYLIST_TAB_TITLE)
         self._panels.addTab(self._favourites, FAVOURITES_TAB_TITLE)
         self._panels.setCurrentWidget(self._builder)

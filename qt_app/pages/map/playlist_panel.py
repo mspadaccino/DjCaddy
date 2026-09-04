@@ -24,7 +24,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QLabel,
                                QListWidget, QMessageBox, QPushButton,
-                               QSlider, QVBoxLayout, QWidget)
+                               QSlider, QSplitter, QVBoxLayout, QWidget)
 
 from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml,
                                      playlist_positions, read_m3u8,
@@ -395,7 +395,6 @@ class PlaylistPanel(QWidget):
         chapters_row = QHBoxLayout()
         for button in (self._ch_create, self._ch_apply, self._ch_again):
             chapters_row.addWidget(button)
-        chapters_row.addStretch(1)
 
         # La lavagna, con la misura dell'altezza. Cosa significhi l'altezza
         # scelta lo dice il tooltip della manopola; come si usa la lavagna,
@@ -419,37 +418,34 @@ class PlaylistPanel(QWidget):
         self._board = BoardView()
         self._board.value_changed.connect(self._on_board_event)
 
-        # Il Chapter Builder vive nella sua scheda, a fianco della Playlist:
-        # la lavagna prima si spartiva l'altezza con la tabella, qui la ha
-        # tutta per sé.
-        self._chapters_title = QLabel("<b>Chapters</b>")
-        self._chapters_title.setToolTip(chapters_why)
-        self._chapters_empty = _dim(
-            "Nothing in the playlist yet: add tracks in the Playlist tab, "
-            "then come back here to build the chapters.")
-        self._chapters_controls = QWidget()
-        cbox = QVBoxLayout(self._chapters_controls)
-        cbox.setContentsMargins(0, 0, 0, 0)
-        cbox.setSpacing(6)
-        cbox.addLayout(chapters_row)
-        cbox.addLayout(axis_row)
-        cbox.addWidget(self._board, stretch=1)
-
-        self.board_widget = QWidget()
-        bbox = QVBoxLayout(self.board_widget)
+        # La lavagna sta SOTTO la tabella, nella stessa scheda: è la vista
+        # della playlist, e in una scheda a parte sembrava un accessorio dei
+        # capitoli. I capitoli le stanno sopra, nella stessa riga della
+        # misura dell'altezza, perché sono ciò che la lavagna colora.
+        chapters_row.addLayout(axis_row)
+        board_box = QWidget()
+        bbox = QVBoxLayout(board_box)
         bbox.setContentsMargins(0, 0, 0, 0)
         bbox.setSpacing(6)
-        bbox.addWidget(self._chapters_title)
-        bbox.addWidget(self._chapters_empty)
-        bbox.addWidget(self._chapters_controls, stretch=1)
+        bbox.addLayout(chapters_row)
+        bbox.addWidget(self._board, stretch=1)
 
-        self._playlist_controls = QWidget()
-        tbox = QVBoxLayout(self._playlist_controls)
+        table_box = QWidget()
+        tbox = QVBoxLayout(table_box)
         tbox.setContentsMargins(0, 0, 0, 0)
         tbox.setSpacing(4)
         tbox.addWidget(self._table, stretch=1)
         tbox.addWidget(self._worst)
         tbox.addWidget(self._doubles)
+
+        # Lo splitter lascia decidere quanta altezza dare alla lavagna: chi
+        # riordina a mano vuole la tabella, chi guarda la forma la lavagna.
+        self._playlist_controls = QSplitter(Qt.Orientation.Vertical)
+        self._playlist_controls.addWidget(table_box)
+        self._playlist_controls.addWidget(board_box)
+        self._playlist_controls.setStretchFactor(0, 3)
+        self._playlist_controls.setStretchFactor(1, 2)
+        self._playlist_controls.setCollapsible(0, False)
 
         adding = QPushButton("🎵 Add tracks…")
         adding.setToolTip("Pick files from the disk: they go in after what "
@@ -597,8 +593,6 @@ class PlaylistPanel(QWidget):
         has = bool(playlist)
         self._empty.setVisible(not has)
         self._playlist_controls.setVisible(has)
-        self._chapters_empty.setVisible(not has)
-        self._chapters_controls.setVisible(has)
         for button in (self._play_all, self._sort, self._drop,
                        self._remove_similar, self._reset,
                        self._save_m3u8, self._save_xml):
