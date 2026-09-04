@@ -31,6 +31,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from core.viz.map_figure import SKIN
 from qt_app import theme
 from qt_app.widgets.webchannel import attach_bridge
 
@@ -52,6 +53,7 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <script src="plotly.min.js"></script>
 <style>
   html, body { margin: 0; height: 100%; background: BACKGROUND; }
+  :root { --playing: PLAYING; }
   #map { width: 100%; height: 100%; }
   /* Una figura può essere più larga del riquadro — l'impronta degli
      embedding a 1280 colonne lo è — e allora la pagina scorre di lato.
@@ -61,17 +63,22 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
      raggiungibile per quelle che non ci stanno. */
   .modebar-container { position: fixed !important; }
   /* Il brano in ascolto: l'unico punto nel livello SVG — gli altri
-     tracciati sono gl e stanno sul canvas sotto. Pulsa via CSS, che alla
-     nuvola non costa niente: `scale` è la proprietà a sé di CSS, e si
-     compone col translate che Plotly scrive nell'attributo transform. */
-  .scatterlayer .trace .point {
-    animation: djcaddy-pulse 1.1s ease-in-out infinite;
-    transform-box: fill-box; transform-origin: center;
-  }
-  @keyframes djcaddy-pulse {
-    0%   { scale: 1;   stroke-width: 2.5px; opacity: 1; }
-    50%  { scale: 1.9; stroke-width: 1px;   opacity: .35; }
-    100% { scale: 1;   stroke-width: 2.5px; opacity: 1; }
+     tracciati sono gl e stanno sul canvas sotto. Batte come un cuore, via
+     CSS, che alla nuvola non costa niente: due colpi ravvicinati di bordo
+     e riempimento, poi la pausa. NESSUNA trasformazione: `scale` si
+     comporrebbe col translate che Plotly scrive nell'attributo transform
+     e il punto girerebbe per la mappa. Il fill sta nei keyframes perché
+     Plotly lo scrive inline a `none`, e solo l'animazione vince sull'inline.
+     Il colore è `SKIN["playing"]` del tema in corso, passato come
+     variabile CSS così da seguirlo al cambio senza rifare la pagina. */
+  .scatterlayer .trace .point { animation: djcaddy-beat 1.2s ease-out infinite; }
+  @keyframes djcaddy-beat {
+    0%   { stroke-width: 2.5px; fill: var(--playing); fill-opacity: .15; }
+    12%  { stroke-width: 7px;   fill: var(--playing); fill-opacity: .8; }
+    28%  { stroke-width: 2.5px; fill: var(--playing); fill-opacity: .15; }
+    40%  { stroke-width: 7px;   fill: var(--playing); fill-opacity: .8; }
+    60%  { stroke-width: 2.5px; fill: var(--playing); fill-opacity: .15; }
+    100% { stroke-width: 2.5px; fill: var(--playing); fill-opacity: .15; }
   }
 </style>
 </head><body><div id="map"></div>
@@ -160,6 +167,11 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 </script></body></html>"""
 
 
+def _playing_colour() -> str:
+    """Il rosso del brano in ascolto, lo stesso del suo anello in figura."""
+    return SKIN["dark" if theme.DARK else "light"]["playing"]
+
+
 class PlotlyView(QWebEngineView):
     """Il grafico come widget: `set_figure(figura)` e i segnali di scelta.
 
@@ -189,7 +201,8 @@ class PlotlyView(QWebEngineView):
         self._queued_overlays: str | None = None
         bridge = attach_bridge(self.page())
         bridge.received.connect(self._on_event)
-        self.setHtml(_PAGE.replace("BACKGROUND", theme.BACKGROUND),
+        self.setHtml(_PAGE.replace("BACKGROUND", theme.BACKGROUND)
+                     .replace("PLAYING", _playing_colour()),
                      QUrl.fromLocalFile(str(plotly_package_data()) + "/"))
         theme.bus().changed.connect(self._on_theme)
 
@@ -200,7 +213,9 @@ class PlotlyView(QWebEngineView):
         figura nuova non ci sia un lampo del tema di prima."""
         self.page().setBackgroundColor(QColor(theme.BACKGROUND))
         self.page().runJavaScript(
-            f"document.body.style.background = '{theme.BACKGROUND}';")
+            f"document.body.style.background = '{theme.BACKGROUND}';"
+            f"document.documentElement.style.setProperty('--playing', "
+            f"'{_playing_colour()}');")
 
     def set_figure(self, figure) -> None:
         """Mostra (o aggiorna) la figura di base — un oggetto con `to_json`,
