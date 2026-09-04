@@ -389,13 +389,13 @@ def test_library_frame_is_none_before_the_projection(tmp_path):
 
 
 # --- salva / salva con nome ---
-def test_save_disables_after_writing_and_wakes_on_a_real_change(
+def test_save_rewrites_the_known_file_without_a_dialog(
         qtbot, tmp_path, monkeypatch):
-    """Come in un foglio Excel: «Save» è spento finché una «Save as…» non
-    ha scelto un file; da lì riscrive quel file senza riaprire il dialogo,
-    e si spegne di nuovo appena scritto — si riaccende solo a una
-    mutazione vera della playlist, non a un giro di refresh qualunque."""
-    from PySide6.QtWidgets import QFileDialog
+    """«Save» è spento finché la playlist non ha un file; da quando una
+    «Save as…» lo ha scelto resta acceso e riscrive quel file senza
+    riaprire il dialogo — solo una conferma — anche subito dopo aver
+    scritto. Al no non scrive."""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
     from pathlib import Path
 
     from qt_app.pages.map.library import Library
@@ -422,22 +422,82 @@ def test_save_disables_after_writing_and_wakes_on_a_real_change(
     assert not panel._save_again.isEnabled()
 
     state.set_playlist(["/x/one.mp3"])
+    assert not panel._save_again.isEnabled()   # nessun file ancora
     out = tmp_path / "set.m3u8"
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: (str(out), "")))
     panel._save_m3u8.click()
     assert "one.mp3" in out.read_text()
-    assert not panel._save_again.isEnabled()   # appena scritto: spento
+    assert panel._save_again.isEnabled()       # il file c'è: acceso
 
     state.set_playlist(["/x/one.mp3", "/x/two.mp3"])
-    assert panel._save_again.isEnabled()       # la playlist è cambiata
-
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: pytest.fail(
                             "«Save» must not open the dialog")))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(
+        lambda *a, **k: QMessageBox.StandardButton.Yes))
     panel._save_again.click()
     assert "two.mp3" in out.read_text()
-    assert not panel._save_again.isEnabled()   # riscritto: di nuovo spento
+    assert panel._save_again.isEnabled()
+
+    state.set_playlist(["/x/one.mp3"])
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(
+        lambda *a, **k: QMessageBox.StandardButton.Cancel))
+    panel._save_again.click()
+    assert "two.mp3" in out.read_text()        # al no, il file resta com'era
+
+    state.set_playlist([])
+    assert not panel._save_again.isEnabled()   # niente da scrivere
+
+
+def test_a_loaded_playlist_becomes_the_file_save_writes_to(
+        qtbot, tmp_path, monkeypatch):
+    """Caricare un .m3u8 e ritoccarlo: «Save» riscrive QUEL file, senza
+    dialogo — prima il pannello lo dimenticava e il tasto restava spento."""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from pathlib import Path
+
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.playlist_panel import PlaylistPanel
+    from qt_app.state import AppState
+
+    class _FakeStore:
+        coords = np.zeros((3, 2))
+        embeddings = np.zeros((3, 4))
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame))
+    state = AppState()
+    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    monkeypatch.setattr(panel, "_tracks_for_export", lambda: [
+        {"path": Path(p), "name": Path(p).stem, "artist": "",
+         "duration": 1.0} for p in state.playlist])
+
+    loaded = tmp_path / "night.m3u8"
+    loaded.write_text("#EXTM3U\n/x/one.mp3\n", "utf-8")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(loaded), "")))
+    # Il riquadro delle scelte: si risponde «Load as new playlist», che è
+    # il primo bottone aggiunto.
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
+    monkeypatch.setattr(QMessageBox, "clickedButton",
+                        lambda self: self.buttons()[0])
+    panel._on_load()
+    assert state.playlist == ["/x/one.mp3"]
+    assert panel._save_again.isEnabled()
+
+    state.set_playlist(["/x/one.mp3", "/x/two.mp3"])
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: pytest.fail(
+                            "«Save» must not open the dialog")))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(
+        lambda *a, **k: QMessageBox.StandardButton.Yes))
+    panel._save_again.click()
+    assert "two.mp3" in loaded.read_text()
 
 
 # --- Radio e appunti ---

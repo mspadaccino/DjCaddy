@@ -305,13 +305,10 @@ class PlaylistPanel(QWidget):
         self._chapters: list[list[int]] | None = None
         self._keep_chapters_once = False
         self._picked: str | None = None             # la scheda evidenziata
-        # Dove e come è andata l'ultima «Save as…»: il «Save» riscrive lì,
-        # nello stesso formato, senza ripassare dal dialogo.
+        # Il file della playlist e il suo formato: dove è andata l'ultima
+        # «Save as…», o da dove si è caricata. «Save» riscrive lì senza
+        # ripassare dal dialogo, ed è acceso finché un percorso c'è.
         self._saved_to: tuple[Path, Callable[[list[dict]], str]] | None = None
-        # C'è qualcosa di nuovo da scrivere da quando si è salvato l'ultima
-        # volta? Comanda «Save», che si spegne appena scrive — come in un
-        # foglio Excel — e si riaccende alla prima mutazione vera.
-        self._dirty = False
         self._board_seen_at = None
         self._build(wire_table)
         state.playlist_changed.connect(self._on_playlist_changed)
@@ -579,7 +576,6 @@ class PlaylistPanel(QWidget):
             # descrivono — tranne quando è la loro stessa applicazione.
             self._chapters = None
         self._keep_chapters_once = False
-        self._dirty = True
         self._refresh()
 
     # ------------------------------------------------------------------
@@ -802,7 +798,10 @@ class PlaylistPanel(QWidget):
         if not found:
             return
         if box.clickedButton() is replace:
+            # La playlist caricata È quel file: «Save» torna a scriverci.
+            self._saved_to = (Path(chosen), build_m3u8)
             self.replace(found)
+            self._refresh_save_again(has=bool(self.indices()))
         elif box.clickedButton() is append:
             self.append(found)
 
@@ -834,28 +833,30 @@ class PlaylistPanel(QWidget):
         self._journal.record("playlist_saved", file=str(path),
                              format=path.suffix.lstrip("."),
                              paths=list(self._state.playlist))
-        # Come in un foglio Excel: appena scritto non c'è più niente di
-        # nuovo da riscrivere, e il bottone lo dice spegnendosi. Torna vivo
-        # alla prima mutazione vera della playlist — vedi `_on_playlist_changed`.
-        self._dirty = False
         self._refresh_save_again(has=bool(self.indices()))
 
     def _refresh_save_again(self, has: bool) -> None:
         known = self._saved_to is not None
-        self._save_again.setEnabled(has and known and self._dirty)
+        self._save_again.setEnabled(has and known)
         if not known:
-            told = ("Enabled once the playlist has been saved with one of "
-                    "the «Save as…» buttons: then it rewrites that same "
-                    "file.")
-        elif self._dirty:
-            told = (f"Writes the playlist again to {self._saved_to[0]}, in "
-                    "the same format, without asking.")
+            told = ("Enabled once the playlist has a file: loaded with "
+                    "«Load playlist…», or saved with one of the «Save "
+                    "as…» buttons. Then it rewrites that same file.")
         else:
-            told = f"Nothing changed since the last save to {self._saved_to[0]}."
+            told = (f"Writes the playlist to {self._saved_to[0]}, in the "
+                    "same format — no file dialog, just a confirmation.")
         self._save_again.setToolTip(told)
 
     def _on_save_again(self) -> None:
-        self._write_out()
+        # Nessun dialogo di file, ma una conferma sì: sovrascrive senza
+        # scegliere, e un file riscritto per sbaglio non si recupera.
+        path = self._saved_to[0]
+        answer = QMessageBox.question(
+            self, "Save the playlist", f"Overwrite {path.name}?\n{path}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes)
+        if answer == QMessageBox.StandardButton.Yes:
+            self._write_out()
 
     def _on_save_m3u8(self) -> None:
         self._save_as(build_m3u8, "djcaddy_playlist.m3u8",
