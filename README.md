@@ -130,6 +130,9 @@ Three ways, and they answer different questions:
   sort**, or **draw a lasso** across the clusters to plan an arc.
 - *What comes next?* Go to **Build a set** and grow the chain one track at a
   time from the ranked candidates.
+- *How do I get from here to there?* Pick a start and, if you know it, the
+  track to land on, and let **Journey** find the run of tracks in between
+  that follows the arc of a set.
 - *More like these.* Star some favourites, or select a group, and let
   **Radio Mix** tune a playlist from the whole group's taste.
 
@@ -176,6 +179,8 @@ I play next, out of ninety thousand tracks?*
   that visits every track once — an open travelling-salesman problem, solved
   nearest-neighbour then 2-opt — so each track melts into the next.
 - **Grow a set one track at a time** in [Build a set](#building-a-set).
+- **Go from one track to another in N steps** with the
+  [Journey](#journey-from-here-to-there-in-n-steps).
 - **Tune a playlist from a group** — your favourites, or a lasso — with
   [Radio Mix](#radio-mix-a-playlist-from-a-group).
 - **Export** the result as M3U8 or rekordbox XML.
@@ -351,6 +356,42 @@ the journal as `auto_chain`, not as picks — the machine taking the first
 row is not a choice of yours, and must not teach anything that the first
 row is always right.
 
+### Journey: from here to there in N steps
+
+The chain grows forward without knowing where it should end. The Journey
+answers the question the chain cannot: *I want to open with this and close
+with that — what are the twelve tracks in between?*
+
+**A start, an end, a length.** The start is the seed, or the last track of
+the chain or of the playlist, from the *From* menu. The end is optional:
+pick it by name, or leave it open and the set finishes wherever the
+cheapest run of transitions leads. *Tracks* is how many, the two ends
+included.
+
+**What it minimises.** The sum of the transition cost `D` along the row —
+the same cost, the same three sliders as everything else on the page — plus,
+when the **Arc** knob is up, how far each track sits from the chapter its
+position belongs to. The arc is the one the [Chapter Builder](#the-board)
+uses: Intro, Buildup, Tension, Climax, Release, each with a share of the
+set and a band of tempo, energy, mood and groove on the scale of your
+library. At Arc 0 the Journey is the smoothest run of transitions and
+nothing else; at 1 the shape of the set weighs as much as a transition.
+
+**How it searches.** Not the whole library: a corridor of the few hundred
+tracks that pass the filters and cost least to reach from both ends — the
+ones that are *on the way*. On that corridor the best row is found exactly,
+one layer per position, and then straightened: a run that goes out and
+comes back on the same track keeps the way out and finds something else for
+the way back. No track twice, near-identical twins never back to back,
+copies of the same song once. With the arc on, the row carries a `chapter`
+column that says which part of the set each position stands for.
+
+**A draft, not a verdict.** The row comes out ticked, in order. Untick what
+does not convince you, send the rest to the playlist, and reorder by hand;
+magic sort on the playlist keeps the first track where it is. If the filters
+leave too few tracks on the way, the Journey says so and gives what it could
+join.
+
 ### Radio Mix: a playlist from a group
 
 Quick List and the chain start from **one** track. Radio Mix starts from a
@@ -393,6 +434,7 @@ differently.
 | **Quick List** | one seed | the cost `D` (sound + BPM + key) | ranks every track against the seed, once | a ranking of options — they may sound alike |
 | **Chain Maker** | the last track of the chain | `D` from that track (or one step ahead, with Trend) | you take one of nine, and the roster is made again | a chain in the order you built it |
 | **Auto chain** | the last track of the chain | the same | takes the top of the roster, N times | a chain in the order it chose |
+| **Journey** | a start, and an end if you know it | `D` along the row, plus the arc at each position | the cheapest row of N on a corridor between the ends, no track twice | a set from here to there, in order |
 | **Magic sort** | a group you already have | `D` between every pair | nearest-neighbour path, then 2-opt | the same tracks, reordered |
 | **Radio Mix** | a group (favourites or selection) | sound only, against the group's centre | one at a time, each pick penalised for resembling the ones before | a set that covers the group without repeating — then magic-sorted |
 
@@ -447,6 +489,17 @@ does not move.
 Cards can be dragged off the rule and stay off it; picking a measure again
 puts everything back, and the bin under a selected card takes that track out
 of the playlist.
+
+**Chapters** sit in the row above the board. *Create chapters* splits the
+playlist you already have into the five parts of a set — Intro, Buildup,
+Tension, Climax, Release — by how each track's tempo, energy, mood and
+groove fit each part's band, with a fixed share of the set for each; the
+board shades the parts under the cards, and *Apply chapter order* rewrites
+the playlist in that order. It works on a playlist that exists: it labels
+and reorders, it never adds a track. The [Journey](#journey-from-here-to-there-in-n-steps)
+is the same arc used the other way round — the shape first, then the tracks
+that realise it — and the two read one definition, so a Journey built with
+the arc comes out already in its chapters.
 
 ### Point size, and the running job
 
@@ -1114,6 +1167,8 @@ Key engine modules (`core/analysis/`):
 | `map_job.py` | the map build as a long, resumable background job |
 | `mixing.py` | Camelot wheel, transition cost (cosine on the embeddings + tempo + key), the point one step ahead for Trend, signed tempo/key shifts, path-drawn playlists, magic sort |
 | `graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, the roster of what comes next, and Auto chain |
+| `arc.py` | the shape of a set: the five chapters with their shares and bands, read by the Chapter Builder and by the Journey |
+| `journey.py` | the Journey: from a track to another in N steps — a corridor between the ends, Viterbi over the positions with the arc, no repeats |
 | `radio.py` | Radio Mix: a playlist from a group — split into souls, maximal marginal relevance, drift, negatives |
 | `journal.py` | `choices.jsonl`: one line per choice made in Build a set, for learning later |
 | `energy.py` | the four raw energy measures, and the library-wide ranking that turns them into a 1–10 |
