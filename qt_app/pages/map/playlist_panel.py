@@ -322,10 +322,12 @@ class PlaylistPanel(QWidget):
                                   "track after another.")
         self._play_all.clicked.connect(self._on_play_all)
         self._sort = QPushButton("✨ Magic sort")
-        self._sort.setToolTip("Reorders the whole playlist so every "
-                              "transition stays cheap, with the sound / "
-                              "BPM / key weights of Build a set. Starts "
-                              "from the first track.")
+        self._sort.setToolTip("Reorders so every transition stays cheap, "
+                              "with the sound / BPM / key weights of Build "
+                              "a set. Ticked rows only, staying in their "
+                              "own slots, when any are ticked — the whole "
+                              "playlist otherwise. Starts from the first "
+                              "track in scope.")
         self._sort.clicked.connect(self._on_magic_sort)
         self._drop = QPushButton("🗑 Remove ticked")
         self._drop.clicked.connect(self._on_drop)
@@ -663,10 +665,23 @@ class PlaylistPanel(QWidget):
             self._state.play_queue(paths)
 
     def _on_magic_sort(self) -> None:
+        """Riordina tutta la playlist — o, se qualche riga è spuntata, solo
+        quelle: il resto resta fermo, e i brani spuntati tornano nei loro
+        stessi slot nell'ordine nuovo. È il vincolo locale: si spunta un
+        tratto della scaletta e solo quel tratto si riordina."""
         playlist = self.indices()
-        if len(playlist) >= 3:
-            self.replace(magic_sort(self._cost, playlist,
-                                    start=playlist[0]))
+        frame = self._lib.frame
+        ticked = set(self._table.selected_paths())
+        subset = [i for i in playlist if frame.at[i, "path"] in ticked] \
+            if ticked else playlist
+        if len(subset) < 3:
+            return
+        resorted = magic_sort(self._cost, subset, start=subset[0])
+        if ticked:
+            incoming = iter(resorted)
+            resorted = [next(incoming) if frame.at[i, "path"] in ticked
+                       else i for i in playlist]
+        self.replace(resorted)
 
     def _on_drop(self) -> None:
         doomed = set(self._table.selected_paths())

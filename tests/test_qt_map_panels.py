@@ -500,6 +500,78 @@ def test_a_loaded_playlist_becomes_the_file_save_writes_to(
     assert "two.mp3" in loaded.read_text()
 
 
+# --- Magic sort ---
+
+def test_magic_sort_only_reorders_ticked_rows(qtbot):
+    """Con righe spuntate, il Magic sort tocca solo quelle: le altre — qui
+    "a", in mezzo — restano nel loro slot. È il vincolo locale: si spunta
+    un tratto della scaletta e solo quel tratto si riordina."""
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.playlist_panel import PlaylistPanel
+    from qt_app.state import AppState
+
+    class _FakeStore:
+        coords = np.zeros((4, 2))
+        embeddings = np.zeros((4, 4))
+
+    names = ["b", "a", "d", "c"]
+    angles = [10, 0, 30, 20]
+    frame = pd.DataFrame([
+        {"name": n, "bpm": 120.0, "camelot": "8A", "energy": 0.5,
+         "danceability": 0.5, "valence_rank": 0.5, "moods": "", "genres": "",
+         "top_genre": "—", "folder": "/x", "path": f"/x/{n}.mp3",
+         "duration": 200.0}
+        for n in names])
+    cost = TransitionCost(_fan(*angles), frame["bpm"].tolist(),
+                          frame["camelot"].tolist())
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
+                  cost=cost)
+    state = AppState()
+    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    state.set_playlist(["/x/b.mp3", "/x/a.mp3", "/x/d.mp3", "/x/c.mp3"])
+
+    panel._table.set_picked({"/x/b.mp3", "/x/d.mp3", "/x/c.mp3"})
+    panel._on_magic_sort()
+
+    assert state.playlist == ["/x/b.mp3", "/x/a.mp3", "/x/c.mp3", "/x/d.mp3"]
+
+
+def test_magic_sort_with_nothing_ticked_reorders_the_whole_playlist(qtbot):
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.playlist_panel import PlaylistPanel
+    from qt_app.state import AppState
+
+    class _FakeStore:
+        coords = np.zeros((4, 2))
+        embeddings = np.zeros((4, 4))
+
+    names = ["b", "a", "d", "c"]
+    angles = [10, 0, 30, 20]
+    frame = pd.DataFrame([
+        {"name": n, "bpm": 120.0, "camelot": "8A", "energy": 0.5,
+         "danceability": 0.5, "valence_rank": 0.5, "moods": "", "genres": "",
+         "top_genre": "—", "folder": "/x", "path": f"/x/{n}.mp3",
+         "duration": 200.0}
+        for n in names])
+    cost = TransitionCost(_fan(*angles), frame["bpm"].tolist(),
+                          frame["camelot"].tolist())
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
+                  cost=cost)
+    state = AppState()
+    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    state.set_playlist(["/x/b.mp3", "/x/a.mp3", "/x/d.mp3", "/x/c.mp3"])
+
+    panel._on_magic_sort()
+
+    assert state.playlist == ["/x/b.mp3", "/x/a.mp3", "/x/c.mp3", "/x/d.mp3"]
+
+
 # --- Radio e appunti ---
 
 def _radio_library():
