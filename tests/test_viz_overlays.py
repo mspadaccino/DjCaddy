@@ -46,16 +46,20 @@ def test_overlays_carry_no_cloud():
     assert all(trace.customdata is None for trace in figure.data)
     names = {trace.name for trace in figure.data}
     assert {"playlist", "selected", "in the chain", "mixes out of it",
-            "sounds like it", "current PL selection", "playing",
-            "seed"} <= names
+            "sounds like it", "current PL selection", "seed"} <= names
+    # Il brano in ascolto non è un tracciato: è un'annotazione, che sta
+    # sopra il canvas dei punti e che un lasso non attenua.
+    assert "playing" not in names
+    assert [a.name for a in figure.layout.annotations
+            if a.name == "playing"] == ["playing"]
     # La playlist ha UN segno: il percorso. L'anello che marcava lo stesso
     # insieme è stato tolto come doppione.
     assert "in the playlist" not in names
 
 
-def test_seed_name_is_the_only_annotation():
+def test_seed_name_is_the_only_annotation_with_text():
     figure = overlay_figure(COORDS, MARKS, dark=True)
-    notes = figure.layout.annotations
+    notes = [a for a in figure.layout.annotations if a.text]
     assert len(notes) == 1
     assert "two.mp3" in notes[0].text
 

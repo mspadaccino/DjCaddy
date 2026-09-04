@@ -167,6 +167,10 @@ AXIS_CENTRES = {"energy": 0.5, "valence_rank": 0.5}
 FLAT_SIZE = 7.0
 MIN_SIZE, MAX_SIZE = 4.0, 15.0
 
+# Quanto si vede la nuvola: tenue, perché è lo sfondo su cui si leggono i
+# segni. I punti scelti col lasso tornano a 1 (vedi `build_figure`).
+CLOUD_OPACITY = 0.35
+
 # Due fondi e due inchiostri, uno per tema. Il fondo della mappa è LO STESSO
 # della pagina, in tutti e due: il riquadro staccato di poco si leggeva come
 # una finestra dentro la finestra, e il territorio non ha bordi.
@@ -175,13 +179,13 @@ SKIN = {
               "other": "#9aa4b0", "label": "rgba(27,31,39,0.82)",
               "halo": "rgba(255,255,255,0.75)", "pin": "#1f6fd0",
               "chained": "#f2cc0c", "mixes": "#1f9dd0",
-              "alike": "#8a4fd6", "playing": "#d92b2b",
+              "alike": "#8a4fd6", "playing": "#101418",
               "pl_selection": "#ff8a1e"},
     "dark": {"paper": "#0e1117", "plot": "#0e1117", "ink": "#eef1f6",
              "other": "#6b7684", "label": "rgba(238,241,246,0.88)",
              "halo": "rgba(14,17,23,0.75)", "pin": "#6fb4ff",
              "chained": "#ffe94d", "mixes": "#5fd0f5",
-             "alike": "#c08cff", "playing": "#ff5c5c",
+             "alike": "#c08cff", "playing": "#ffffff",
              "pl_selection": "#ffb454"},
 }
 
@@ -322,14 +326,19 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             name=("tracks" if genre == "other" and not top_genres
                   else genre[:28]),
             customdata=part[["index", "name", "bpm", "camelot", "genres"]].to_numpy(),
+            # La nuvola è TENUE, sempre: è il territorio, e quello che conta
+            # ci sta sopra — i segni, il battito del brano in ascolto, i
+            # punti presi con lasso o riquadro, che tornano pieni. Prima era
+            # quasi opaca e i segni ci si perdevano dentro.
             marker={
-                "size": part["_size"], "opacity": 0.85,
+                "size": part["_size"], "opacity": CLOUD_OPACITY,
                 "color": color_of.get(genre, skin["other"]),
                 # Un filo di bordo del colore del fondo: dove i punti si
                 # accavallano si continua a contarli invece di vedere una
                 # macchia unica.
                 "line": {"width": 0.5, "color": skin["plot"]},
             },
+            selected={"marker": {"opacity": 1.0}},
             hovertemplate="<b>%{customdata[1]}</b><br>%{customdata[2]} BPM · "
                           "%{customdata[3]}<br>%{customdata[4]}<extra></extra>",
         ))
@@ -435,16 +444,25 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             marker={"size": size, "color": "rgba(0,0,0,0)",
                     "line": {"width": 2.5, "color": color}}))
 
-    # Il brano che sta suonando: una X e non un anello, perché non dice cosa
-    # quel brano È — come lo dicono gli altri sei segni — ma cosa sta
-    # succedendo adesso. Una forma diversa si distingue anche in mezzo a un
-    # nodo di cerchi concentrici, dove un settimo colore si perderebbe.
+    # Il brano che sta suonando: un anello che BATTE, non un segno fermo,
+    # perché non dice cosa quel brano È — come lo dicono gli altri sei
+    # segni — ma cosa sta succedendo adesso, e in mezzo a un nodo di cerchi
+    # concentrici è il movimento a distinguerlo, non il colore: bianco sul
+    # tema scuro, quasi nero su quello chiaro, grosso. È un'ANNOTAZIONE e
+    # non un tracciato, per due ragioni che sono la stessa: le annotazioni
+    # stanno nel livello che Plotly tiene sopra il canvas dei punti gl —
+    # un tracciato SVG ci finirebbe sotto, e nei gruppi fitti sparirebbe —
+    # e un lasso, che attenua ogni tracciato non selezionato, non le tocca.
+    # Il quadrato di 18 px lo fa tondo e lo fa battere il CSS della pagina
+    # (`PlotlyView`), che lo riconosce dal `name`: il battito è
+    # un'animazione CSS e alla nuvola non costa niente.
     if playing is not None and playing < len(coords):
-        figure.add_trace(go.Scattergl(
-            x=[coords[playing][0]], y=[coords[playing][1]], mode="markers",
-            name="playing", showlegend=True, hoverinfo="skip",
-            marker={"symbol": "x-thin", "size": 13,
-                    "line": {"width": 2.5, "color": skin["playing"]}}))
+        figure.add_annotation(
+            x=float(coords[playing][0]), y=float(coords[playing][1]),
+            name="playing", text="", showarrow=False,
+            width=18, height=18, xanchor="center", yanchor="middle",
+            borderpad=0, borderwidth=3.5, bordercolor=skin["playing"],
+            bgcolor="rgba(0,0,0,0)")
 
     if seed is not None and seed < len(coords):
         figure.add_trace(go.Scattergl(

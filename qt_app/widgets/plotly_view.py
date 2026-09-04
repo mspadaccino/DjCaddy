@@ -31,6 +31,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from core.viz.map_figure import SKIN
 from qt_app import theme
 from qt_app.widgets.webchannel import attach_bridge
 
@@ -52,6 +53,15 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <script src="plotly.min.js"></script>
 <style>
   html, body { margin: 0; height: 100%; background: BACKGROUND; }
+  :root { --playing: PLAYING; --ink: INK; --dim: DIM; }
+  /* La barra degli strumenti — zoom, pan, riquadro, lazo, ripristina —
+     sempre in vista e coi colori del tema: di suo Plotly la mostra solo
+     al passaggio del mouse, in un grigio scuro semitrasparente che sul
+     fondo scuro non si vede. I colori Plotly li scrive in regole sue,
+     per id: da qui gli `!important`. */
+  .modebar-btn .icon path { fill: var(--dim) !important; }
+  .modebar-btn:hover .icon path,
+  .modebar-btn.active .icon path { fill: var(--ink) !important; }
   #map { width: 100%; height: 100%; }
   /* Una figura può essere più larga del riquadro — l'impronta degli
      embedding a 1280 colonne lo è — e allora la pagina scorre di lato.
@@ -60,12 +70,35 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
      finestra resta dov'è sempre stata per le figure che ci stanno, e
      raggiungibile per quelle che non ci stanno. */
   .modebar-container { position: fixed !important; }
+  /* Il brano in ascolto: l'annotazione che `build_figure` chiama
+     «playing», e che `tagPlaying` qui sotto marca dopo ogni disegno. Il
+     suo quadrato di sfondo diventa un cerchio (rx) e batte come un cuore,
+     via CSS, che alla nuvola non costa niente: due colpi ravvicinati di
+     bordo e riempimento, poi la pausa. NESSUNA trasformazione: `scale`
+     si comporrebbe col translate che Plotly scrive nell'attributo
+     transform e il punto girerebbe per la mappa. Il fill sta nei
+     keyframes perché Plotly lo scrive inline, e solo l'animazione vince
+     sull'inline. Il colore è `SKIN["playing"]` del tema in corso —
+     bianco sullo scuro, quasi nero sul chiaro — passato come variabile
+     CSS così da seguirlo al cambio senza rifare la pagina. */
+  .djcaddy-playing rect.bg {
+    rx: 50%; animation: djcaddy-beat 1.2s ease-out infinite;
+  }
+  @keyframes djcaddy-beat {
+    0%   { stroke-width: 3.5px; fill: var(--playing); fill-opacity: .25; }
+    12%  { stroke-width: 9px;   fill: var(--playing); fill-opacity: .95; }
+    28%  { stroke-width: 3.5px; fill: var(--playing); fill-opacity: .25; }
+    40%  { stroke-width: 9px;   fill: var(--playing); fill-opacity: .95; }
+    60%  { stroke-width: 3.5px; fill: var(--playing); fill-opacity: .25; }
+    100% { stroke-width: 3.5px; fill: var(--playing); fill-opacity: .25; }
+  }
 </style>
 </head><body><div id="map"></div>
 <script>
 (function () {
   var bridge = null;
-  var config = {displaylogo: false, scrollZoom: true, responsive: true};
+  var config = {displaylogo: false, displayModeBar: true, scrollZoom: true,
+                responsive: true};
   // La base è la nuvola dell'ultima `render`: i suoi tracciati restano gli
   // STESSI oggetti fra un gesto e l'altro, ed è per identità che react
   // capisce di non doverli ridisegnare.
@@ -86,14 +119,29 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
     return out;
   }
 
+  // L'annotazione del brano in ascolto: Plotly non le dà una classe sua,
+  // ma scrive l'indice — e in `layout.annotations` a quell'indice c'è il
+  // `name`. Va rifatto dopo OGNI ridisegno, non solo dopo i nostri: un
+  // lasso o uno zoom ricreano i nodi delle annotazioni, e la classe se ne
+  // andrebbe con quelli vecchi — da qui `plotly_afterplot` qui sotto.
+  function tagPlaying(gd) {
+    var notes = gd.layout.annotations || [];
+    gd.querySelectorAll(".annotation").forEach(function (g) {
+      var note = notes[+g.getAttribute("data-index")];
+      g.classList.toggle("djcaddy-playing", !!(note && note.name === "playing"));
+    });
+  }
+
   function react(data, layout) {
     var began = performance.now();
     Plotly.react(document.getElementById("map"), data, layout, config)
       .then(function (gd) {
+        tagPlaying(gd);
         if (!gd._djcaddy_wired) {
           // Una volta sola: il div sopravvive alle react successive, e
           // gli ascoltatori con lui.
           gd._djcaddy_wired = true;
+          gd.on("plotly_afterplot", function () { tagPlaying(gd); });
           gd.on("plotly_click", function (e) {
             var hit = indices(e.points);
             if (hit.length) tell({type: "click", index: hit[0]});
@@ -147,6 +195,11 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 </script></body></html>"""
 
 
+def _playing_colour() -> str:
+    """Il rosso del brano in ascolto, lo stesso del suo anello in figura."""
+    return SKIN["dark" if theme.DARK else "light"]["playing"]
+
+
 class PlotlyView(QWebEngineView):
     """Il grafico come widget: `set_figure(figura)` e i segnali di scelta.
 
@@ -176,7 +229,9 @@ class PlotlyView(QWebEngineView):
         self._queued_overlays: str | None = None
         bridge = attach_bridge(self.page())
         bridge.received.connect(self._on_event)
-        self.setHtml(_PAGE.replace("BACKGROUND", theme.BACKGROUND),
+        self.setHtml(_PAGE.replace("BACKGROUND", theme.BACKGROUND)
+                     .replace("PLAYING", _playing_colour())
+                     .replace("INK", theme.INK).replace("DIM", theme.FADED),
                      QUrl.fromLocalFile(str(plotly_package_data()) + "/"))
         theme.bus().changed.connect(self._on_theme)
 
@@ -187,7 +242,11 @@ class PlotlyView(QWebEngineView):
         figura nuova non ci sia un lampo del tema di prima."""
         self.page().setBackgroundColor(QColor(theme.BACKGROUND))
         self.page().runJavaScript(
-            f"document.body.style.background = '{theme.BACKGROUND}';")
+            f"document.body.style.background = '{theme.BACKGROUND}';"
+            f"document.documentElement.style.setProperty('--playing', "
+            f"'{_playing_colour()}');"
+            f"document.documentElement.style.setProperty('--ink', "
+            f"'{theme.INK}');")
 
     def set_figure(self, figure) -> None:
         """Mostra (o aggiorna) la figura di base — un oggetto con `to_json`,

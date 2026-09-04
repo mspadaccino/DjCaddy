@@ -200,7 +200,7 @@ class UnreadablePanel(QWidget):
         self._numbers.setVisible(False)
 
         self._listed = TrackTable(library_menu=False)
-        self._listed.play_requested.connect(state.play)
+        self._listed.wire_play(state.play, on_activate=False)
         self._listed.reveal_requested.connect(reveal_in_files)
         self._listed.setVisible(False)
         self._confirm = ConfirmBar("Quarantine unreadable files",

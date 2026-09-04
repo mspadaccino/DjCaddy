@@ -376,6 +376,7 @@ class MapPage(QWidget):
         self._builder.chain_changed.connect(self._on_chain)
         self._playlist = PlaylistPanel(self._state, self._wire)
         self._playlist.picked_changed.connect(self._on_playlist_picks)
+        self._builder.weights_changed.connect(self._playlist.refresh_costs)
         self._favourites = FavouritesPanel(self._state, self._wire)
         self._favourites.append_playlist.connect(self._on_builder_append)
 
@@ -410,9 +411,7 @@ class MapPage(QWidget):
     def _wire(self, table: TrackTable, activate_plays: bool = True) -> None:
         """Le stesse quattro voci su ogni tabella della pagina — e il giallo
         del brano in ascolto, che segue il lettore ovunque la riga stia."""
-        if activate_plays:
-            table.row_activated.connect(self._state.play)
-        table.play_requested.connect(self._state.play)
+        table.wire_play(self._state.play, on_activate=activate_plays)
         table.seed_requested.connect(self._seed_by_path)
         table.add_requested.connect(self._add_paths)
         table.reveal_requested.connect(reveal_in_files)

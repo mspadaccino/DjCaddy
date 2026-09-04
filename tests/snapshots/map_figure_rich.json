@@ -59,7 +59,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -72,6 +72,11 @@
    },
    "mode": "markers",
    "name": "Electronic - House",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     0.0,
     7.0,
@@ -151,7 +156,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -164,6 +169,11 @@
    },
    "mode": "markers",
    "name": "Electronic - Techno",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     2.3333333333333335,
     1.3333333333333333,
@@ -243,7 +253,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -256,6 +266,11 @@
    },
    "mode": "markers",
    "name": "Funk / Soul - Disco",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     4.666666666666667,
     3.6666666666666665,
@@ -307,7 +322,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -316,6 +331,11 @@
    },
    "mode": "markers",
    "name": "other",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     1.0,
     3.3333333333333335,
@@ -485,27 +505,6 @@
   {
    "hoverinfo": "skip",
    "marker": {
-    "line": {
-     "color": "#d92b2b",
-     "width": 2.5
-    },
-    "size": 13,
-    "symbol": "x-thin"
-   },
-   "mode": "markers",
-   "name": "playing",
-   "showlegend": true,
-   "x": [
-    4.666666666666667
-   ],
-   "y": [
-    7.333333333333333
-   ],
-   "type": "scattergl"
-  },
-  {
-   "hoverinfo": "skip",
-   "marker": {
     "color": "rgba(0,0,0,0)",
     "line": {
      "color": "#1b1f27",
@@ -562,6 +561,21 @@
     "text": "<b>Disco</b>",
     "x": 3.6666666666666665,
     "y": 3.3333333333333335
+   },
+   {
+    "bgcolor": "rgba(0,0,0,0)",
+    "bordercolor": "#101418",
+    "borderpad": 0,
+    "borderwidth": 3.5,
+    "height": 18,
+    "name": "playing",
+    "showarrow": false,
+    "text": "",
+    "width": 18,
+    "x": 4.666666666666667,
+    "xanchor": "center",
+    "y": 7.333333333333333,
+    "yanchor": "middle"
    },
    {
     "bgcolor": "rgba(255,255,255,0.75)",

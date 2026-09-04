@@ -74,8 +74,7 @@ class ContentsPanel(QWidget):
         # Due tabelle, una spuntabile e una no: l'audio si guarda e si
         # ascolta, il resto si può condannare.
         self._audio_files = TrackTable(library_menu=False)
-        self._audio_files.play_requested.connect(state.play)
-        self._audio_files.row_activated.connect(state.play)
+        self._audio_files.wire_play(state.play)
         self._audio_files.reveal_requested.connect(reveal_in_files)
         self._audio_files.setVisible(False)
         self._other_files = TrackTable(checkable=True, library_menu=False,

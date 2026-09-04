@@ -160,8 +160,7 @@ class _Section(QWidget):
         self._match.clicked.connect(self._select_matching)
         self._match.setVisible(False)
         self.table = TrackTable(checkable=True, library_menu=False)
-        self.table.play_requested.connect(state.play)
-        self.table.row_activated.connect(state.play)
+        self.table.wire_play(state.play)
         self.table.reveal_requested.connect(reveal_in_files)
         self.table.selection_paths_changed.connect(self._on_picked)
 
@@ -269,7 +268,7 @@ class DuplicatesPanel(QWidget):
 
         self._broken_note = dim("")
         self._broken = TrackTable(library_menu=False)
-        self._broken.play_requested.connect(state.play)
+        self._broken.wire_play(state.play, on_activate=False)
         self._broken.reveal_requested.connect(reveal_in_files)
         broken_box = QWidget()
         broken_lay = QVBoxLayout(broken_box)
