@@ -395,9 +395,12 @@ join.
 ### Radio Mix: a playlist from a group
 
 Quick List and the chain start from **one** track. Radio Mix starts from a
-**group** — your **Favourites**, or the **map selection** (the lasso or box,
-or the single seed if that is all there is), chosen with the *From* menu —
-and answers *what goes in that direction?*
+**group** — your **Favourites**, the **map selection** (the lasso or box,
+or the single seed if that is all there is), or the **playlist** as it
+stands, chosen with the *From* menu — and answers *what goes in that
+direction?* From the playlist it is the way to grow a set you are already
+happy with: the tracks in it are the seeds, none of them is proposed again,
+and the list is what goes with the whole of them.
 
 The group's taste is the centre of its fingerprints. If the group has two or
 three souls — techno and bossa nova in the same favourites — the centre would
@@ -436,7 +439,7 @@ differently.
 | **Auto chain** | the last track of the chain | the same | takes the top of the roster, N times | a chain in the order it chose |
 | **Journey** | a start, and an end if you know it | `D` along the row, plus the arc at each position | the cheapest row of N on a corridor between the ends, no track twice | a set from here to there, in order |
 | **Magic sort** | a group you already have | `D` between every pair | nearest-neighbour path, then 2-opt | the same tracks, reordered |
-| **Radio Mix** | a group (favourites or selection) | sound only, against the group's centre | one at a time, each pick penalised for resembling the ones before | a set that covers the group without repeating — then magic-sorted |
+| **Radio Mix** | a group (favourites, selection or playlist) | sound only, against the group's centre | one at a time, each pick penalised for resembling the ones before | a set that covers the group without repeating — then magic-sorted |
 
 **What magic sort minimises.** The sum of `D` along the row: `D(1st,2nd) +
 D(2nd,3rd) + …`. Not the distance from a seed, not an average — only

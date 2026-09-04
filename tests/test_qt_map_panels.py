@@ -689,3 +689,32 @@ def test_journey_closes_when_the_start_moves_and_can_leave_from_the_chain(
     assert not panel._journey_ask.isEnabled()
     state.set_playlist(["/r/t5.mp3", "/r/t3.mp3"])
     assert "t3.mp3" in panel._journey_told.text()
+
+
+def test_radio_from_the_playlist_tunes_around_what_is_in_it(qtbot, tmp_path,
+                                                           monkeypatch):
+    """La playlist come gruppo: i suoi brani sono i semi, non si ripropongono,
+    e una playlist che cambia chiude la lista come farebbe un preferito in
+    più."""
+    from qt_app.pages.map.set_builder import RADIO_PLAYLIST
+
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, journal = _radio_panel(qtbot, tmp_path)
+    panel._radio_from.setCurrentIndex(RADIO_PLAYLIST)
+    assert not panel._radio_ask.isEnabled()
+    assert "playlist is empty" in panel._radio_told.text()
+    state.set_playlist(["/r/t0.mp3", "/r/t1.mp3"])
+    assert panel._radio_ask.isEnabled()
+    panel._variety.setValue(0.0)
+    panel._count.setValue(5)
+    panel._on_ask_radio()
+    # Attorno all'asse x, senza i due semi: resta fuori solo la 7, a 150°.
+    assert set(panel._radio_shown) == {2, 3, 4, 5, 6}
+    heard = []
+    panel.append_playlist.connect(heard.append)
+    panel._send_radio("append")
+    assert heard and set(heard[0]) == {2, 3, 4, 5, 6}
+    assert journal.read()[-1]["source"] == "Playlist"
+    # La playlist cambia: la lista di prima parlava di un altro gruppo.
+    state.set_playlist(["/r/t0.mp3", "/r/t1.mp3", "/r/t2.mp3"])
+    assert panel._radio_key is None and not panel._radio_ask.isHidden()

@@ -118,7 +118,8 @@ TAB_HINTS = (
 JOURNEY_SOURCES = ("The seed", "Last of the chain", "Last of the playlist")
 
 # Da dove parte la Radio: la scelta del menu, nell'ordine del menu.
-RADIO_SOURCES = ("Favourites", "Map selection")
+RADIO_SOURCES = ("Favourites", "Map selection", "Playlist")
+RADIO_FAVOURITES, RADIO_MAP, RADIO_PLAYLIST = range(len(RADIO_SOURCES))
 
 
 def _dim(text: str, wrap: bool = True) -> QLabel:
@@ -262,8 +263,10 @@ class SetBuilderPanel(QWidget):
         self._arc_values: np.ndarray | None = None
         self._build()
         state.favourites_changed.connect(lambda _: self._refresh_radio())
-        # L'ultimo della playlist è una delle partenze del Journey.
+        # La playlist è una delle partenze del Journey e una delle sorgenti
+        # della Radio: quando cambia, tutti e due lo devono sapere.
         state.playlist_changed.connect(lambda _: self._refresh_journey())
+        state.playlist_changed.connect(lambda _: self._refresh_radio())
 
     # ------------------------------------------------------------------
     # costruzione
@@ -677,7 +680,8 @@ class SetBuilderPanel(QWidget):
         self._radio_from.setToolTip(theme.hint(
             "Where Radio Mix starts from. Favourites: every starred track "
             "is a seed. Map selection: the lasso or box on the map — or the "
-            "single seed, if that is all there is."))
+            "single seed, if that is all there is. Playlist: every track in "
+            "it, so the list proposes what goes with the set as it stands."))
         self._radio_from.currentIndexChanged.connect(
             lambda _: self._refresh_radio())
         knobs.addWidget(self._radio_from)
@@ -1386,11 +1390,15 @@ class SetBuilderPanel(QWidget):
     # Radio
     # ------------------------------------------------------------------
     def _radio_seeds(self) -> list[int]:
-        """I semi secondo il menu: i preferiti, o quello che c'è sulla
-        mappa — il gruppo, o il seme solo se è tutto quello che c'è."""
+        """I semi secondo il menu: i preferiti, la playlist, o quello che
+        c'è sulla mappa — il gruppo, o il seme solo se è tutto quello che
+        c'è."""
         at_path = self._lib.at_path
-        if self._radio_from.currentIndex() == 0:
+        which = self._radio_from.currentIndex()
+        if which == RADIO_FAVOURITES:
             return [at_path[p] for p in self._state.favourites if p in at_path]
+        if which == RADIO_PLAYLIST:
+            return self._playlist_indices()
         if self._selected:
             return list(self._selected)
         return [self._seed] if self._seed is not None else []
@@ -1409,9 +1417,12 @@ class SetBuilderPanel(QWidget):
             self._radio_table.clear_picks()
         can = bool(seeds) and self._lib.store is not None
         if not seeds:
+            which = self._radio_from.currentIndex()
             self._radio_told.setText(
                 "No favourites yet — star some tracks first."
-                if self._radio_from.currentIndex() == 0 else
+                if which == RADIO_FAVOURITES else
+                "The playlist is empty — put some tracks in it first."
+                if which == RADIO_PLAYLIST else
                 "Nothing on the map — click a seed, or drag the lasso or "
                 "the box around a group.")
         elif self._lib.store is None:
