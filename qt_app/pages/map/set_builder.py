@@ -29,6 +29,7 @@ import pandas as pd
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
+                               QSlider,
                                QLineEdit, QListWidget, QListWidgetItem,
                                QPushButton, QSpinBox, QStackedWidget,
                                QTabWidget, QVBoxLayout, QWidget)
@@ -201,6 +202,42 @@ class SearchPicker(QWidget):
         self._search.clear()
 
 
+class WeightSlider(QWidget):
+    """Un peso 0..2 a passi di un decimo: lo slider, col nome davanti e il
+    numero dietro. Uno slider e non una casella perché il peso si ASSAGGIA
+    — si trascina guardando la lista cambiare — e la casella chiedeva un
+    clic per ogni decimo."""
+
+    valueChanged = Signal(float)
+
+    def __init__(self, name: str, why: str, parent=None) -> None:
+        super().__init__(parent)
+        self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider.setRange(0, 20)
+        self._slider.setValue(10)
+        self._slider.setMinimumWidth(90)
+        self._told = QLabel("1.0")
+        self._told.setFixedWidth(24)
+        self.setToolTip(why)
+        self._slider.valueChanged.connect(self._on_moved)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        row.addWidget(QLabel(f"w·{name}"))
+        row.addWidget(self._slider)
+        row.addWidget(self._told)
+
+    def value(self) -> float:
+        return self._slider.value() / 10
+
+    def setValue(self, value: float) -> None:
+        self._slider.setValue(round(value * 10))
+
+    def _on_moved(self, raw: int) -> None:
+        self._told.setText(f"{raw / 10:.1f}")
+        self.valueChanged.emit(raw / 10)
+
+
 class SetBuilderPanel(QWidget):
     """Il pannello: pesi e conto sopra, le tre schede sotto.
 
@@ -213,6 +250,10 @@ class SetBuilderPanel(QWidget):
     """
 
     append_playlist = Signal(list)
+
+    # I tre pesi sono cambiati: la playlist rilegge i suoi costi.
+
+    weights_changed = Signal()
     replace_playlist = Signal(list)
     suggestions_changed = Signal(list)
     chain_changed = Signal(list)
@@ -286,16 +327,11 @@ class SetBuilderPanel(QWidget):
         box.addLayout(weights)
         box.addWidget(self._tabs, stretch=1)
 
-    def _weight(self, into: QHBoxLayout, name: str, why: str) -> QDoubleSpinBox:
-        into.addWidget(QLabel(f"w·{name}"))
-        spin = QDoubleSpinBox()
-        spin.setRange(0.0, 2.0)
-        spin.setSingleStep(0.1)
-        spin.setValue(1.0)
-        spin.setToolTip(why)
-        spin.valueChanged.connect(lambda _: self._on_knobs())
-        into.addWidget(spin)
-        return spin
+    def _weight(self, into: QHBoxLayout, name: str, why: str) -> WeightSlider:
+        slider = WeightSlider(name, why)
+        slider.valueChanged.connect(lambda _: self._on_knobs())
+        into.addWidget(slider)
+        return slider
 
     def _pick_row(self, table: TrackTable, reset=None) -> QWidget:
         """La riga che governa la lista: scelta in blocco e, dove serve, il
@@ -655,6 +691,7 @@ class SetBuilderPanel(QWidget):
 
     def _on_knobs(self) -> None:
         self._apply_weights()
+        self.weights_changed.emit()
         self._refresh_quick()
         self._refresh_roster()
         self._retune()

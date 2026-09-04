@@ -299,7 +299,9 @@ class PlaylistPanel(QWidget):
         self._state = state
         self._journal = journal or Journal()
         self._lib: Library | None = None
-        self._cost: TransitionCost | None = None    # pesi fermi (1,1,1)
+        # Il costo CONDIVISO della libreria, coi pesi di Build a set: il
+        # Magic sort e i numeri in tabella seguono gli stessi slider.
+        self._cost: TransitionCost | None = None
         self._chapters: list[list[int]] | None = None
         self._keep_chapters_once = False
         self._picked: str | None = None             # la scheda evidenziata
@@ -323,8 +325,9 @@ class PlaylistPanel(QWidget):
         self._play_all.clicked.connect(self._on_play_all)
         self._sort = QPushButton("✨ Magic sort")
         self._sort.setToolTip("Reorders the whole playlist so every "
-                              "transition stays cheap. Starts from the "
-                              "first track.")
+                              "transition stays cheap, with the sound / "
+                              "BPM / key weights of Build a set. Starts "
+                              "from the first track.")
         self._sort.clicked.connect(self._on_magic_sort)
         self._drop = QPushButton("🗑 Remove ticked")
         self._drop.clicked.connect(self._on_drop)
@@ -490,12 +493,14 @@ class PlaylistPanel(QWidget):
     # ------------------------------------------------------------------
     def set_library(self, lib: Library) -> None:
         self._lib = lib
-        placed = lib.placed
-        self._cost = TransitionCost(lib.store.embeddings[:placed],
-                                    lib.frame["bpm"].tolist(),
-                                    lib.frame["camelot"].tolist())
+        self._cost = lib.cost
         # Gli indici dei capitoli appartenevano al frame di prima: se dopo
         # la ricarica non descrivono più la playlist, cadono.
+        self._refresh()
+
+    def refresh_costs(self) -> None:
+        """I pesi di Build a set sono cambiati: i costi in tabella e il
+        salto peggiore si leggono dal costo condiviso, e vanno riscritti."""
         self._refresh()
 
     def indices(self) -> list[int]:

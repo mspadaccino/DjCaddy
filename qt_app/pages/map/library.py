@@ -23,10 +23,10 @@ class Library:
     """Quello che ogni pannello della pagina riceve, già derivato.
 
     `cost` è il costo di transizione coi pesi CONDIVISI di Quick List,
-    Chain Maker e Radio: il pannello dei pesi lo muta, tutti lo
-    interrogano — come gli slider unici della pagina Streamlit. La playlist
-    invece legge i suoi scarti a pesi fermi (1,1,1) e si costruisce il
-    proprio, come la sua sezione di là.
+    Chain Maker, Radio e della playlist — Magic sort compreso: il pannello
+    dei pesi lo muta, tutti lo interrogano. (In Streamlit la playlist si
+    faceva un costo suo a pesi fermi, e il Magic sort non seguiva gli
+    slider: qui sì.)
     """
 
     store: MapStore

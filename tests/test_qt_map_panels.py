@@ -586,3 +586,51 @@ def test_auto_chain_grows_the_chain_and_is_noted_apart_from_picks(
     lines = journal.read()
     assert [line["kind"] for line in lines] == ["auto_chain"]
     assert lines[0]["added"] == walk[1:] and lines[0]["steps"] == 3
+
+
+# --- i pesi: slider, condivisi fino al Magic sort della playlist ---
+
+def test_weight_sliders_move_by_tenths_and_tell_the_panel(qtbot, tmp_path,
+                                                          monkeypatch):
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, journal = _radio_panel(qtbot, tmp_path)
+    assert panel.weights() == (1.0, 1.0, 1.0)
+    heard = []
+    panel.weights_changed.connect(lambda: heard.append(panel.weights()))
+    panel._w_bpm.setValue(0.3)
+    panel._w_key.setValue(2.0)
+    assert heard[-1] == (1.0, 0.3, 2.0)
+    assert panel._w_bpm._told.text() == "0.3"
+    # e il costo condiviso li ha già presi
+    cost = panel._lib.cost
+    assert (cost.w_sound, cost.w_bpm, cost.w_key) == (1.0, 0.3, 2.0)
+
+
+def test_the_playlist_reads_the_shared_cost_and_its_weights(qtbot):
+    """Il Magic sort e i numeri in tabella seguono gli slider di Build a
+    set: prima la playlist si faceva un costo suo a pesi fermi, e muovere
+    i pesi non le cambiava niente."""
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.playlist_panel import PlaylistPanel
+    from qt_app.state import AppState
+
+    class _FakeStore:
+        coords = np.zeros((3, 2))
+        embeddings = np.zeros((3, 4))
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    cost = cost_of(frame)
+    lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
+                  cost=cost)
+    state = AppState()
+    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    assert panel._cost is cost
+    state.set_playlist(["/x/one.mp3", "/x/two.mp3"])   # 8A→3B, 124→98
+    all_three = panel._worst.text()
+    cost.w_sound, cost.w_bpm, cost.w_key = 1.0, 0.0, 0.0
+    panel.refresh_costs()
+    sound_only = panel._worst.text()
+    assert all_three != sound_only

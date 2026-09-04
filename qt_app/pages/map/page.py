@@ -376,6 +376,7 @@ class MapPage(QWidget):
         self._builder.chain_changed.connect(self._on_chain)
         self._playlist = PlaylistPanel(self._state, self._wire)
         self._playlist.picked_changed.connect(self._on_playlist_picks)
+        self._builder.weights_changed.connect(self._playlist.refresh_costs)
         self._favourites = FavouritesPanel(self._state, self._wire)
         self._favourites.append_playlist.connect(self._on_builder_append)
 
