@@ -485,27 +485,6 @@
   {
    "hoverinfo": "skip",
    "marker": {
-    "color": "#101418",
-    "line": {
-     "width": 3.5
-    },
-    "size": 18,
-    "symbol": "circle-open"
-   },
-   "mode": "markers",
-   "name": "playing",
-   "showlegend": true,
-   "x": [
-    0.087
-   ],
-   "y": [
-    0.913
-   ],
-   "type": "scatter"
-  },
-  {
-   "hoverinfo": "skip",
-   "marker": {
     "color": "rgba(0,0,0,0)",
     "line": {
      "color": "#1b1f27",
@@ -562,6 +541,21 @@
     "text": "<b>Disco</b>",
     "x": 0.4783,
     "y": 0.5217
+   },
+   {
+    "bgcolor": "rgba(0,0,0,0)",
+    "bordercolor": "#101418",
+    "borderpad": 0,
+    "borderwidth": 3.5,
+    "height": 18,
+    "name": "playing",
+    "showarrow": false,
+    "text": "",
+    "width": 18,
+    "x": 0.087,
+    "xanchor": "center",
+    "y": 0.913,
+    "yanchor": "middle"
    },
    {
     "bgcolor": "rgba(255,255,255,0.75)",

@@ -281,26 +281,28 @@ def test_the_two_suggestion_lists_get_their_own_rings():
     assert "sounds like it" in names
 
 
-def test_the_track_playing_gets_a_pulsing_svg_ring():
-    """Un anello SVG e non gl: gli altri segni dicono cosa un brano E',
-    questo dice cosa sta succedendo adesso, e a dirlo e' il pulsare — che
-    e' un'animazione CSS della pagina, e trova il punto perche' e' il solo
-    nel livello SVG. Se qualcun altro finisse in quel livello pulserebbe
-    anche lui."""
+def test_the_track_playing_is_an_annotation_that_beats():
+    """Un'annotazione e non un tracciato: sta nel livello che Plotly tiene
+    sopra il canvas dei punti gl, e un lasso non la attenua. Gli altri
+    segni dicono cosa un brano E', questo dice cosa sta succedendo adesso,
+    e a dirlo e' il battito — un'animazione CSS della pagina, che la
+    riconosce dal `name`. Quadrata qui: tonda la fa il CSS."""
     figure = build_figure(_drawn(), ["House"],
                           np.column_stack([np.arange(4.0), np.arange(4.0)]),
                           playlist=[], seed=None, playing=2)
-    ring = [t for t in figure.data if t.name == "playing"]
-    assert len(ring) == 1
-    assert ring[0].type == "scatter"
-    assert ring[0].marker.symbol == "circle-open"
-    assert ring[0].showlegend is True
-    assert [t.type for t in figure.data if t.type == "scatter"] == ["scatter"]
+    beat = [a for a in figure.layout.annotations if a.name == "playing"]
+    assert len(beat) == 1
+    assert (beat[0].x, beat[0].y) == (2.0, 2.0)
+    assert beat[0].text == "" and beat[0].showarrow is False
+    assert beat[0].width == beat[0].height == 18
+    assert not [t for t in figure.data if t.name == "playing"]
 
 
-def test_with_nothing_playing_there_is_no_cross():
-    names = _legend_of(playlist=[], seed=None, playing=None)
-    assert "playing" not in names
+def test_with_nothing_playing_there_is_no_beat():
+    figure = build_figure(_drawn(), ["House"],
+                          np.column_stack([np.arange(4.0), np.arange(4.0)]),
+                          playlist=[], seed=None, playing=None)
+    assert not [a for a in figure.layout.annotations if a.name == "playing"]
 
 
 def test_no_two_rings_share_a_colour():

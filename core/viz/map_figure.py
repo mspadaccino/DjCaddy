@@ -435,22 +435,25 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             marker={"size": size, "color": "rgba(0,0,0,0)",
                     "line": {"width": 2.5, "color": color}}))
 
-    # Il brano che sta suonando: un anello che PULSA, non un segno fermo,
+    # Il brano che sta suonando: un anello che BATTE, non un segno fermo,
     # perché non dice cosa quel brano È — come lo dicono gli altri sei
     # segni — ma cosa sta succedendo adesso, e in mezzo a un nodo di cerchi
     # concentrici è il movimento a distinguerlo, non il colore: bianco sul
-    # tema scuro, quasi nero su quello chiaro, grosso. È l'unico tracciato SVG
-    # della figura (Scatter, non Scattergl): la pulsazione è un'animazione
-    # CSS della pagina (`PlotlyView`), che trova questo punto proprio
-    # perché è il solo nel livello SVG — e non costa un ridisegno della
-    # nuvola, come costerebbe animare un tracciato gl con un restyle.
+    # tema scuro, quasi nero su quello chiaro, grosso. È un'ANNOTAZIONE e
+    # non un tracciato, per due ragioni che sono la stessa: le annotazioni
+    # stanno nel livello che Plotly tiene sopra il canvas dei punti gl —
+    # un tracciato SVG ci finirebbe sotto, e nei gruppi fitti sparirebbe —
+    # e un lasso, che attenua ogni tracciato non selezionato, non le tocca.
+    # Il quadrato di 18 px lo fa tondo e lo fa battere il CSS della pagina
+    # (`PlotlyView`), che lo riconosce dal `name`: il battito è
+    # un'animazione CSS e alla nuvola non costa niente.
     if playing is not None and playing < len(coords):
-        figure.add_trace(go.Scatter(
-            x=[coords[playing][0]], y=[coords[playing][1]], mode="markers",
-            name="playing", showlegend=True, hoverinfo="skip",
-            # Sui simboli «-open» il bordo prende `color`, non `line.color`.
-            marker={"symbol": "circle-open", "size": 18,
-                    "color": skin["playing"], "line": {"width": 3.5}}))
+        figure.add_annotation(
+            x=float(coords[playing][0]), y=float(coords[playing][1]),
+            name="playing", text="", showarrow=False,
+            width=18, height=18, xanchor="center", yanchor="middle",
+            borderpad=0, borderwidth=3.5, bordercolor=skin["playing"],
+            bgcolor="rgba(0,0,0,0)")
 
     if seed is not None and seed < len(coords):
         figure.add_trace(go.Scattergl(

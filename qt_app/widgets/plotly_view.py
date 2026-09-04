@@ -62,17 +62,20 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
      finestra resta dov'è sempre stata per le figure che ci stanno, e
      raggiungibile per quelle che non ci stanno. */
   .modebar-container { position: fixed !important; }
-  /* Il brano in ascolto: l'unico punto nel livello SVG — gli altri
-     tracciati sono gl e stanno sul canvas sotto. Batte come un cuore, via
-     CSS, che alla nuvola non costa niente: due colpi ravvicinati di bordo
-     e riempimento, poi la pausa. NESSUNA trasformazione: `scale` si
-     comporrebbe col translate che Plotly scrive nell'attributo transform
-     e il punto girerebbe per la mappa. Il fill sta nei keyframes perché
-     Plotly lo scrive inline a `none`, e solo l'animazione vince sull'inline.
-     Il colore è `SKIN["playing"]` del tema in corso — bianco sullo
-     scuro, quasi nero sul chiaro — passato come
-     variabile CSS così da seguirlo al cambio senza rifare la pagina. */
-  .scatterlayer .trace .point { animation: djcaddy-beat 1.2s ease-out infinite; }
+  /* Il brano in ascolto: l'annotazione che `build_figure` chiama
+     «playing», e che `tagPlaying` qui sotto marca dopo ogni disegno. Il
+     suo quadrato di sfondo diventa un cerchio (rx) e batte come un cuore,
+     via CSS, che alla nuvola non costa niente: due colpi ravvicinati di
+     bordo e riempimento, poi la pausa. NESSUNA trasformazione: `scale`
+     si comporrebbe col translate che Plotly scrive nell'attributo
+     transform e il punto girerebbe per la mappa. Il fill sta nei
+     keyframes perché Plotly lo scrive inline, e solo l'animazione vince
+     sull'inline. Il colore è `SKIN["playing"]` del tema in corso —
+     bianco sullo scuro, quasi nero sul chiaro — passato come variabile
+     CSS così da seguirlo al cambio senza rifare la pagina. */
+  .djcaddy-playing rect.bg {
+    rx: 50%; animation: djcaddy-beat 1.2s ease-out infinite;
+  }
   @keyframes djcaddy-beat {
     0%   { stroke-width: 3.5px; fill: var(--playing); fill-opacity: .25; }
     12%  { stroke-width: 9px;   fill: var(--playing); fill-opacity: .95; }
@@ -107,14 +110,29 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
     return out;
   }
 
+  // L'annotazione del brano in ascolto: Plotly non le dà una classe sua,
+  // ma scrive l'indice — e in `layout.annotations` a quell'indice c'è il
+  // `name`. Va rifatto dopo OGNI ridisegno, non solo dopo i nostri: un
+  // lasso o uno zoom ricreano i nodi delle annotazioni, e la classe se ne
+  // andrebbe con quelli vecchi — da qui `plotly_afterplot` qui sotto.
+  function tagPlaying(gd) {
+    var notes = gd.layout.annotations || [];
+    gd.querySelectorAll(".annotation").forEach(function (g) {
+      var note = notes[+g.getAttribute("data-index")];
+      g.classList.toggle("djcaddy-playing", !!(note && note.name === "playing"));
+    });
+  }
+
   function react(data, layout) {
     var began = performance.now();
     Plotly.react(document.getElementById("map"), data, layout, config)
       .then(function (gd) {
+        tagPlaying(gd);
         if (!gd._djcaddy_wired) {
           // Una volta sola: il div sopravvive alle react successive, e
           // gli ascoltatori con lui.
           gd._djcaddy_wired = true;
+          gd.on("plotly_afterplot", function () { tagPlaying(gd); });
           gd.on("plotly_click", function (e) {
             var hit = indices(e.points);
             if (hit.length) tell({type: "click", index: hit[0]});
