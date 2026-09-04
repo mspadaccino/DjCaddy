@@ -91,20 +91,50 @@ _MODE_PENALTY = 0.2
 UNKNOWN_KEY_COST = 0.5
 
 
+def _wheel(code) -> tuple[int, int] | None:
+    """Numero (1..12) e modo (0 = A, 1 = B) di un codice Camelot, o None.
+
+    Un codice mancante arriva come None dal profilo e come NaN dal frame
+    (pandas rimette NaN dove c'era None): tutti e due sono "non si sa".
+    """
+    if code is None or not isinstance(code, str) or not code:
+        return None
+    try:
+        number, letter = int(code[:-1]), code[-1].upper()
+    except (ValueError, IndexError):
+        return None
+    if letter not in "AB":
+        return None
+    return number, int(letter == "B")
+
+
 def camelot_distance(a: str | None, b: str | None) -> float:
     """Costo 0..1 di passare dalla chiave `a` alla chiave `b`."""
-    if not a or not b:
+    one, two = _wheel(a), _wheel(b)
+    if one is None or two is None:
         return UNKNOWN_KEY_COST
-    try:
-        n1, l1 = int(a[:-1]), a[-1].upper()
-        n2, l2 = int(b[:-1]), b[-1].upper()
-    except (ValueError, IndexError):
-        return UNKNOWN_KEY_COST
+    (n1, l1), (n2, l2) = one, two
     steps = min((n1 - n2) % 12, (n2 - n1) % 12)
     cost = _RING_COST[steps]
     if l1 != l2 and steps != 0:
         cost = min(1.0, cost + _MODE_PENALTY)
     return cost
+
+
+def camelot_matrix(codes) -> np.ndarray:
+    """`camelot_distance` fra ogni coppia di `codes`, tutta insieme."""
+    parsed = [_wheel(code) for code in codes]
+    number = np.array([p[0] if p else 0 for p in parsed])
+    mode = np.array([p[1] if p else 0 for p in parsed])
+    known = np.array([p is not None for p in parsed])
+    gap = np.abs(number[:, None] - number[None, :]) % 12
+    steps = np.minimum(gap, 12 - gap)
+    ring = np.array([_RING_COST[s] for s in range(7)])
+    cost = ring[steps]
+    other_mode = (mode[:, None] != mode[None, :]) & (steps != 0)
+    cost = np.where(other_mode, np.minimum(1.0, cost + _MODE_PENALTY), cost)
+    unknown = ~known[:, None] | ~known[None, :]
+    return np.where(unknown, UNKNOWN_KEY_COST, cost).astype(np.float32)
 
 
 # --------------------------------------------------------------------------
@@ -116,6 +146,18 @@ def camelot_distance(a: str | None, b: str | None) -> float:
 BPM_TOLERANCE = 0.06
 
 
+def _tempo(value) -> float | None:
+    """Il tempo come numero, o None se manca: None dal profilo, NaN dal
+    frame, zero da un tag vuoto — tutti "non si sa"."""
+    if value is None:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if np.isfinite(value) and value > 0 else None
+
+
 def bpm_distance(a: float | None, b: float | None,
                  tolerance: float = BPM_TOLERANCE) -> float:
     """Costo 0..1 dello scarto di tempo, a ottave ripiegate.
@@ -123,12 +165,28 @@ def bpm_distance(a: float | None, b: float | None,
     Un brano a 128 e uno a 64 si mixano in half-time: contarli lontanissimi
     sarebbe sbagliato in una libreria che tiene insieme hip hop e techno.
     """
-    if not a or not b:
+    a, b = _tempo(a), _tempo(b)
+    if a is None or b is None:
         return UNKNOWN_KEY_COST
     relative = min(abs(b * factor - a) / a for factor in (0.5, 1.0, 2.0))
     if relative <= tolerance:
         return 0.5 * relative / tolerance
     return min(1.0, 0.5 + 0.5 * (relative - tolerance) / tolerance)
+
+
+def bpm_matrix(bpm, tolerance: float = BPM_TOLERANCE) -> np.ndarray:
+    """`bpm_distance` fra ogni coppia di `bpm`, tutta insieme."""
+    tempo = np.array([_tempo(v) if _tempo(v) is not None else np.nan
+                      for v in bpm], dtype=float)
+    a, b = tempo[:, None], tempo[None, :]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        relative = np.min([np.abs(b * factor - a) / a
+                           for factor in (0.5, 1.0, 2.0)], axis=0)
+        cost = np.where(relative <= tolerance, 0.5 * relative / tolerance,
+                        np.minimum(1.0, 0.5 + 0.5 * (relative - tolerance)
+                                   / tolerance))
+    unknown = np.isnan(a) | np.isnan(b)
+    return np.where(unknown, UNKNOWN_KEY_COST, cost).astype(np.float32)
 
 
 # --------------------------------------------------------------------------
@@ -148,7 +206,8 @@ def bpm_shift(a: float | None, b: float | None) -> float | None:
     a 64 si va in half-time senza cambiare passo, e segnarlo come −64 farebbe
     leggere una frenata dove non c'è.
     """
-    if not a or not b:
+    a, b = _tempo(a), _tempo(b)
+    if a is None or b is None:
         return None
     folded = min((b * factor for factor in (0.5, 1.0, 2.0)),
                  key=lambda value: abs(value - a))
@@ -165,13 +224,10 @@ def camelot_shift(a: str | None, b: str | None) -> tuple[int, bool] | None:
     Il cambio di modo viaggia a parte perché non è un passo: 8A→8B sono zero
     passi e un salto al relativo maggiore, che è una mossa vera.
     """
-    if not a or not b:
+    one, two = _wheel(a), _wheel(b)
+    if one is None or two is None:
         return None
-    try:
-        n1, l1 = int(a[:-1]), a[-1].upper()
-        n2, l2 = int(b[:-1]), b[-1].upper()
-    except (ValueError, IndexError):
-        return None
+    (n1, l1), (n2, l2) = one, two
     return (n2 - n1 + 6) % 12 - 6, l1 != l2
 
 
@@ -248,13 +304,33 @@ class TransitionCost:
         """
         vector = self.vectors[last] + trend * (self.vectors[last]
                                                - self.vectors[previous])
-        bpm = self.bpm[last]
-        if bpm and self.bpm[previous]:
-            bpm = bpm + trend * (bpm - self.bpm[previous])
+        bpm, before = self.bpm[last], _tempo(self.bpm[previous])
+        if _tempo(bpm) is not None and before is not None:
+            bpm = bpm + trend * (bpm - before)
         return vector, bpm, self.camelot[last]
 
     def between(self, a: int, b: int) -> float:
         return float(self.to(a, [b])[0])
+
+    def sound_matrix(self, nodes) -> np.ndarray:
+        """1 − coseno fra ogni coppia di `nodes`, tutta insieme."""
+        nodes = np.asarray(list(nodes), dtype=int)
+        unit = self.vectors[nodes] / self.norms[nodes, None]
+        return np.clip(1.0 - unit @ unit.T, 0.0, 1.0).astype(np.float32)
+
+    def matrix(self, nodes) -> np.ndarray:
+        """D fra ogni coppia di `nodes`: gli stessi numeri di `to`, riga
+        per riga, ma in un colpo solo. Su centinaia di brani — il corridoio
+        del Journey — le tre distanze a coppie in Python si sentirebbero;
+        qui sono tre matrici e una somma."""
+        nodes = np.asarray(list(nodes), dtype=int)
+        if not len(nodes):
+            return np.empty((0, 0), dtype=np.float32)
+        sound = self.sound_matrix(nodes)
+        tempo = bpm_matrix([self.bpm[i] for i in nodes])
+        key = camelot_matrix([self.camelot[i] for i in nodes])
+        return ((self.w_sound * sound + self.w_bpm * tempo + self.w_key * key)
+                / max(1e-9, self.w_sound + self.w_bpm + self.w_key))
 
     def parts(self, a: int, b: int) -> dict:
         """Le tre distanze separate: serve a mostrare PERCHÉ un brano è vicino."""

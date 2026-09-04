@@ -235,3 +235,44 @@ def test_nearest_looks_ahead_when_told_to():
     assert [i for i, _ in nearest(cost, 1, k=2)] == [2, 0]
     ahead = cost.ahead(0, 1, 1.0)
     assert [i for i, _ in nearest(cost, 1, k=2, ahead=ahead)] == [2, 3]
+
+
+def test_a_missing_tempo_or_key_is_half_cost_however_it_is_written():
+    # None dal profilo, NaN dal frame (pandas rimette NaN dove c'era None),
+    # zero da un tag vuoto: sono tutti "non si sa", e nessuno fa crashare.
+    nan = float("nan")
+    assert bpm_distance(nan, 128) == 0.5 == bpm_distance(128, nan)
+    assert bpm_distance(0, 128) == 0.5 == bpm_distance(None, 128)
+    assert bpm_shift(nan, 128) is None
+    assert camelot_distance(nan, "8A") == 0.5 == camelot_distance("8A", nan)
+    assert camelot_shift(nan, "8A") is None
+    assert camelot_distance("8C", "8A") == 0.5      # non è un codice
+
+
+def test_the_matrix_says_what_the_scalar_functions_say():
+    from core.analysis.mixing import bpm_matrix, camelot_matrix
+
+    rng = np.random.default_rng(7)
+    vectors = rng.normal(size=(9, 6)).astype(np.float32)
+    bpm = [128.0, 64.0, 130.0, None, float("nan"), 0.0, 140.0, 200.0, 125.0]
+    keys = ["8A", "9A", "8B", None, float("nan"), "2A", "boh", "12B", "1A"]
+    cost = TransitionCost(vectors, bpm, keys, w_sound=1.0, w_bpm=0.7,
+                          w_key=0.4)
+    nodes = [0, 3, 4, 5, 6, 8, 2, 7, 1]
+    got = cost.matrix(nodes)
+    expected = np.array([cost.to(i, nodes) for i in nodes])
+    assert got.shape == (9, 9)
+    assert np.allclose(got, expected, atol=1e-6)
+    assert np.allclose(bpm_matrix(bpm),
+                       [[bpm_distance(a, b) for b in bpm] for a in bpm])
+    assert np.allclose(camelot_matrix(keys),
+                       [[camelot_distance(a, b) for b in keys] for a in keys])
+    assert cost.matrix([]).shape == (0, 0)
+
+
+def test_ahead_does_not_walk_into_a_nan_tempo():
+    nan = float("nan")
+    cost = TransitionCost(_fan(0, 15), [nan, 124], ["8A", "8A"])
+    assert cost.ahead(0, 1, 1.0)[1] == 124
+    cost = TransitionCost(_fan(0, 15), [120, 124], ["8A", "8A"])
+    assert cost.ahead(0, 1, 1.0)[1] == 128
