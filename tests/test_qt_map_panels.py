@@ -650,20 +650,40 @@ def test_auto_chain_grows_the_chain_and_is_noted_apart_from_picks(
 
 # --- i pesi: slider, condivisi fino al Magic sort della playlist ---
 
-def test_weight_sliders_move_by_tenths_and_tell_the_panel(qtbot, tmp_path,
-                                                          monkeypatch):
+def test_weight_sliders_move_by_tenths_and_tell_the_page(qtbot):
+    """La riga dei pesi sta sopra le schede di destra, fuori da Build a
+    set: è della pagina, perché la legge anche la Playlist."""
+    from qt_app.pages.map.weights import WeightsBar
+
+    bar = WeightsBar()
+    qtbot.addWidget(bar)
+    assert bar.weights() == (1.0, 1.0, 1.0)
+    heard = []
+    bar.changed.connect(lambda: heard.append(bar.weights()))
+    bar._bpm.setValue(0.3)
+    bar._key.setValue(2.0)
+    assert heard[-1] == (1.0, 0.3, 2.0)
+    assert bar._bpm._told.text() == "0.3"
+    bar.set_weights(2.0, 1.0, 0.0)
+    assert bar.weights() == (2.0, 1.0, 0.0)
+
+
+def test_the_builder_takes_the_weights_from_the_page(qtbot, tmp_path,
+                                                     monkeypatch):
+    """Build a set non ha più slider suoi: riceve i pesi con `set_weights`,
+    li scrive nel costo condiviso e rifà le liste aperte con quelli."""
     monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
     panel, state, journal = _radio_panel(qtbot, tmp_path)
     assert panel.weights() == (1.0, 1.0, 1.0)
-    heard = []
-    panel.weights_changed.connect(lambda: heard.append(panel.weights()))
-    panel._w_bpm.setValue(0.3)
-    panel._w_key.setValue(2.0)
-    assert heard[-1] == (1.0, 0.3, 2.0)
-    assert panel._w_bpm._told.text() == "0.3"
-    # e il costo condiviso li ha già presi
+    panel.set_weights(1.0, 0.3, 2.0)
     cost = panel._lib.cost
     assert (cost.w_sound, cost.w_bpm, cost.w_key) == (1.0, 0.3, 2.0)
+    assert panel.weights() == (1.0, 0.3, 2.0)
+    # E il quaderno annota i pesi della pagina, non i suoi.
+    panel._on_start_by_name(0)
+    panel._roster_table.toggle_pick(0)
+    panel._on_roster_add()
+    assert journal.read()[-1]["weights"] == [1.0, 0.3, 2.0]
 
 
 def test_the_playlist_reads_the_shared_cost_and_its_weights(qtbot):

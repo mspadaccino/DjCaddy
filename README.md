@@ -448,10 +448,11 @@ can sit at opposite ends without penalty. `D` is symmetric, `D(A,B) =
 D(B,A)`: none of its three terms has a sign, so magic sort does not know
 whether a step goes up or down in tempo, only how big the step is. The
 direction shows in the `Δbpm` and `Δkey` columns and never enters the
-order. The weights are the three sliders of Build a set, shared with Quick
-List and the chain; the **playlist's own** magic sort and its *from
-previous* column use a copy at fixed weights `1,1,1`, so the numbers in the
-playlist do not move when you touch a slider elsewhere.
+order. The weights are the three sliders of the **Transition cost** row
+above the right-hand tabs, and there is only one set of them: Quick List,
+the chain, the Journey, Radio Mix's final order, and the playlist's own
+magic sort and *from previous* column all read the same three. They sit
+outside every tab because they govern two of them.
 
 **Quick List and Radio Mix are two different machines**, not one machine
 with a different input. Quick List judges each candidate alone against the

@@ -49,6 +49,7 @@ from .library import Library, load_library
 from .playlist_panel import PlaylistPanel
 from .set_builder import SetBuilderPanel
 from .settings import SettingsDialog
+from .weights import WeightsBar
 
 # Quanti risultati di ricerca elencare: oltre, la risposta giusta è una
 # parola in più, non una lista più lunga.
@@ -376,7 +377,6 @@ class MapPage(QWidget):
         self._builder.chain_changed.connect(self._on_chain)
         self._playlist = PlaylistPanel(self._state, self._wire)
         self._playlist.picked_changed.connect(self._on_playlist_picks)
-        self._builder.weights_changed.connect(self._playlist.refresh_costs)
         self._favourites = FavouritesPanel(self._state, self._wire)
         self._favourites.append_playlist.connect(self._on_builder_append)
 
@@ -388,9 +388,21 @@ class MapPage(QWidget):
         self._panels.setCurrentWidget(self._builder)
         self._retitle_panels()
 
+        # I pesi del costo stanno SOPRA le schede, fuori da tutte: li legge
+        # Build a set e li legge la Playlist, e un comando che governa due
+        # schede non può stare dentro una delle due.
+        self._weights = WeightsBar()
+        self._weights.changed.connect(self._on_weights)
+        right_box = QWidget()
+        right = QVBoxLayout(right_box)
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(6)
+        right.addWidget(self._weights)
+        right.addWidget(self._panels, stretch=1)
+
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(left_box)
-        split.addWidget(self._panels)
+        split.addWidget(right_box)
         split.setSizes([880, 620])
 
         layout = QVBoxLayout(self)
@@ -704,6 +716,13 @@ class MapPage(QWidget):
     def _on_builder_replace(self, indices: list[int]) -> None:
         self._playlist.replace(indices)
         self._panels.setCurrentWidget(self._playlist)
+
+    def _on_weights(self) -> None:
+        """Uno slider si è mosso: prima Build a set, che scrive i pesi nel
+        costo condiviso, poi la Playlist, che da quel costo rilegge i suoi
+        numeri."""
+        self._builder.set_weights(*self._weights.weights())
+        self._playlist.refresh_costs()
 
     def _on_suggestions(self, mixes: list[int]) -> None:
         if mixes != self._mixes:

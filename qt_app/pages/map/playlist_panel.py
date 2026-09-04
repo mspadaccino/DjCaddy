@@ -6,9 +6,10 @@ La lavagna disegna QUESTA playlist, con le aree colorate dei capitoli
 quando ci sono; il riordino è il trascinamento delle righe, che è il motivo
 per cui la tabella è nativa.
 
-Gli scarti "from previous" si leggono a pesi fermi (1,1,1), con un costo
-tutto di questa sezione: è la stessa scelta della pagina Streamlit, dove i
-pesi degli slider governano le proposte e non il resoconto.
+Gli scarti "from previous" e il Magic sort leggono il costo CONDIVISO
+della libreria, coi pesi della riga «Transition cost» sopra le schede: gli
+stessi tre di Build a set, perché un set ordinato con pesi che non si
+vedono non si capisce.
 """
 
 from __future__ import annotations

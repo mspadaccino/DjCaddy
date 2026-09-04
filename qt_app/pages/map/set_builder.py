@@ -29,7 +29,6 @@ import pandas as pd
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
-                               QSlider,
                                QLineEdit, QListWidget, QListWidgetItem,
                                QPushButton, QSpinBox, QStackedWidget,
                                QTabWidget, QVBoxLayout, QWidget)
@@ -96,7 +95,7 @@ AUTO_STEPS_MAX = 50
 TAB_HINTS = (
     "<b>What mixes out of this one?</b><br>One seed, ranked against the "
     "whole library by the transition cost — sound, tempo and key with the "
-    "weights above. A list of options, judged one by one: they may well "
+    "weights above the tabs. A list of options, judged one by one: they may well "
     "sound alike. With a group selected instead, this tab holds the group "
     "and magic sort.",
     "<b>What comes next?</b><br>One track at a time: a roster of nine "
@@ -218,44 +217,12 @@ class SearchPicker(QWidget):
         self._search.clear()
 
 
-class WeightSlider(QWidget):
-    """Un peso 0..2 a passi di un decimo: lo slider, col nome davanti e il
-    numero dietro. Uno slider e non una casella perché il peso si ASSAGGIA
-    — si trascina guardando la lista cambiare — e la casella chiedeva un
-    clic per ogni decimo."""
-
-    valueChanged = Signal(float)
-
-    def __init__(self, name: str, why: str, parent=None) -> None:
-        super().__init__(parent)
-        self._slider = QSlider(Qt.Orientation.Horizontal)
-        self._slider.setRange(0, 20)
-        self._slider.setValue(10)
-        self._slider.setMinimumWidth(90)
-        self._told = QLabel("1.0")
-        self._told.setFixedWidth(24)
-        self.setToolTip(why)
-        self._slider.valueChanged.connect(self._on_moved)
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-        row.addWidget(QLabel(f"w·{name}"))
-        row.addWidget(self._slider)
-        row.addWidget(self._told)
-
-    def value(self) -> float:
-        return self._slider.value() / 10
-
-    def setValue(self, value: float) -> None:
-        self._slider.setValue(round(value * 10))
-
-    def _on_moved(self, raw: int) -> None:
-        self._told.setText(f"{raw / 10:.1f}")
-        self.valueChanged.emit(raw / 10)
-
-
 class SetBuilderPanel(QWidget):
-    """Il pannello: pesi e conto sopra, le tre schede sotto.
+    """Il pannello: il conto sopra, le quattro schede sotto.
+
+    I tre pesi del costo NON stanno qui: sono della pagina (la riga
+    «Transition cost» sopra le schede di destra), perché li legge anche la
+    Playlist. Arrivano con `set_weights`, come la libreria e il pool.
 
     Parla col resto della pagina a segnali: `append_playlist` e
     `replace_playlist` portano INDICI di libreria; `suggestions_changed` e
@@ -266,10 +233,6 @@ class SetBuilderPanel(QWidget):
     """
 
     append_playlist = Signal(list)
-
-    # I tre pesi sono cambiati: la playlist rilegge i suoi costi.
-
-    weights_changed = Signal()
     replace_playlist = Signal(list)
     suggestions_changed = Signal(list)
     chain_changed = Signal(list)
@@ -281,6 +244,7 @@ class SetBuilderPanel(QWidget):
         self._wire = wire_table
         self._journal = journal or Journal()
         self._lib: Library | None = None
+        self._weights: tuple[float, float, float] = (1.0, 1.0, 1.0)
         self._pool: np.ndarray = np.empty(0, dtype=int)
         self._seed: int | None = None
         self._selected: list[int] = []
@@ -315,21 +279,8 @@ class SetBuilderPanel(QWidget):
     def _build(self) -> None:
         self._seed_told = _dim("")
 
-        weights = QHBoxLayout()
-        self._w_sound = self._weight(weights, "sound",
-                                     "How much the acoustic distance counts "
-                                     "— cosine in the 1280 dimensions of "
-                                     "the embedding, not on the flattened "
-                                     "map. Alone, with BPM and key at 0, "
-                                     "the list is «what sounds like it».")
-        self._w_bpm = self._weight(weights, "BPM",
-                                   "How much the tempo gap counts. Beyond "
-                                   "±6% the cost climbs fast.")
-        self._w_key = self._weight(weights, "key",
-                                   "How much harmonic distance counts. "
-                                   "Adjacent or relative keys cost nothing.")
-        weights.addSpacing(12)
-        weights.addWidget(QLabel("List"))
+        knobs = QHBoxLayout()
+        knobs.addWidget(QLabel("List"))
         self._count = QSpinBox()
         self._count.setRange(SUGGESTION_STEP, SUGGESTION_MAX)
         self._count.setSingleStep(SUGGESTION_STEP)
@@ -337,8 +288,8 @@ class SetBuilderPanel(QWidget):
         self._count.setToolTip("How many to list — Quick List and "
                                "Radio Mix.")
         self._count.valueChanged.connect(lambda _: self._on_knobs())
-        weights.addWidget(self._count)
-        weights.addStretch(1)
+        knobs.addWidget(self._count)
+        knobs.addStretch(1)
 
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_quicklist(), TAB_TITLES[TAB_QUICK])
@@ -352,14 +303,8 @@ class SetBuilderPanel(QWidget):
 
         box = QVBoxLayout(self)
         box.addWidget(self._seed_told)
-        box.addLayout(weights)
+        box.addLayout(knobs)
         box.addWidget(self._tabs, stretch=1)
-
-    def _weight(self, into: QHBoxLayout, name: str, why: str) -> WeightSlider:
-        slider = WeightSlider(name, why)
-        slider.valueChanged.connect(lambda _: self._on_knobs())
-        into.addWidget(slider)
-        return slider
 
     def _pick_row(self, table: TrackTable, reset=None) -> QWidget:
         """La riga che governa la lista: scelta in blocco e, dove serve, il
@@ -389,8 +334,8 @@ class SetBuilderPanel(QWidget):
             back.setToolTip(theme.hint(
                 "Back to the button that makes the list: this one is "
                 "dropped, ticks included, and the rings come off the map. "
-                "The settings above — the weights and how many to list — "
-                "stay as they are, ready for the next run."))
+                "The settings — the weights above the tabs and how many to "
+                "list — stay as they are, ready for the next run."))
             back.clicked.connect(reset)
             box.addWidget(back)
         return row
@@ -443,7 +388,7 @@ class SetBuilderPanel(QWidget):
         sbox = QVBoxLayout(seed)
         mixes_why = theme.hint(
             "Ranked by the transition cost — sound, tempo and key "
-            "together, with the weights above. Sound is measured in the "
+            "together, with the weights above the tabs. Sound is measured in the "
             "1280 dimensions of the embedding: with BPM and key at 0 this "
             "is «what sounds like it», tempo and key aside. Only tracks "
             "that pass the filters are considered. The first row is the "
@@ -608,7 +553,7 @@ class SetBuilderPanel(QWidget):
             "is the seed, the last of the chain or the last of the playlist; "
             "the end is optional — pick it by name, or leave it open and the "
             "set goes where the transitions lead. Every hop is judged by the "
-            "transition cost with the weights above, on a corridor of the "
+            "transition cost with the weights above the tabs, on a corridor of the "
             "tracks that pass the filters and sit between the two; the Arc "
             "knob asks each position to sit in its chapter — Intro, Buildup, "
             "Tension, Climax, Release — as the chapters read them. No track "
@@ -806,8 +751,13 @@ class SetBuilderPanel(QWidget):
         self._refresh_all()
 
     def weights(self) -> tuple[float, float, float]:
-        return (self._w_sound.value(), self._w_bpm.value(),
-                self._w_key.value())
+        return self._weights
+
+    def set_weights(self, sound: float, bpm: float, key: float) -> None:
+        """I pesi della pagina sono cambiati: il costo condiviso li prende
+        e ogni lista aperta si rifà con quelli."""
+        self._weights = (float(sound), float(bpm), float(key))
+        self._on_knobs()
 
     # ------------------------------------------------------------------
     # aggiornamenti
@@ -819,7 +769,6 @@ class SetBuilderPanel(QWidget):
 
     def _on_knobs(self) -> None:
         self._apply_weights()
-        self.weights_changed.emit()
         self._refresh_quick()
         self._refresh_roster()
         self._replan()
