@@ -786,6 +786,7 @@ def test_journey_closes_when_the_start_moves_and_can_leave_from_the_chain(
     # Dalla catena: senza catena non si parte; con la catena, dall'ultimo.
     panel._journey_from.setCurrentIndex(1)
     assert not panel._journey_ask.isEnabled()
+    assert "chain is empty" in panel._journey_told.text()
     panel._on_chain_reorder(["/r/t1.mp3", "/r/t2.mp3"])
     assert panel._journey_ask.isEnabled()
     assert "t2.mp3" in panel._journey_told.text()
@@ -795,8 +796,10 @@ def test_journey_closes_when_the_start_moves_and_can_leave_from_the_chain(
     # Dalla playlist: l'ultimo in fila, e la partenza segue la playlist.
     panel._journey_from.setCurrentIndex(2)
     assert not panel._journey_ask.isEnabled()
+    assert "playlist is empty" in panel._journey_told.text()
     state.set_playlist(["/r/t5.mp3", "/r/t3.mp3"])
     assert "t3.mp3" in panel._journey_told.text()
+    assert panel._journey_ask.isEnabled()
 
 
 def test_radio_from_the_playlist_tunes_around_what_is_in_it(qtbot, tmp_path,

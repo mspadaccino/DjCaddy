@@ -1306,7 +1306,12 @@ class SetBuilderPanel(QWidget):
         self._journey_end_clear.setVisible(self._journey_end is not None)
         can = start is not None and self._lib.store is not None
         if start is None:
+            which = self._journey_from.currentIndex()
             self._journey_told.setText(
+                "The playlist is empty — put some tracks in it, or pick "
+                "another start in the menu." if which == 2 else
+                "The chain is empty — start one in Chain Maker, or pick "
+                "another start in the menu." if which == 1 else
                 "Nothing to start from — click a seed on the map, or pick "
                 "another start in the menu.")
         elif self._lib.store is None:
