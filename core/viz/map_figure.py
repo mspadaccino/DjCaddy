@@ -167,6 +167,10 @@ AXIS_CENTRES = {"energy": 0.5, "valence_rank": 0.5}
 FLAT_SIZE = 7.0
 MIN_SIZE, MAX_SIZE = 4.0, 15.0
 
+# Quanto si vede la nuvola: tenue, perché è lo sfondo su cui si leggono i
+# segni. I punti scelti col lasso tornano a 1 (vedi `build_figure`).
+CLOUD_OPACITY = 0.35
+
 # Due fondi e due inchiostri, uno per tema. Il fondo della mappa è LO STESSO
 # della pagina, in tutti e due: il riquadro staccato di poco si leggeva come
 # una finestra dentro la finestra, e il territorio non ha bordi.
@@ -322,14 +326,19 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             name=("tracks" if genre == "other" and not top_genres
                   else genre[:28]),
             customdata=part[["index", "name", "bpm", "camelot", "genres"]].to_numpy(),
+            # La nuvola è TENUE, sempre: è il territorio, e quello che conta
+            # ci sta sopra — i segni, il battito del brano in ascolto, i
+            # punti presi con lasso o riquadro, che tornano pieni. Prima era
+            # quasi opaca e i segni ci si perdevano dentro.
             marker={
-                "size": part["_size"], "opacity": 0.85,
+                "size": part["_size"], "opacity": CLOUD_OPACITY,
                 "color": color_of.get(genre, skin["other"]),
                 # Un filo di bordo del colore del fondo: dove i punti si
                 # accavallano si continua a contarli invece di vedere una
                 # macchia unica.
                 "line": {"width": 0.5, "color": skin["plot"]},
             },
+            selected={"marker": {"opacity": 1.0}},
             hovertemplate="<b>%{customdata[1]}</b><br>%{customdata[2]} BPM · "
                           "%{customdata[3]}<br>%{customdata[4]}<extra></extra>",
         ))

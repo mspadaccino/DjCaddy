@@ -59,7 +59,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -72,7 +72,11 @@
    },
    "mode": "markers",
    "name": "Electronic - House",
-   "type": "scattergl",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     0.0,
     7.0,
@@ -90,7 +94,8 @@
     4.0,
     7.0,
     2.0
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "customdata": [
@@ -151,7 +156,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -164,7 +169,11 @@
    },
    "mode": "markers",
    "name": "Electronic - Techno",
-   "type": "scattergl",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     2.3333333333333335,
     1.3333333333333333,
@@ -182,7 +191,8 @@
     7.666666666666667,
     2.6666666666666665,
     5.666666666666667
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "customdata": [
@@ -243,7 +253,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -256,7 +266,11 @@
    },
    "mode": "markers",
    "name": "Funk / Soul - Disco",
-   "type": "scattergl",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     4.666666666666667,
     3.6666666666666665,
@@ -274,7 +288,8 @@
     3.3333333333333335,
     6.333333333333333,
     1.3333333333333333
-   ]
+   ],
+   "type": "scattergl"
   },
   {
    "customdata": [
@@ -307,7 +322,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -316,7 +331,11 @@
    },
    "mode": "markers",
    "name": "other",
-   "type": "scattergl",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     1.0,
     3.3333333333333335,
@@ -326,7 +345,8 @@
     5.0,
     0.6666666666666666,
     4.333333333333333
-   ]
+   ],
+   "type": "scattergl"
   }
  ],
  "layout": {
@@ -368,49 +388,49 @@
     "y": 3.3333333333333335
    }
   ],
-  "height": 640,
+  "margin": {
+   "l": 0,
+   "r": 0,
+   "t": 0,
+   "b": 0
+  },
   "hoverlabel": {
-   "align": "left",
    "font": {
     "size": 11
-   }
-  },
-  "hovermode": "closest",
-  "legend": {
-   "bgcolor": "rgba(0,0,0,0)",
-   "font": {
-    "color": "#1b1f27",
-    "size": 10
    },
-   "itemsizing": "constant",
+   "align": "left"
+  },
+  "legend": {
+   "font": {
+    "size": 10,
+    "color": "#1b1f27"
+   },
    "orientation": "h",
    "x": 0,
    "y": -0.02,
-   "yanchor": "auto"
+   "yanchor": "auto",
+   "bgcolor": "rgba(0,0,0,0)",
+   "itemsizing": "constant"
   },
-  "margin": {
-   "b": 0,
-   "l": 0,
-   "r": 0,
-   "t": 0
-  },
-  "paper_bgcolor": "#ffffff",
-  "plot_bgcolor": "#ffffff",
-  "showlegend": true,
   "xaxis": {
+   "visible": false,
+   "title": {},
    "automargin": false,
    "showgrid": false,
-   "title": {},
-   "visible": false,
    "zeroline": false
   },
   "yaxis": {
-   "automargin": false,
-   "scaleanchor": "x",
-   "showgrid": false,
-   "title": {},
    "visible": false,
-   "zeroline": false
-  }
+   "title": {},
+   "automargin": false,
+   "showgrid": false,
+   "zeroline": false,
+   "scaleanchor": "x"
+  },
+  "height": 640,
+  "paper_bgcolor": "#ffffff",
+  "plot_bgcolor": "#ffffff",
+  "showlegend": true,
+  "hovermode": "closest"
  }
 }

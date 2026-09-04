@@ -59,7 +59,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -72,6 +72,11 @@
    },
    "mode": "markers",
    "name": "Electronic - House",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     0.0,
     7.0,
@@ -151,7 +156,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -164,6 +169,11 @@
    },
    "mode": "markers",
    "name": "Electronic - Techno",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     2.3333333333333335,
     1.3333333333333333,
@@ -243,7 +253,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -256,6 +266,11 @@
    },
    "mode": "markers",
    "name": "Funk / Soul - Disco",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     4.666666666666667,
     3.6666666666666665,
@@ -307,7 +322,7 @@
      "color": "#ffffff",
      "width": 0.5
     },
-    "opacity": 0.85,
+    "opacity": 0.35,
     "size": [
      7.0,
      7.0,
@@ -316,6 +331,11 @@
    },
    "mode": "markers",
    "name": "other",
+   "selected": {
+    "marker": {
+     "opacity": 1.0
+    }
+   },
    "x": [
     1.0,
     3.3333333333333335,
