@@ -435,16 +435,21 @@ def build_figure(drawn: pd.DataFrame, top_genres: list[str], coords,
             marker={"size": size, "color": "rgba(0,0,0,0)",
                     "line": {"width": 2.5, "color": color}}))
 
-    # Il brano che sta suonando: una X e non un anello, perché non dice cosa
-    # quel brano È — come lo dicono gli altri sei segni — ma cosa sta
-    # succedendo adesso. Una forma diversa si distingue anche in mezzo a un
-    # nodo di cerchi concentrici, dove un settimo colore si perderebbe.
+    # Il brano che sta suonando: un anello che PULSA, non un segno fermo,
+    # perché non dice cosa quel brano È — come lo dicono gli altri sei
+    # segni — ma cosa sta succedendo adesso, e in mezzo a un nodo di cerchi
+    # concentrici è il movimento a distinguerlo. È l'unico tracciato SVG
+    # della figura (Scatter, non Scattergl): la pulsazione è un'animazione
+    # CSS della pagina (`PlotlyView`), che trova questo punto proprio
+    # perché è il solo nel livello SVG — e non costa un ridisegno della
+    # nuvola, come costerebbe animare un tracciato gl con un restyle.
     if playing is not None and playing < len(coords):
-        figure.add_trace(go.Scattergl(
+        figure.add_trace(go.Scatter(
             x=[coords[playing][0]], y=[coords[playing][1]], mode="markers",
             name="playing", showlegend=True, hoverinfo="skip",
-            marker={"symbol": "x-thin", "size": 13,
-                    "line": {"width": 2.5, "color": skin["playing"]}}))
+            # Sui simboli «-open» il bordo prende `color`, non `line.color`.
+            marker={"symbol": "circle-open", "size": 18,
+                    "color": skin["playing"], "line": {"width": 2.5}}))
 
     if seed is not None and seed < len(coords):
         figure.add_trace(go.Scattergl(

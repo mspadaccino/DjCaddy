@@ -485,12 +485,12 @@
   {
    "hoverinfo": "skip",
    "marker": {
+    "color": "#d92b2b",
     "line": {
-     "color": "#d92b2b",
      "width": 2.5
     },
-    "size": 13,
-    "symbol": "x-thin"
+    "size": 18,
+    "symbol": "circle-open"
    },
    "mode": "markers",
    "name": "playing",
@@ -501,7 +501,7 @@
    "y": [
     0.913
    ],
-   "type": "scattergl"
+   "type": "scatter"
   },
   {
    "hoverinfo": "skip",

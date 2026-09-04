@@ -60,6 +60,19 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
      finestra resta dov'è sempre stata per le figure che ci stanno, e
      raggiungibile per quelle che non ci stanno. */
   .modebar-container { position: fixed !important; }
+  /* Il brano in ascolto: l'unico punto nel livello SVG — gli altri
+     tracciati sono gl e stanno sul canvas sotto. Pulsa via CSS, che alla
+     nuvola non costa niente: `scale` è la proprietà a sé di CSS, e si
+     compone col translate che Plotly scrive nell'attributo transform. */
+  .scatterlayer .trace .point {
+    animation: djcaddy-pulse 1.1s ease-in-out infinite;
+    transform-box: fill-box; transform-origin: center;
+  }
+  @keyframes djcaddy-pulse {
+    0%   { scale: 1;   stroke-width: 2.5px; opacity: 1; }
+    50%  { scale: 1.9; stroke-width: 1px;   opacity: .35; }
+    100% { scale: 1;   stroke-width: 2.5px; opacity: 1; }
+  }
 </style>
 </head><body><div id="map"></div>
 <script>

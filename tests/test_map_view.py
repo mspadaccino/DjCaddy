@@ -281,16 +281,21 @@ def test_the_two_suggestion_lists_get_their_own_rings():
     assert "sounds like it" in names
 
 
-def test_the_track_playing_gets_a_red_cross():
-    """Una X e non un anello: gli altri segni dicono cosa un brano E', questo
-    dice cosa sta succedendo adesso."""
+def test_the_track_playing_gets_a_pulsing_svg_ring():
+    """Un anello SVG e non gl: gli altri segni dicono cosa un brano E',
+    questo dice cosa sta succedendo adesso, e a dirlo e' il pulsare — che
+    e' un'animazione CSS della pagina, e trova il punto perche' e' il solo
+    nel livello SVG. Se qualcun altro finisse in quel livello pulserebbe
+    anche lui."""
     figure = build_figure(_drawn(), ["House"],
                           np.column_stack([np.arange(4.0), np.arange(4.0)]),
                           playlist=[], seed=None, playing=2)
-    cross = [t for t in figure.data if t.name == "playing"]
-    assert len(cross) == 1
-    assert cross[0].marker.symbol == "x-thin"
-    assert cross[0].showlegend is True
+    ring = [t for t in figure.data if t.name == "playing"]
+    assert len(ring) == 1
+    assert ring[0].type == "scatter"
+    assert ring[0].marker.symbol == "circle-open"
+    assert ring[0].showlegend is True
+    assert [t.type for t in figure.data if t.type == "scatter"] == ["scatter"]
 
 
 def test_with_nothing_playing_there_is_no_cross():
