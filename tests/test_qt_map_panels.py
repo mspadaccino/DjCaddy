@@ -390,22 +390,19 @@ def test_library_frame_is_none_before_the_projection(tmp_path):
 
 
 # --- salva / salva con nome ---
-def test_save_rewrites_the_known_file_without_a_dialog(
+def test_export_writes_a_copy_where_asked_and_notes_it(
         qtbot, tmp_path, monkeypatch):
-    """«Save» è spento finché la playlist non ha un file; da quando una
-    «Save as…» lo ha scelto resta acceso e riscrive quel file senza
-    riaprire il dialogo — solo una conferma — anche subito dopo aver
-    scritto. Al no non scrive."""
-    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    """L'export è una copia: il file scelto viene scritto e il quaderno lo
+    annota. Nessun file da ricordare — la playlist vive sullo scaffale."""
+    from PySide6.QtWidgets import QFileDialog
     from pathlib import Path
 
+    from core.analysis.journal import Journal
     from qt_app.pages.map.library import Library
     from qt_app.pages.map.playlist_panel import PlaylistPanel
     from qt_app.state import AppState
 
     class _FakeStore:
-        # `PlaylistPanel.set_library` e `_refresh` vogliono coordinate ed
-        # embedding — qui bastano placeholder, nessuna riga li confronta.
         coords = np.zeros((3, 2))
         embeddings = np.zeros((3, 4))
 
@@ -414,93 +411,22 @@ def test_save_rewrites_the_known_file_without_a_dialog(
     lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
                   cost=cost_of(frame))
     state = AppState()
+    journal = Journal(tmp_path / "choices.jsonl")
     panel = PlaylistPanel(state, wire_table=lambda table: None,
-                          shelf=Shelf(tmp_path / "shelf"))
+                          journal=journal, shelf=Shelf(tmp_path / "shelf"))
     qtbot.addWidget(panel)
     panel.set_library(lib)
     monkeypatch.setattr(panel, "_tracks_for_export", lambda: [
         {"path": Path(p), "name": Path(p).stem, "artist": "",
          "duration": 1.0} for p in state.playlist])
-    assert not panel._save_again.isEnabled()
-
-    state.set_playlist(["/x/one.mp3"])
-    assert not panel._save_again.isEnabled()   # nessun file ancora
+    state.set_playlist(["/x/one.mp3", "/x/two.mp3"])
     out = tmp_path / "set.m3u8"
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: (str(out), "")))
     panel._save_m3u8.trigger()
-    assert "one.mp3" in out.read_text()
-    assert panel._save_again.isEnabled()       # il file c'è: acceso
-
-    state.set_playlist(["/x/one.mp3", "/x/two.mp3"])
-    monkeypatch.setattr(QFileDialog, "getSaveFileName",
-                        staticmethod(lambda *a, **k: pytest.fail(
-                            "«Save» must not open the dialog")))
-    monkeypatch.setattr(QMessageBox, "question", staticmethod(
-        lambda *a, **k: QMessageBox.StandardButton.Yes))
-    panel._save_again.click()
     assert "two.mp3" in out.read_text()
-    assert panel._save_again.isEnabled()
-
-    state.set_playlist(["/x/one.mp3"])
-    monkeypatch.setattr(QMessageBox, "question", staticmethod(
-        lambda *a, **k: QMessageBox.StandardButton.Cancel))
-    panel._save_again.click()
-    assert "two.mp3" in out.read_text()        # al no, il file resta com'era
-
-    state.set_playlist([])
-    assert not panel._save_again.isEnabled()   # niente da scrivere
-
-
-def test_a_loaded_playlist_becomes_the_file_save_writes_to(
-        qtbot, tmp_path, monkeypatch):
-    """Caricare un .m3u8 e ritoccarlo: «Save» riscrive QUEL file, senza
-    dialogo — prima il pannello lo dimenticava e il tasto restava spento."""
-    from PySide6.QtWidgets import QFileDialog, QMessageBox
-    from pathlib import Path
-
-    from qt_app.pages.map.library import Library
-    from qt_app.pages.map.playlist_panel import PlaylistPanel
-    from qt_app.state import AppState
-
-    class _FakeStore:
-        coords = np.zeros((3, 2))
-        embeddings = np.zeros((3, 4))
-
-    frame = library()
-    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
-    lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
-                  cost=cost_of(frame))
-    state = AppState()
-    panel = PlaylistPanel(state, wire_table=lambda table: None,
-                          shelf=Shelf(tmp_path / "shelf"))
-    qtbot.addWidget(panel)
-    panel.set_library(lib)
-    monkeypatch.setattr(panel, "_tracks_for_export", lambda: [
-        {"path": Path(p), "name": Path(p).stem, "artist": "",
-         "duration": 1.0} for p in state.playlist])
-
-    loaded = tmp_path / "night.m3u8"
-    loaded.write_text("#EXTM3U\n/x/one.mp3\n", "utf-8")
-    monkeypatch.setattr(QFileDialog, "getOpenFileName",
-                        staticmethod(lambda *a, **k: (str(loaded), "")))
-    # Il riquadro delle scelte: si risponde «Load as new playlist», che è
-    # il primo bottone aggiunto.
-    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
-    monkeypatch.setattr(QMessageBox, "clickedButton",
-                        lambda self: self.buttons()[0])
-    panel._on_load()
-    assert state.playlist == ["/x/one.mp3"]
-    assert panel._save_again.isEnabled()
-
-    state.set_playlist(["/x/one.mp3", "/x/two.mp3"])
-    monkeypatch.setattr(QFileDialog, "getSaveFileName",
-                        staticmethod(lambda *a, **k: pytest.fail(
-                            "«Save» must not open the dialog")))
-    monkeypatch.setattr(QMessageBox, "question", staticmethod(
-        lambda *a, **k: QMessageBox.StandardButton.Yes))
-    panel._save_again.click()
-    assert "two.mp3" in loaded.read_text()
+    assert journal.read()[-1]["kind"] == "playlist_saved"
+    assert journal.read()[-1]["paths"] == ["/x/one.mp3", "/x/two.mp3"]
 
 
 # --- Magic sort ---
@@ -1094,7 +1020,6 @@ def test_the_whole_shelf_goes_into_one_rekordbox_library(qtbot, tmp_path,
     assert root.find("COLLECTION").get("Entries") == "2"   # il fantasma no
     buildup = folder.find("NODE[@Name='house_buildup']")
     assert buildup.get("Entries") == "1"
-    assert not panel._save_again.isEnabled()   # lo scaffale non è «il file»
 
 
 def test_sorts_by_a_measure_compose_and_respect_the_ticked_scope(qtbot, tmp_path):
@@ -1171,3 +1096,39 @@ def test_chain_rows_arrive_ticked_and_only_the_ticked_go_to_the_playlist(
     at_path = panel._lib.at_path
     assert heard[0] == [at_path[walk[1]], at_path[walk[2]]]
     assert journal.read()[-1]["sent"] == 2
+
+
+def test_ticked_rows_move_or_copy_to_another_playlist_of_the_shelf(
+        qtbot, tmp_path, monkeypatch):
+    """«Ticked to ▸ Move to» toglie da qui e accoda là; «Copy to» accoda e
+    basta; chi c'è già di là resta e viene detto; «New playlist…» crea la
+    destinazione."""
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    state.set_playlist(["/x/one.mp3", "/x/two.mp3", "/y/three.mp3"])
+    shelf.write("house_buildup", ["/x/two.mp3"])
+
+    told = []
+    # Il testo e non il titolo: su macOS Qt il titolo di un QMessageBox
+    # non si conserva.
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: told.append(
+        self.text()) or 0)
+    panel._table.set_picked({"/x/one.mp3", "/x/two.mp3"})
+    panel._transfer("house_buildup", copy=False)
+    assert state.playlist == ["/y/three.mp3"]
+    assert shelf.read("house_buildup") == ["/x/two.mp3", "/x/one.mp3"]
+    assert told == ["1 track(s) were already in «house_buildup» — not "
+                    "added again."]                      # two c'era già
+
+    panel._table.set_picked({"/y/three.mp3"})
+    panel._transfer("house_buildup", copy=True)
+    assert state.playlist == ["/y/three.mp3"]           # la copia non toglie
+    assert shelf.read("house_buildup")[-1] == "/y/three.mp3"
+
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("funky_intro", True)))
+    panel._table.set_picked({"/y/three.mp3"})
+    panel._transfer(None, copy=False)
+    assert shelf.read("funky_intro") == ["/y/three.mp3"]
+    assert state.playlist == []
+    assert panel.current_name() == "Playlist"          # il tavolo non cambia

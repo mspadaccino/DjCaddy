@@ -42,6 +42,7 @@ from core.analysis.journal import Journal
 from core.analysis.mixing import TransitionCost, magic_sort
 from core.analysis.ordering import order_by
 from core.analysis.shelf import DEFAULT_NAME, Shelf, valid_name
+from qt_app.workers import run_in_pool
 from core.viz.board import (DEFAULT_HEIGHT, HEIGHT_FIELDS, HEIGHT_MEANING,
                             board_payload, reordered)
 from core.viz.chapters import (CHAPTERS, assign_chapters,
@@ -319,10 +320,6 @@ class PlaylistPanel(QWidget):
         self._chapters: list[list[int]] | None = None
         self._keep_chapters_once = False
         self._picked: str | None = None             # la scheda evidenziata
-        # Il file della playlist e il suo formato: dove è andata l'ultima
-        # «Save as…», o da dove si è caricata. «Save» riscrive lì senza
-        # ripassare dal dialogo, ed è acceso finché un percorso c'è.
-        self._saved_to: tuple[Path, Callable[[list[dict]], str]] | None = None
         self._board_seen_at = None
         self._build(wire_table)
         self._open_shelf()
@@ -418,6 +415,19 @@ class PlaylistPanel(QWidget):
         self._remove = QPushButton("🗑 Remove")
         self._remove.setMenu(remove)
 
+        # Le spuntate in un'altra playlist dello scaffale: spostate — via
+        # da qui, in coda là — o copiate. Il menu si rifà quando si apre,
+        # perché i nomi sullo scaffale cambiano.
+        self._move_menu = QMenu(self)
+        self._move_menu.aboutToShow.connect(self._fill_move_menu)
+        self._move = QPushButton("↗ Ticked to")
+        self._move.setToolTip(theme.hint(
+            "Move or copy the ticked rows into another playlist of the "
+            "shelf — or into a new one. Moved rows leave this playlist; "
+            "copied ones stay. A track already in the target stays where "
+            "it is, and you are told."))
+        self._move.setMenu(self._move_menu)
+
         # Due righe: sopra lo scaffale, sotto i gesti sulla playlist che
         # sta sul tavolo. In una riga sola i nomi non ci stavano.
         shelf_row = QHBoxLayout()
@@ -425,7 +435,7 @@ class PlaylistPanel(QWidget):
         for button in (self._new, self._rename, self._delete):
             shelf_row.addWidget(button)
         header = QHBoxLayout()
-        for button in (self._play_all, self._sort, self._remove):
+        for button in (self._play_all, self._sort, self._move, self._remove):
             header.addWidget(button)
         header.addStretch(1)
 
@@ -543,8 +553,6 @@ class PlaylistPanel(QWidget):
                            "rekordbox, Serato, Traktor… Only the "
                            "track order is read.")
         loading.clicked.connect(self._on_load)
-        self._save_again = QPushButton("💾 Save")
-        self._save_again.clicked.connect(self._on_save_again)
         # Le due uscite in un menu, come le tre rimozioni: stessa domanda,
         # due formati.
         export = QMenu(self)
@@ -562,14 +570,25 @@ class PlaylistPanel(QWidget):
             "the shelf comes out as a «DjCaddy» folder with one playlist "
             "per name, so a night of twelve sets is one import."))
         self._save_xml.triggered.connect(self._on_save_xml)
+        self._write_rb = QAction("Straight into rekordbox (the whole shelf)…",
+                                 self)
+        self._write_rb.setToolTip(theme.hint(
+            "No XML, no import: the shelf is written into rekordbox's own "
+            "library as a «DjCaddy» folder with one playlist per name. A "
+            "playlist already there with the same name is rebuilt as on "
+            "the shelf; nothing else is touched. rekordbox must be closed, "
+            "and a backup of its database is taken first. Tracks rekordbox "
+            "does not know stay out and are named."))
+        self._write_rb.triggered.connect(self._on_write_rekordbox)
         export.addAction(self._save_m3u8)
         export.addAction(self._save_xml)
+        export.addSeparator()
+        export.addAction(self._write_rb)
         self._export = QPushButton("⬇ Export")
         self._export.setMenu(export)
         files_row = QHBoxLayout()
-        for button in (adding, loading, self._save_again, self._export):
+        for button in (adding, loading, self._export):
             files_row.addWidget(button)
-        self._refresh_save_again(has=False)
 
         box = QVBoxLayout(self)
         box.addLayout(shelf_row)
@@ -724,7 +743,6 @@ class PlaylistPanel(QWidget):
 
     def _on_shelf_pick(self, name: str) -> None:
         if name and name != self._current:
-            self._saved_to = None
             self._switch_to(name)
 
     def _on_shelf_new(self) -> None:
@@ -732,7 +750,6 @@ class PlaylistPanel(QWidget):
         if name is None:
             return
         self._shelf.write(name, [])
-        self._saved_to = None
         self._switch_to(name)
 
     def _on_shelf_rename(self) -> None:
@@ -758,8 +775,117 @@ class PlaylistPanel(QWidget):
         # avrebbe dove mettere quello che le schede mandano.
         if not self._shelf.names():
             self._shelf.write(DEFAULT_NAME, [])
-        self._saved_to = None
         self._switch_to(self._shelf.names()[0])
+
+    def _fill_move_menu(self) -> None:
+        self._move_menu.clear()
+        others = [n for n in self._shelf.names() if n != self._current]
+        for verb, copy in (("Move to", False), ("Copy to", True)):
+            sub = self._move_menu.addMenu(verb)
+            for name in others:
+                sub.addAction(name, lambda n=name, c=copy: self._transfer(n, c))
+            if others:
+                sub.addSeparator()
+            sub.addAction("＋ New playlist…",
+                          lambda c=copy: self._transfer(None, c))
+
+    def _transfer(self, target: str | None, copy: bool) -> None:
+        """Le spuntate in `target` — o in una playlist nuova, se None — in
+        coda a quello che c'è; via da qui se non è una copia. Chi c'è già
+        di là resta dov'è e viene detto, come per «Add»."""
+        frame = self._lib.frame
+        ticked = set(self._table.selected_paths())
+        moving = [frame.at[i, "path"] for i in self.indices()
+                  if frame.at[i, "path"] in ticked]
+        if not moving:
+            QMessageBox.information(self, "Nothing ticked",
+                                    "Tick the rows to move or copy first.")
+            return
+        if target is None:
+            target = self._ask_name("New playlist", "Name:", "")
+            if target is None:
+                return
+            self._shelf.write(target, [])
+        merged, skipped = appended(self._shelf.read(target), moving)
+        self._shelf.write(target, merged)
+        self._journal.record("copied_to" if copy else "moved_to",
+                             target=target, paths=moving)
+        if not copy:
+            self._push([p for p in self._state.playlist if p not in ticked],
+                       False)
+        else:
+            self._table.clear_picks()
+        if skipped:
+            self._tell_skipped(
+                skipped, f"Already in «{target}»",
+                f"{len(skipped)} track(s) were already in «{target}» — "
+                "not added again.")
+
+    def _on_write_rekordbox(self) -> None:
+        """Lo scaffale dritto nella libreria di rekordbox: prima l'anteprima
+        — cosa c'è, cosa manca, cosa si rifà — poi, al sì, la scrittura.
+        Tutte e due fuori dal filo della UI: il database pesa quasi un giga
+        e aprirlo non è istantaneo."""
+        from core.analysis.rekordbox_write import available
+        ok, why = available()
+        if not ok:
+            QMessageBox.warning(self, "rekordbox", why)
+            return
+        from core.analysis.rekordbox_playlists import preview_shelf_write
+        playlists = [(name, [Path(p) for p in self._shelf.read(name)])
+                     for name in self._shelf.names()]
+        self._export.setEnabled(False)
+
+        def _done(result) -> None:
+            self._export.setEnabled(True)
+            self._confirm_rekordbox(playlists, result)
+
+        def _failed(trouble: Exception) -> None:
+            self._export.setEnabled(True)
+            QMessageBox.warning(self, "rekordbox", str(trouble))
+
+        run_in_pool(lambda: preview_shelf_write(playlists), _done, _failed)
+
+    def _confirm_rekordbox(self, playlists, preview) -> None:
+        from core.analysis.rekordbox_playlists import write_shelf
+        from core.analysis.rekordbox_write import is_rekordbox_running
+        box = QMessageBox(self)
+        box.setWindowTitle("Write the shelf into rekordbox")
+        box.setText(preview.message)
+        notes = []
+        if is_rekordbox_running():
+            notes.append("⚠ rekordbox is running — quit it first, or its "
+                         "own save will overwrite this.")
+        notes.append("A backup of rekordbox's database is taken before "
+                     "writing.")
+        box.setInformativeText("\n".join(notes))
+        if preview.missing:
+            box.setDetailedText("Not in rekordbox:\n" + "\n".join(
+                str(m) for m in preview.missing))
+        go = box.addButton("Write", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() is not go:
+            return
+        self._export.setEnabled(False)
+
+        def _done(result) -> None:
+            self._export.setEnabled(True)
+            self._journal.record("shelf_written_to_rekordbox",
+                                 names=[p.name for p in result.playlists],
+                                 found=result.found,
+                                 missing=len(result.missing))
+            QMessageBox.information(
+                self, "rekordbox",
+                f"{result.message}\nBackup of the library: "
+                f"{result.backup_path}")
+
+        def _failed(trouble: Exception) -> None:
+            self._export.setEnabled(True)
+            QMessageBox.warning(self, "rekordbox",
+                                f"Write failed, nothing was changed: {trouble}")
+
+        run_in_pool(lambda: write_shelf(playlists), _done, _failed)
 
     # ------------------------------------------------------------------
     # il disegno
@@ -781,10 +907,9 @@ class PlaylistPanel(QWidget):
         has = bool(playlist)
         self._empty.setVisible(not has)
         self._playlist_controls.setVisible(has)
-        for button in (self._play_all, self._sort, self._remove,
+        for button in (self._play_all, self._sort, self._move, self._remove,
                        self._export):
             button.setDisabled(not has)
-        self._refresh_save_again(has)
         if not has:
             return
 
@@ -1010,14 +1135,12 @@ class PlaylistPanel(QWidget):
         if not found:
             return
         if box.clickedButton() is replace:
-            # Sullo scaffale col nome del file, e sul tavolo. La playlist
-            # caricata È quel file: «Save» torna a scriverci.
+            # Sullo scaffale col nome del file, e sul tavolo: da qui in poi
+            # vive lì, il file di partenza resta com'era.
             name = self._shelf.free_name(Path(chosen).stem)
             self._shelf.write(name, [])
             self._switch_to(name)
-            self._saved_to = (Path(chosen), build_m3u8)
             self.replace(found)
-            self._refresh_save_again(has=bool(self.indices()))
         elif box.clickedButton() is append:
             self.append(found)
 
@@ -1038,44 +1161,19 @@ class PlaylistPanel(QWidget):
 
     def _save_as(self, build: Callable[[list[dict]], str],
                  default_name: str, title: str, wanted: str) -> None:
+        """Una copia, dove si vuole: la playlist vive sullo scaffale, e
+        l'export è una copia che si rifà."""
         chosen, _ = QFileDialog.getSaveFileName(self, title, default_name,
                                                 wanted)
-        if chosen:
-            self._saved_to = (Path(chosen), build)
-            self._write_out()
-
-    def _write_out(self) -> None:
-        path, build = self._saved_to
+        if not chosen:
+            return
+        path = Path(chosen)
         path.write_text(build(self._tracks_for_export()), "utf-8")
-        # Una playlist salvata è una sequenza voluta: l'appunto che vale di
-        # più per chi vorrà imparare "cosa viene dopo".
+        # Una playlist esportata è una sequenza voluta: l'appunto che vale
+        # di più per chi vorrà imparare "cosa viene dopo".
         self._journal.record("playlist_saved", file=str(path),
                              format=path.suffix.lstrip("."),
                              paths=list(self._state.playlist))
-        self._refresh_save_again(has=bool(self.indices()))
-
-    def _refresh_save_again(self, has: bool) -> None:
-        known = self._saved_to is not None
-        self._save_again.setEnabled(has and known)
-        if not known:
-            told = ("Enabled once the playlist has a file: loaded with "
-                    "«Load playlist…», or saved with one of the «Save "
-                    "as…» buttons. Then it rewrites that same file.")
-        else:
-            told = (f"Writes the playlist to {self._saved_to[0]}, in the "
-                    "same format — no file dialog, just a confirmation.")
-        self._save_again.setToolTip(told)
-
-    def _on_save_again(self) -> None:
-        # Nessun dialogo di file, ma una conferma sì: sovrascrive senza
-        # scegliere, e un file riscritto per sbaglio non si recupera.
-        path = self._saved_to[0]
-        answer = QMessageBox.question(
-            self, "Save the playlist", f"Overwrite {path.name}?\n{path}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Yes)
-        if answer == QMessageBox.StandardButton.Yes:
-            self._write_out()
 
     def _on_save_m3u8(self) -> None:
         self._save_as(build_m3u8, "djcaddy_playlist.m3u8",

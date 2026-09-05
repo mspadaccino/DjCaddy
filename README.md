@@ -529,12 +529,20 @@ change is written to the shelf at once, like the favourites — there is no
 "unsaved" playlist to lose by switching. On disk it is
 `~/Documents/DjCaddy/Playlists`, one `.m3u8` per playlist, so it opens from
 the Finder too and goes into your backups with the rest of your work.
-*Load playlist…* puts a file on the shelf under its own name; the *Save
-as…* buttons still export a copy wherever you like — and **Save as library
-(rekordbox XML)** asks whether to write this playlist alone or **the whole
-shelf**: the shelf comes out as a `DjCaddy` folder with one playlist per
-name, a track filed in two of them written once, so a night of twelve sets
-is one import.
+*Load playlist…* puts a file on the shelf under its own name. **Ticked to ▾**
+moves or copies the ticked rows into another playlist of the shelf — or into
+a new one — and tells you which were already there. **Export ▾** writes a
+*copy* wherever you like: an M3U8 of this playlist, or a rekordbox XML of
+this playlist or of **the whole shelf** — a `DjCaddy` folder with one
+playlist per name, a track filed in two of them written once, so a night of
+twelve sets is one import. The third entry, **Straight into rekordbox**,
+skips the XML altogether: the shelf is written into rekordbox's own library
+as that same `DjCaddy` folder, a playlist already there with the same name
+rebuilt as on the shelf and nothing else touched — the same rules as the
+[Cue Finder](#cue-finder)'s cues: rekordbox closed, a backup of its database
+first, and tracks rekordbox does not know left out and named. There is no
+Save button: the shelf is always saved, and an export is a copy you can make
+again.
 
 ### The board
 
@@ -1244,6 +1252,7 @@ Key engine modules (`core/analysis/`):
 | `essentia_tags.py`, `tag_job.py` | genre/mood inference and the batch tagging job |
 | `duplicates.py`, `folder_scan.py` | duplicate hunting, quarantine plan, folder contents |
 | `cue_export.py` | phrase sections and vocal regions → cue rows, and their mapping onto pads |
+| `rekordbox_playlists.py` | the shelf written straight into rekordbox's library: a «DjCaddy» folder, one playlist per name |
 | `rekordbox_write.py` | hot/memory cues written into rekordbox 6/7's encrypted `master.db` (via pyrekordbox) |
 | `dj_export.py` | export to rekordbox XML and M3U8 |
 

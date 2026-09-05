@@ -225,7 +225,7 @@ def check_markers(markers: list[RekordboxMarker]) -> None:
             raise RekordboxWriteError("Un loop che finisce prima di cominciare.")
 
 
-def _open(db_path: Path | None):
+def open_database(db_path: Path | None):
     from pyrekordbox import Rekordbox6Database
 
     path = db_path or database_path()
@@ -239,7 +239,7 @@ def _open(db_path: Path | None):
             f"La libreria rekordbox non si apre: {trouble}") from trouble
 
 
-def _find_track(db, filepath: Path):
+def find_track(db, filepath: Path):
     """La riga di `djmdContent` del brano, cercata per percorso assoluto.
 
     `FolderPath` porta il percorso INTERO del file, nome compreso (il nome
@@ -311,9 +311,9 @@ def preview_write(filepath: Path, markers: list[RekordboxMarker],
     database non si apre.
     """
     check_markers(markers)
-    db = _open(db_path)
+    db = open_database(db_path)
     try:
-        track = _find_track(db, filepath)
+        track = find_track(db, filepath)
         if track is None:
             raise RekordboxWriteError(
                 "Questo brano non è nella libreria di rekordbox: importalo "
@@ -353,9 +353,9 @@ def write_cues(filepath: Path, markers: list[RekordboxMarker],
 
     from pyrekordbox.db6.tables import DjmdCue
 
-    db = _open(path)
+    db = open_database(path)
     try:
-        track = _find_track(db, filepath)
+        track = find_track(db, filepath)
         if track is None:
             raise RekordboxWriteError(
                 "Questo brano non è nella libreria di rekordbox: importalo "
