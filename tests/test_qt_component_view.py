@@ -1,6 +1,7 @@
 """Il frontend HTML dentro Qt: il payload arriva anche se mandato prima
 che la pagina sia pronta. Gira solo col gruppo `qt` installato."""
 
+import json
 import os
 
 import pytest
@@ -69,3 +70,30 @@ def test_the_payload_is_sent_again_when_the_channel_opens(qtbot):
     wheel._on_event({"type": "ready"})
     wheel._on_event({"type": "height", "height": 10})
     assert len(sent) == 2 and all(p["selected"] == ["8A"] for p in sent)
+
+
+def test_the_board_fits_the_height_qt_gives_it(qtbot):
+    """La lavagna entra tutta nel riquadro: l'SVG è alto quanto la pagina,
+    non quanto la sua proporzione vorrebbe, così un divisore portato in
+    basso non taglia più il fondo del disegno."""
+    from qt_app.widgets.board_view import BoardView
+
+    board = BoardView()
+    qtbot.addWidget(board)
+    board.resize(900, 260)
+    with qtbot.waitSignal(board.loadFinished, timeout=8000):
+        board.show()
+    # Un solo giro di misura dopo che la pagina ha impaginato: una raffica
+    # di runJavaScript dentro waitUntil affamava la pagina e la misura non
+    # arrivava mai.
+    qtbot.wait(400)
+    seen = {}
+    # Una stringa, non una lista: gli array del JS arrivano vuoti a Qt.
+    board.page().runJavaScript(
+        "(function () { var s = document.querySelector('#wrap svg'); "
+        "return JSON.stringify(s ? [Math.round(s.getBoundingClientRect()"
+        ".height), window.innerHeight] : null); })()",
+        lambda value: seen.__setitem__("size", value))
+    qtbot.waitUntil(lambda: "size" in seen, timeout=4000)
+    drawn, page = json.loads(seen["size"])
+    assert abs(drawn - page) <= 2      # alto quanto il riquadro, non 900·H/W

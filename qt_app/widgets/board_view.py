@@ -144,8 +144,32 @@ class ComponentView(QWebEngineView):
             self.height_suggested.emit(int(data.get("height", 0)))
 
 
+# Dentro Streamlit l'iframe è alto quanto il disegno: la lavagna è larga
+# quanto la colonna e tiene la sua proporzione, e l'altezza viene dopo. In
+# Qt l'altezza la decide lo splitter fra tabella e lavagna, e un disegno
+# più alto del riquadro finiva tagliato sotto. Qui l'SVG riempie il
+# riquadro in tutte e due le misure e il viewBox — `meet`, il default — lo
+# adagia dentro intero, centrato: si vede tutto, a qualunque altezza si
+# porti il divisore. Iniettato da Qt, così l'HTML riusato non si tocca.
+_FIT = """
+(function () {
+  var style = document.createElement("style");
+  style.textContent = "html, body, #wrap { height: 100%; }" +
+    " #wrap svg { height: 100%; }";
+  document.head.appendChild(style);
+})();
+"""
+
+
 class BoardView(ComponentView):
-    """La lavagna della playlist: il frontend `graph_board`, riusato."""
+    """La lavagna della playlist: il frontend `graph_board`, riusato — e
+    fatto entrare tutto nel riquadro che Qt le dà."""
 
     def __init__(self, parent=None) -> None:
         super().__init__("graph_board", parent)
+        fit = QWebEngineScript()
+        fit.setName("djcaddy-fit")
+        fit.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+        fit.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        fit.setSourceCode(_FIT)
+        self.page().scripts().insert(fit)
