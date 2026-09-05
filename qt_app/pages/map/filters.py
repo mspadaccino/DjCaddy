@@ -22,6 +22,13 @@ In testa ci sono i preset (`core.analysis.presets`): un nome per tutto
 quello che il pannello imposta, più quello che la pagina gli affida con
 `bind_extras` — i tre pesi del costo, che stanno fuori dal pannello ma
 fanno parte della stessa domanda. Scegliere un preset rimette tutto.
+
+Accanto, il menu dei capitoli: Intro, Buildup, Tension, Climax, Release.
+Sceglierne uno scrive negli slider le bande di quel capitolo dell'arco
+(`core.analysis.arc`), le stesse che leggono Journey e Chapter Builder —
+tempo, energia, mood, groove, in percentile di libreria tradotto sui numeri
+di QUESTA libreria. È il primo passo di «house_intro»: il capitolo dà le
+fasce, il genere lo metti tu, il preset lo ricorda.
 """
 
 from __future__ import annotations
@@ -36,8 +43,9 @@ from PySide6.QtWidgets import (QComboBox, QGridLayout, QHBoxLayout,
                                QListWidgetItem, QMessageBox, QPushButton,
                                QVBoxLayout, QWidget)
 
+from core.analysis.arc import CHAPTERS
 from core.analysis.presets import Presets
-from core.viz.filters import filter_tracks, span
+from core.viz.filters import chapter_named, chapter_ranges, filter_tracks, span
 from core.viz.map_figure import genre_level
 from qt_app import theme
 from qt_app.widgets.range_slider import RangeSlider
@@ -49,8 +57,9 @@ from qt_app.widgets.wheel_view import WheelView
 GENRE_DEPTHS = (("the 1st genre only", 1), ("the top 2", 2),
                 ("the top 3", 3), ("all its genres", None))
 
-# La voce del menu dei preset quando nessuno è scelto.
+# Le voci dei due menu in testa quando niente è scelto.
 NO_PRESET = "— presets —"
+NO_CHAPTER = "— chapter —"
 
 
 class CheckList(QWidget):
@@ -129,6 +138,7 @@ class FiltersPanel(QWidget):
     def __init__(self, parent=None, presets: Presets | None = None) -> None:
         super().__init__(parent)
         self._keys: list[str] = []
+        self._numbers: pd.DataFrame | None = None
         self._presets = presets or Presets()
         # Quello che la pagina affida al preset oltre ai filtri: chi lo
         # legge e chi lo rimette. Senza `bind_extras` il preset è filtri
@@ -142,6 +152,20 @@ class FiltersPanel(QWidget):
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(350)
         self._debounce.timeout.connect(self.changed.emit)
+
+        # Il capitolo: scelto, scrive le sue quattro fasce negli slider.
+        self._chapter = QComboBox()
+        self._chapter.addItem(NO_CHAPTER)
+        for chapter in CHAPTERS:
+            self._chapter.addItem(f"{chapter['icon']} {chapter['name']}",
+                                  chapter["name"])
+        self._chapter.setToolTip(theme.hint(
+            "A chapter of the set — the same five the Journey and the "
+            "Chapter Builder use. Pick one and the four ranges below take "
+            "its bands: tempo, energy, mood and groove, as percentiles of "
+            "your library turned into this library's numbers. Genres and "
+            "keys are yours to add; save the result as a preset."))
+        self._chapter.currentIndexChanged.connect(self._on_chapter_pick)
 
         # I preset: il menu li applica, «Save» ne fa uno da com'è ora.
         self._preset = QComboBox()
@@ -161,6 +185,7 @@ class FiltersPanel(QWidget):
         self._preset_delete.clicked.connect(self._on_preset_delete)
         preset_row = QHBoxLayout()
         preset_row.setContentsMargins(0, 0, 0, 0)
+        preset_row.addWidget(self._chapter)
         preset_row.addWidget(self._preset, stretch=1)
         preset_row.addWidget(self._preset_save)
         preset_row.addWidget(self._preset_delete)
@@ -273,6 +298,9 @@ class FiltersPanel(QWidget):
 
     # --- la libreria detta le opzioni e le corse ---
     def set_frame(self, frame: pd.DataFrame) -> None:
+        # Le due colonne su cui il capitolo legge i suoi percentili.
+        self._numbers = frame[[c for c in ("bpm", "danceability")
+                               if c in frame]].copy()
         genre_counts = pd.Series(
             [g for tags in frame["genre_list"] for g in tags if g]
         ).value_counts()
@@ -346,7 +374,21 @@ class FiltersPanel(QWidget):
         self._wheel.set_keys(self._keys)
         self._debounce.start()
 
+    def _on_chapter_pick(self, index: int) -> None:
+        chapter = chapter_named(self._chapter.itemData(index) or "")
+        if chapter is None or self._numbers is None:
+            return
+        ranges = chapter_ranges(chapter, self._numbers)
+        for slider, name in ((self._bpm, "bpm"), (self._groove, "groove"),
+                             (self._energy, "energy"),
+                             (self._valence, "valence")):
+            slider.set_values(*ranges[name])
+        self._debounce.start()
+
     def _on_reset(self) -> None:
+        self._chapter.blockSignals(True)
+        self._chapter.setCurrentIndex(0)
+        self._chapter.blockSignals(False)
         self._keys = []
         self._wheel.set_keys(self._keys)
         self._macros.clear_checks()

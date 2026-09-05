@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core.analysis.arc import CHAPTERS
 from core.analysis.duplicates import folded
 
 
@@ -73,6 +74,35 @@ def filter_tracks(frame: pd.DataFrame, genres: list[str], moods: list[str],
         if span_ is not None and column in kept:
             kept = kept[kept[column].isna() | kept[column].between(*span_)]
     return kept
+
+
+def chapter_ranges(chapter: dict, frame: pd.DataFrame) -> dict[str, tuple[float, float]]:
+    """Le bande di un capitolo dell'arco come intervalli per i filtri.
+
+    In `arc.CHAPTERS` le quattro misure sono percentili di libreria. Energia
+    e mood lo sono anche sugli slider, e passano come sono; tempo e groove
+    sugli slider sono numeri veri, e il percentile si legge sulla colonna:
+    "il 15% più lento" di questa libreria è un BPM preciso, e cambia con la
+    libreria. Una colonna vuota lascia l'intervallo tutto aperto sui bordi
+    che i filtri offrono.
+    """
+    out = {"energy": chapter["arousal"], "valence": chapter["valence"]}
+    for name, column, floor, ceiling in (("bpm", "bpm", 60.0, 200.0),
+                                        ("groove", "danceability", 0.0, 1.0)):
+        values = pd.to_numeric(frame[column], errors="coerce").dropna() \
+            if column in frame else pd.Series(dtype=float)
+        if len(values):
+            low, high = chapter[name]
+            out[name] = (float(values.quantile(low)),
+                         float(values.quantile(high)))
+        else:
+            out[name] = span(frame, column, floor, ceiling) \
+                if column in frame else (floor, ceiling)
+    return out
+
+
+def chapter_named(name: str) -> dict | None:
+    return next((c for c in CHAPTERS if c["name"] == name), None)
 
 
 def matching_tracks(frame: pd.DataFrame, pool, words: list[str]) -> list[int]:

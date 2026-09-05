@@ -309,6 +309,14 @@ library**, 0 to 1: `0.00–0.25` on energy means *the calmest quarter you
 own*, not a number on an absolute scale, which is exactly the language a
 set is planned in — an intro lives low, a climax high.
 
+**Chapter** is the menu beside the presets: Intro, Buildup, Tension,
+Climax, Release — the same five the [Journey](#journey-from-here-to-there-in-n-steps)
+and the Chapter Builder read. Pick one and the four ranges take that
+chapter's bands, percentiles of your library turned into this library's
+numbers: *Intro* puts BPM in your slowest 15%, energy in the calmest
+quarter. Genres and keys are yours to add on top; that is how `house_intro`
+is made — chapter for the bands, genre for the corner, preset to remember it.
+
 **Presets** sit at the top of the filters. *Save preset…* keeps everything
 the panel is set to — keys, genres, moods, the depth, the four ranges —
 **and the three weights of the transition cost**, under a name of yours;

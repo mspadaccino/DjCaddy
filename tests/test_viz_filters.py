@@ -7,6 +7,7 @@ era fotografabile con uno snapshot.
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from core.viz.filters import filter_tracks, span
 
@@ -112,3 +113,25 @@ def test_without_the_columns_the_ranges_are_ignored():
     kept = filter_tracks(_tracks(), [], [], [], (60.0, 200.0), (0.0, 1.0),
                          energy=(0.0, 0.1), valence=(0.0, 0.1))
     assert len(kept) == 4
+
+
+def test_chapter_ranges_turn_percentiles_into_this_library_numbers():
+    from core.analysis.arc import CHAPTERS
+    from core.viz.filters import chapter_ranges
+    frame = pd.DataFrame({"bpm": [100.0, 110.0, 120.0, 130.0, 140.0],
+                          "danceability": [0.1, 0.2, 0.3, 0.4, 0.5]})
+    intro = CHAPTERS[0]
+    ranges = chapter_ranges(intro, frame)
+    assert ranges["energy"] == intro["arousal"]        # già un rango
+    assert ranges["valence"] == intro["valence"]
+    assert ranges["bpm"] == pytest.approx((100.0, 106.0))   # 0..15% di 100–140
+    assert ranges["groove"] == pytest.approx((0.18, 0.26))  # 20..40% di 0.1–0.5
+
+
+def test_chapter_ranges_leave_an_empty_column_wide_open():
+    from core.analysis.arc import CHAPTERS
+    from core.viz.filters import chapter_ranges
+    frame = pd.DataFrame({"bpm": [np.nan, np.nan], "danceability": [0.2, 0.6]})
+    ranges = chapter_ranges(CHAPTERS[3], frame)
+    assert ranges["bpm"] == (60.0, 200.0)
+    assert ranges["groove"] == pytest.approx((0.2, 0.56))

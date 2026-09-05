@@ -282,3 +282,27 @@ def test_deleting_a_preset_takes_it_off_the_menu(qtbot, tmp_path, monkeypatch):
     panel._preset_delete.click()
     assert presets.names() == []
     assert panel._preset.currentText() == NO_PRESET
+
+
+# --- il capitolo ---
+
+def test_picking_a_chapter_writes_its_bands_into_the_sliders(qtbot):
+    from qt_app.pages.map.filters import FiltersPanel, NO_CHAPTER
+    panel = FiltersPanel()
+    qtbot.addWidget(panel)
+    frame = _ranked_frame()                     # bpm 124, 130, 170, 118
+    panel.set_frame(frame)
+    assert panel._chapter.currentText() == NO_CHAPTER
+    panel._chapter.setCurrentIndex(1)           # 🌅 Intro
+    low, high = panel._bpm.values()
+    assert low == 118.0 and 118.0 < high < 124.0
+    # Le fasce si stringono alla corsa vera: l'energia qui parte da 0.2.
+    assert panel._energy.values() == (0.2, 0.25)
+    assert panel._valence.values() == (0.3, 0.5)
+    assert list(panel.kept(frame).index) == []  # nessuno è calmo E lento qui
+    panel._chapter.setCurrentIndex(4)           # ⚡ Climax
+    assert panel._energy.values() == (0.85, 0.9)
+    assert panel._bpm.values()[1] == 170.0
+    panel._on_reset()
+    assert panel._chapter.currentText() == NO_CHAPTER
+    assert panel._bpm.values() == (118.0, 170.0)
