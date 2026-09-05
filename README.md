@@ -169,6 +169,10 @@ I play next, out of ninety thousand tracks?*
   are proportions and `1,1,1` means the same as `2,2,2`. Sound is measured
   on the full embedding, not on the map — see
   [below](#nearness-is-measured-in-1280-dimensions-not-on-the-map).
+- **Move around.** The chart opens with the *pan* tool in hand — dragging
+  moves the picture, the wheel zooms — and the toolbar in the top-right
+  corner switches to box or lasso; the tool you pick stays until you change
+  it, whatever the page redraws.
 - **Draw a lasso**, which does one of two things depending on the shape you
   draw. A **line** through the clusters takes the tracks it passes near, in
   the order it meets them — a way to plan an arc (start in ambient, cross

@@ -67,9 +67,12 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
      embedding a 1280 colonne lo è — e allora la pagina scorre di lato.
      Plotly la barra degli strumenti la incolla all'angolo in alto a destra
      DELLA FIGURA, che così finisce fuori dallo schermo: fissata alla
-     finestra resta dov'è sempre stata per le figure che ci stanno, e
-     raggiungibile per quelle che non ci stanno. */
-  .modebar-container { position: fixed !important; }
+     finestra resta raggiungibile. SOLO per quelle figure (`body.wide`,
+     messo da `render`): sulla mappa la barra fissa sopra il canvas WebGL
+     ogni tanto non veniva composta e spariva, e lì non serve — la
+     figura sta nel riquadro e l'angolo della figura è l'angolo della
+     finestra. */
+  body.wide .modebar-container { position: fixed !important; }
   /* Il brano in ascolto: l'annotazione che `build_figure` chiama
      «playing», e che `tagPlaying` qui sotto marca dopo ogni disegno. Il
      suo quadrato di sfondo diventa un cerchio (rx) e batte come un cuore,
@@ -134,7 +137,15 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 
   function react(data, layout) {
     var began = performance.now();
-    Plotly.react(document.getElementById("map"), data, layout, config)
+    var gd = document.getElementById("map");
+    // Lo strumento in mano — pan, zoom, riquadro, lazo — sopravvive al
+    // ridisegno: uirevision NON lo copre (misurato: un lazo scelto
+    // tornava zoom al clic dopo), quindi si ricopia da quello che c'è.
+    // Al primo disegno si parte dal pan: sulla mappa si va in giro, lo
+    // zoom sta sulla rotella.
+    layout.dragmode = (gd._fullLayout && gd._fullLayout.dragmode)
+      ? gd._fullLayout.dragmode : (layout.dragmode || "pan");
+    Plotly.react(gd, data, layout, config)
       .then(function (gd) {
         tagPlaying(gd);
         if (!gd._djcaddy_wired) {
@@ -170,6 +181,7 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8">
       // diventerebbe quella vecchia e il disegno non tornerebbe più elastico.
       var div = document.getElementById("map");
       div.style.width = spec.layout.width ? spec.layout.width + "px" : "";
+      document.body.classList.toggle("wide", !!spec.layout.width);
       base = {data: spec.data, layout: spec.layout,
               notes: (spec.layout.annotations || [])};
       react(spec.data, spec.layout);
