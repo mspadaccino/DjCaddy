@@ -254,6 +254,7 @@ class SetBuilderPanel(QWidget):
         self._asked_mixes: str | None = None
         self._graph = GraphPlaylist()
         self._source: str | None = None
+        self._chain_seen: set[str] = set()      # chi è già passato: no spunta doppia
         self._roster_picks: list = []
         # La radio: da cosa è stata sintonizzata (sorgente e semi), cosa ha
         # proposto, e i no raccolti finché i semi sono quelli.
@@ -548,11 +549,14 @@ class SetBuilderPanel(QWidget):
         restart = QPushButton("↺ Start over")
         restart.setToolTip("Empties the chain. The playlist is not touched.")
         restart.clicked.connect(self._on_chain_restart)
-        # Lo stesso verbo delle altre due schede: cambia solo il soggetto —
-        # qui va la catena intera, non le righe spuntate.
-        to_playlist = QPushButton("➕ Add to the playlist")
-        to_playlist.setToolTip("The chain goes after what the playlist "
-                               "already holds.")
+        # Lo stesso verbo delle altre schede, lo stesso soggetto: le righe
+        # spuntate — che nella catena sono tutte, finché non se ne toglie
+        # qualcuna.
+        to_playlist = QPushButton("➕ Add ticked to the playlist")
+        to_playlist.setToolTip("The ticked tracks of the chain, in chain "
+                               "order, go after what the playlist already "
+                               "holds. New tracks arrive ticked: untick "
+                               "what should stay out.")
         to_playlist.clicked.connect(self._on_chain_append)
         as_new = QPushButton("↺ Send as a new playlist")
         as_new.setToolTip("Starts over: what is in the playlist now is "
@@ -1103,7 +1107,17 @@ class SetBuilderPanel(QWidget):
     def _chained(self, graph: GraphPlaylist, source: str | None) -> None:
         self._graph = graph
         self._source = source
+        # Le spunte della catena dicono cosa va in playlist. Chi arriva
+        # arriva spuntato — la catena intera è quello che si manda nove
+        # volte su dieci — e chi è stato tolto di spunta resta tolto: la
+        # spunta è una scelta, e un ridisegno non la ripete.
+        walk = self._walk()
+        fresh = {p for p in walk if p not in self._chain_seen}
+        self._chain_seen = set(walk)
         self._refresh_chain()
+        if fresh:
+            self._chain_table.set_picked(
+                set(self._chain_table.selected_paths()) | fresh)
         self._refresh_journey()
         self.chain_changed.emit(self._walk())
 
@@ -1215,17 +1229,25 @@ class SetBuilderPanel(QWidget):
     def _on_chain_restart(self) -> None:
         self._chained(GraphPlaylist(), None)
 
-    def _on_chain_append(self) -> None:
+    def _chain_ticked(self) -> list[int]:
+        """Le righe spuntate della catena, nell'ordine della catena, come
+        indici di libreria."""
         at_path = self._lib.at_path
-        self._journal.record("chain_sent", how="append", walk=self._walk())
-        self.append_playlist.emit(
-            [at_path[p] for p in self._walk() if p in at_path])
+        ticked = set(self._chain_table.selected_paths())
+        return [at_path[p] for p in self._walk()
+                if p in ticked and p in at_path]
+
+    def _on_chain_append(self) -> None:
+        sent = self._chain_ticked()
+        self._journal.record("chain_sent", how="append", walk=self._walk(),
+                             sent=len(sent))
+        self.append_playlist.emit(sent)
 
     def _on_chain_send(self) -> None:
-        at_path = self._lib.at_path
-        self._journal.record("chain_sent", how="replace", walk=self._walk())
-        self.replace_playlist.emit(
-            [at_path[p] for p in self._walk() if p in at_path])
+        sent = self._chain_ticked()
+        self._journal.record("chain_sent", how="replace", walk=self._walk(),
+                             sent=len(sent))
+        self.replace_playlist.emit(sent)
 
     # ------------------------------------------------------------------
     # Journey

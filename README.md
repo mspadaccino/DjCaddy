@@ -350,6 +350,11 @@ warm for rising and cool for falling. It is deliberately **not** in the
 ranking — a set climbs, holds and lets go, and sorting by direction would be
 choosing which of the three on the DJ's behalf.
 
+**The ticks on the chain say what goes to the playlist.** A track enters
+the chain ticked — the whole chain is what you send nine times out of ten —
+and a tick you take off stays off through every redraw. *Add ticked to the
+playlist* and *Send as a new playlist* take the ticked rows, in chain order.
+
 The set builder has **its own filters**, not the map's: a clickable **Camelot
 wheel** (two rings, major outside and minor inside, the way the players draw
 it, because harmonic mixing is a question about neighbours and a list of

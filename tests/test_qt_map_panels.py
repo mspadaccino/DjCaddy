@@ -1141,3 +1141,33 @@ def test_sorts_by_a_measure_compose_and_respect_the_ticked_scope(qtbot, tmp_path
     assert state.playlist == ["/x/b.mp3", "/x/d.mp3", "/x/c.mp3", "/x/a.mp3"]
     panel._sort_energy_down.trigger()
     assert state.playlist == ["/x/b.mp3", "/x/a.mp3", "/x/c.mp3", "/x/d.mp3"]
+
+
+def test_chain_rows_arrive_ticked_and_only_the_ticked_go_to_the_playlist(
+        qtbot, tmp_path, monkeypatch):
+    """Chi entra nella catena entra spuntato; una spunta tolta resta tolta
+    al ridisegno; in playlist vanno le spuntate, nell'ordine della catena."""
+    monkeypatch.setattr("qt_app.state._save_favourites", lambda paths: None)
+    panel, state, journal = _radio_panel(qtbot, tmp_path)
+    panel._on_start_by_name(0)
+    assert panel._chain_table.selected_paths() == ["/r/t0.mp3"]
+    panel._roster_table.toggle_pick(0)
+    panel._on_roster_add()
+    walk = panel._walk()
+    assert len(walk) == 2
+    assert set(panel._chain_table.selected_paths()) == set(walk)
+
+    # Tolgo la spunta al primo: un altro giro di catena non la rimette.
+    panel._chain_table.set_picked({walk[1]})
+    panel._roster_table.toggle_pick(0)
+    panel._on_roster_add()
+    walk = panel._walk()
+    assert len(walk) == 3
+    assert set(panel._chain_table.selected_paths()) == {walk[1], walk[2]}
+
+    heard = []
+    panel.replace_playlist.connect(heard.append)
+    panel._on_chain_send()
+    at_path = panel._lib.at_path
+    assert heard[0] == [at_path[walk[1]], at_path[walk[2]]]
+    assert journal.read()[-1]["sent"] == 2
