@@ -174,3 +174,111 @@ def test_dragging_a_handle_moves_only_that_end_and_tells(qtbot):
     assert slider.values() == (125.0, 175.0) or slider.values()[0] <= 175.0
     assert heard[-1] == slider.values()
     assert slider._low.text() == f"{slider.values()[0]:.1f}"
+
+
+# --- energia e mood, e i preset ---
+
+def _ranked_frame() -> pd.DataFrame:
+    frame = _frame()
+    frame["energy"] = [0.2, 0.9, 0.7, 0.4]
+    frame["valence_rank"] = [0.8, 0.1, 0.3, 0.6]
+    return frame
+
+
+def test_energy_and_mood_ranges_narrow_on_the_ranks(qtbot):
+    from qt_app.pages.map.filters import FiltersPanel
+    panel = FiltersPanel()
+    qtbot.addWidget(panel)
+    panel.set_frame(_ranked_frame())
+    assert panel._energy.isEnabled() and panel._valence.isEnabled()
+    panel._energy.set_values(0.0, 0.5)
+    assert list(panel.kept(_ranked_frame()).index) == [0, 3]
+    panel._valence.set_values(0.7, 1.0)
+    assert list(panel.kept(_ranked_frame()).index) == [0]
+    panel._on_reset()
+    assert len(panel.kept(_ranked_frame())) == 4
+
+
+def test_a_map_without_the_ranks_keeps_the_sliders_off(qtbot):
+    panel = _panel(qtbot)
+    assert not panel._energy.isEnabled()
+    assert not panel._valence.isEnabled()
+    assert len(panel.kept(_frame())) == 4
+
+
+def test_state_and_restore_round_trip(qtbot):
+    from qt_app.pages.map.filters import FiltersPanel
+    panel = FiltersPanel()
+    qtbot.addWidget(panel)
+    panel.set_frame(_ranked_frame())
+    _tick(panel._macros, "Electronic")
+    _tick(panel._genres, "Electronic - House")
+    _tick(panel._moods, "happy")
+    panel._on_key("8A")
+    panel._depth.setCurrentIndex(1)
+    panel._bpm.set_values(120.0, 130.0)
+    panel._energy.set_values(0.1, 0.5)
+    saved = panel.state()
+    kept_before = list(panel.kept(_ranked_frame()).index)
+
+    panel._on_reset()
+    assert len(panel.kept(_ranked_frame())) == 4
+    panel.restore(saved)
+    assert panel.state() == saved
+    assert list(panel.kept(_ranked_frame()).index) == kept_before
+    assert _options(panel._genres) == [
+        "Electronic - House", "Electronic - Deep House", "Electronic - Techno"]
+
+
+def test_a_preset_carries_the_filters_and_the_extras(qtbot, tmp_path,
+                                                     monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    from core.analysis.presets import Presets
+    from qt_app.pages.map.filters import FiltersPanel, NO_PRESET
+    presets = Presets(tmp_path / "presets.json")
+    panel = FiltersPanel(presets=presets)
+    qtbot.addWidget(panel)
+    panel.set_frame(_ranked_frame())
+    weights = {"weights": [1.0, 0.2, 0.5]}
+    given = []
+    panel.bind_extras(lambda: dict(weights), given.append)
+
+    _tick(panel._macros, "Electronic")
+    panel._bpm.set_values(120.0, 126.0)
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("house_intro", True)))
+    panel._preset_save.click()
+    assert presets.names() == ["house_intro"]
+    assert presets.read("house_intro")["weights"] == [1.0, 0.2, 0.5]
+    assert presets.read("house_intro")["macros"] == ["Electronic"]
+    assert panel._preset.currentText() == "house_intro"
+
+    panel._on_reset()
+    assert len(panel.kept(_ranked_frame())) == 4
+    panel._preset.setCurrentText(NO_PRESET)
+    panel._preset.setCurrentText("house_intro")
+    assert panel._macros.checked() == ["Electronic"]
+    assert panel._bpm.values() == (120.0, 126.0)
+    assert list(panel.kept(_ranked_frame()).index) == [0]   # 118 resta fuori
+    assert given[-1]["weights"] == [1.0, 0.2, 0.5]
+
+
+def test_deleting_a_preset_takes_it_off_the_menu(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from core.analysis.presets import Presets
+    from qt_app.pages.map.filters import FiltersPanel, NO_PRESET
+    presets = Presets(tmp_path / "presets.json")
+    presets.write("old", {"bpm": [100.0, 110.0]})
+    panel = FiltersPanel(presets=presets)
+    qtbot.addWidget(panel)
+    panel.set_frame(_ranked_frame())
+    assert not panel._preset_delete.isEnabled()
+    panel._preset.setCurrentText("old")
+    assert panel._preset_delete.isEnabled()
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(
+        lambda *a, **k: QMessageBox.StandardButton.Yes))
+    panel._preset_delete.click()
+    assert presets.names() == []
+    assert panel._preset.currentText() == NO_PRESET

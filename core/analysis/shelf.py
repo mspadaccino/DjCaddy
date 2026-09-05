@@ -10,8 +10,9 @@ scaffale tiene le altre mentre una sta sul tavolo.
 Una cartella di `.m3u8`, un file per playlist, il nome del file è il nome
 della playlist: lo stesso formato che la pagina esporta e rilegge, così la
 cartella si apre anche dal Finder e una scaletta si porta fuori copiando
-un file. Sta accanto a `favourites.json`, non dentro la cache della mappa:
-la mappa si può cancellare e rifare, le scalette no.
+un file. Sta in `~/Documents/DjCaddy/Playlists` (`user_files.user_dir`),
+non nella cache: la mappa si può cancellare e rifare, le scalette sono
+lavoro del DJ e vanno dove si vedono e si salvano.
 
 `.active` ricorda quale playlist sta sul tavolo, per ritrovarla al
 prossimo avvio. Un nome vale se è un nome di file: niente separatori di
@@ -23,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.analysis.dj_export import build_m3u8, read_m3u8
-from core.analysis.map_store import default_store_dir
+from core.analysis.user_files import user_dir
 
 DEFAULT_NAME = "Playlist"
 _SUFFIX = ".m3u8"
@@ -31,7 +32,7 @@ _ACTIVE = ".active"
 
 
 def default_shelf_dir() -> Path:
-    return default_store_dir().parent / "shelf"
+    return user_dir() / "Playlists"
 
 
 def valid_name(name: str) -> bool:

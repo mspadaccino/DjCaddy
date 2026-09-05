@@ -31,7 +31,9 @@ def span(frame: pd.DataFrame, column: str,
 def filter_tracks(frame: pd.DataFrame, genres: list[str], moods: list[str],
                   keys: list[str], bpm: tuple[float, float],
                   groove: tuple[float, float],
-                  genre_depth: int | None = None) -> pd.DataFrame:
+                  genre_depth: int | None = None,
+                  energy: tuple[float, float] | None = None,
+                  valence: tuple[float, float] | None = None) -> pd.DataFrame:
     """I brani che passano i filtri della pagina.
 
     `frame` deve portare `genre_list` e `mood_list` (le etichette già
@@ -43,6 +45,11 @@ def filter_tracks(frame: pd.DataFrame, genres: list[str], moods: list[str],
     I generi di un brano sono in ordine di forza, il primo è quello che il
     modello sente di più: `genre_depth` dice quanti guardarne dall'alto —
     1 è "solo il genere principale", `None` è tutti, che è com'era.
+
+    `energy` e `valence` sono intervalli sui RANGHI di libreria (colonne
+    `energy` e `valence_rank`, 0..1): "il quarto più calmo che possiedi",
+    non un numero assoluto. Senza intervallo non si guardano — le mappe
+    fatte prima di queste due colonne non le hanno.
 
     Un brano senza BPM o senza groove non viene escluso da un intervallo su
     quel valore: non sappiamo dove cade, e farlo sparire sarebbe rispondere
@@ -62,6 +69,9 @@ def filter_tracks(frame: pd.DataFrame, genres: list[str], moods: list[str],
     kept = kept[kept["bpm"].isna() | kept["bpm"].between(*bpm)]
     kept = kept[kept["danceability"].isna()
                 | kept["danceability"].between(*groove)]
+    for column, span_ in (("energy", energy), ("valence_rank", valence)):
+        if span_ is not None and column in kept:
+            kept = kept[kept[column].isna() | kept[column].between(*span_)]
     return kept
 
 

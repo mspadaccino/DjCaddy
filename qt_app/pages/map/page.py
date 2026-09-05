@@ -394,6 +394,13 @@ class MapPage(QWidget):
         # schede non può stare dentro una delle due.
         self._weights = WeightsBar()
         self._weights.changed.connect(self._on_weights)
+        # I pesi entrano nel preset dei filtri: «house_intro» è un ritaglio
+        # della libreria E un modo di misurare la vicinanza dentro il
+        # ritaglio, e si rimettono insieme.
+        self._filters.bind_extras(
+            lambda: {"weights": list(self._weights.weights())},
+            lambda saved: self._weights.set_weights(*saved["weights"])
+            if "weights" in saved else None)
         right_box = QWidget()
         right = QVBoxLayout(right_box)
         right.setContentsMargins(0, 0, 0, 0)

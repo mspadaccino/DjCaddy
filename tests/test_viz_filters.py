@@ -87,3 +87,28 @@ def test_genre_depth_looks_only_at_the_strongest_labels():
     assert _kept(genres=["Minimal"], genre_depth=1) == []
     assert _kept(genres=["Minimal"], genre_depth=2) == [0]
     assert _kept(genres=["House"], genre_depth=1) == [0, 3]
+
+
+def _ranked() -> pd.DataFrame:
+    frame = _tracks()
+    frame["energy"] = [0.1, 0.5, np.nan, 0.9]
+    frame["valence_rank"] = [0.2, 0.8, 0.5, np.nan]
+    return frame
+
+
+def test_an_energy_range_reads_the_rank_and_spares_the_unknown():
+    kept = filter_tracks(_ranked(), [], [], [], (60.0, 200.0), (0.0, 1.0),
+                         energy=(0.0, 0.3))
+    assert kept.index.tolist() == [0, 2]
+
+
+def test_a_valence_range_reads_the_rank_not_the_signed_number():
+    kept = filter_tracks(_ranked(), [], [], [], (60.0, 200.0), (0.0, 1.0),
+                         valence=(0.6, 1.0))
+    assert kept.index.tolist() == [1, 3]
+
+
+def test_without_the_columns_the_ranges_are_ignored():
+    kept = filter_tracks(_tracks(), [], [], [], (60.0, 200.0), (0.0, 1.0),
+                         energy=(0.0, 0.1), valence=(0.0, 0.1))
+    assert len(kept) == 4

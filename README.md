@@ -303,6 +303,20 @@ the chosen genre or macro genre is its main one; *the top 2*, *the top 3*,
 or *all its genres*, which is the default and the old behaviour — any of
 them will do.
 
+The four ranges — **BPM, groove, energy, mood** — are two-handle sliders
+with the numbers beside them. Energy and mood are **ranks across your
+library**, 0 to 1: `0.00–0.25` on energy means *the calmest quarter you
+own*, not a number on an absolute scale, which is exactly the language a
+set is planned in — an intro lives low, a climax high.
+
+**Presets** sit at the top of the filters. *Save preset…* keeps everything
+the panel is set to — keys, genres, moods, the depth, the four ranges —
+**and the three weights of the transition cost**, under a name of yours;
+pick it from the menu and it is all back at once. A preset is a way of
+looking at the library — `house_intro` is a corner of it *and* how nearness
+is judged inside that corner — and the menu is how you go back to the same
+corner tomorrow. They live in `~/Documents/DjCaddy/presets.json`.
+
 ### Building a set
 
 Magic sort answers *put these in the best order*. The set builder answers the
@@ -484,9 +498,9 @@ the one before goes back exactly as it was. **＋ New** opens an empty one
 with a name of yours, **✎ Rename** and **✕ Delete** do what they say, and
 the tab carries the name so you can see which set you are touching. Every
 change is written to the shelf at once, like the favourites — there is no
-"unsaved" playlist to lose by switching. On disk it is a folder of `.m3u8`
-files next to `favourites.json`, one per playlist, so it opens from the
-Finder too. *Load playlist…* puts a file on the shelf under its own name;
+"unsaved" playlist to lose by switching. On disk it is
+`~/Documents/DjCaddy/Playlists`, one `.m3u8` per playlist, so it opens from
+the Finder too and goes into your backups with the rest of your work. *Load playlist…* puts a file on the shelf under its own name;
 the *Save as…* buttons still export a copy wherever you like.
 
 ### The board
