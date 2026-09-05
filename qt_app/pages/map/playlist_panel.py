@@ -34,9 +34,9 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
                                QPushButton, QSlider, QSplitter, QVBoxLayout,
                                QWidget)
 
-from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml,
-                                     playlist_positions, read_m3u8,
-                                     read_title_artist)
+from core.analysis.dj_export import (build_m3u8, build_rekordbox_shelf_xml,
+                                     build_rekordbox_xml, playlist_positions,
+                                     read_m3u8, read_title_artist)
 from core.analysis.duplicates import song_key
 from core.analysis.journal import Journal
 from core.analysis.mixing import TransitionCost, magic_sort
@@ -505,9 +505,12 @@ class PlaylistPanel(QWidget):
                                    "BPM, no cues.")
         self._save_m3u8.clicked.connect(self._on_save_m3u8)
         self._save_xml = QPushButton("⬇ Save as library (rekordbox XML)")
-        self._save_xml.setToolTip("A library, not a playlist file: load it "
-                                  "under Preferences ▸ Advanced ▸ Database "
-                                  "▸ rekordbox xml. Carries the BPM.")
+        self._save_xml.setToolTip(theme.hint(
+            "A library, not a playlist file: load it under Preferences ▸ "
+            "Advanced ▸ Database ▸ rekordbox xml. Carries the BPM. It asks "
+            "whether to write this playlist alone or the whole shelf — "
+            "the shelf comes out as a «DjCaddy» folder with one playlist "
+            "per name, so a night of twelve sets is one import."))
         self._save_xml.clicked.connect(self._on_save_xml)
         files_row = QHBoxLayout()
         for button in (adding, loading, self._save_again,
@@ -944,9 +947,12 @@ class PlaylistPanel(QWidget):
             self.append(found)
 
     def _tracks_for_export(self) -> list[dict]:
+        return self._export_rows(self.indices())
+
+    def _export_rows(self, indices: list[int]) -> list[dict]:
         frame = self._lib.frame
         tracks = []
-        for i in self.indices():
+        for i in indices:
             path = Path(frame.at[i, "path"])
             title, artist = read_title_artist(path)
             tracks.append({"path": path, "name": title, "artist": artist,
@@ -1001,5 +1007,45 @@ class PlaylistPanel(QWidget):
                       "Save the playlist", "Playlist (*.m3u8)")
 
     def _on_save_xml(self) -> None:
-        self._save_as(build_rekordbox_xml, "djcaddy_library.xml",
-                      "Save the rekordbox library", "rekordbox XML (*.xml)")
+        """Questa playlist, o lo scaffale intero: la domanda si fa qui e
+        non con un bottone in più, perché è la stessa uscita — un XML
+        rekordbox — con dentro una scaletta o dodici."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Save the rekordbox library")
+        box.setText("What goes into the library?")
+        names = self._shelf.names()
+        box.setInformativeText(
+            f"The whole shelf is {len(names)} playlist(s), as a «DjCaddy» "
+            "folder in rekordbox.")
+        this = box.addButton(f"This playlist ({self._current})",
+                             QMessageBox.ButtonRole.AcceptRole)
+        whole = box.addButton("The whole shelf",
+                              QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() is this:
+            self._save_as(build_rekordbox_xml, "djcaddy_library.xml",
+                          "Save the rekordbox library", "rekordbox XML (*.xml)")
+        elif box.clickedButton() is whole:
+            self._save_shelf_xml()
+
+    def _save_shelf_xml(self) -> None:
+        """Lo scaffale in un XML. Si legge dai file, non dal tavolo: la
+        playlist sul tavolo è già scritta lì. I brani che non stanno sulla
+        mappa restano fuori, come al caricamento — un TRACK senza BPM né
+        durata rekordbox lo importerebbe monco."""
+        chosen, _ = QFileDialog.getSaveFileName(
+            self, "Save the whole shelf as a rekordbox library",
+            "djcaddy_shelf.xml", "rekordbox XML (*.xml)")
+        if not chosen:
+            return
+        at_path = self._lib.at_path
+        playlists = []
+        for name in self._shelf.names():
+            paths = self._shelf.read(name)
+            rows = self._export_rows([at_path[p] for p in paths if p in at_path])
+            playlists.append((name, rows))
+        Path(chosen).write_text(build_rekordbox_shelf_xml(playlists), "utf-8")
+        for name, rows in playlists:
+            self._journal.record("playlist_saved", file=chosen, format="xml",
+                                 name=name, paths=[str(r["path"]) for r in rows])

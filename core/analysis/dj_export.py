@@ -54,27 +54,21 @@ def section_cues(sections: list[Section]) -> list[dict]:
     return cues
 
 
-def build_rekordbox_xml(tracks: list[dict]) -> str:
-    """Costruisce l'XML rekordbox (stringa) per una lista di tracce.
-
-    Ogni elemento di `tracks` è un dict:
-        {"path": Path, "name": str, "artist": str, "bpm": float | None,
-         "duration": float | None, "cues": list[{"name","start","color"}]}
-
-    Pura: nessun I/O, solo costruzione della stringa XML — testabile con dati
-    sintetici.
-    """
-    root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
-    ET.SubElement(root, "PRODUCT", Name="DjCaddy", Version="1.0", Company="DjCaddy")
-    collection = ET.SubElement(root, "COLLECTION", Entries=str(len(tracks)))
-
-    track_keys = []
-    for i, t in enumerate(tracks, start=1):
+def _collection(root: ET.Element, tracks: list[dict]) -> dict[Path, str]:
+    """La COLLECTION: un TRACK per percorso distinto, e la chiave che ogni
+    percorso ha ricevuto. Un brano che sta in due playlist è un TRACK solo
+    — rekordbox lo vuole così, e con due lo importerebbe due volte."""
+    collection = ET.SubElement(root, "COLLECTION")
+    keys: dict[Path, str] = {}
+    for t in tracks:
         path: Path = t["path"]
+        if path in keys:
+            continue
+        keys[path] = str(len(keys) + 1)
         duration = t.get("duration")
         bpm = t.get("bpm")
         attrs = {
-            "TrackID": str(i),
+            "TrackID": keys[path],
             "Name": t.get("name") or path.stem,
             "Artist": t.get("artist") or "",
             "Album": "",
@@ -100,15 +94,58 @@ def build_rekordbox_xml(tracks: list[dict]) -> str:
                 "Start": f"{cue['start']:.3f}", "Num": num,
                 "Red": str(r), "Green": str(g), "Blue": str(b),
             })
-        track_keys.append(str(i))
+    collection.set("Entries", str(len(keys)))
+    return keys
 
+
+def _playlist_node(parent: ET.Element, name: str, tracks: list[dict],
+                   keys: dict[Path, str]) -> None:
+    node = ET.SubElement(parent, "NODE", Name=name, Type="1",
+                         Entries=str(len(tracks)))
+    for t in tracks:
+        ET.SubElement(node, "TRACK", Key=keys[t["path"]])
+
+
+def _root() -> ET.Element:
+    root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
+    ET.SubElement(root, "PRODUCT", Name="DjCaddy", Version="1.0", Company="DjCaddy")
+    return root
+
+
+def build_rekordbox_xml(tracks: list[dict]) -> str:
+    """Costruisce l'XML rekordbox (stringa) per una lista di tracce: la
+    collezione e una playlist «DjCaddy» che le tiene nell'ordine dato.
+
+    Ogni elemento di `tracks` è un dict:
+        {"path": Path, "name": str, "artist": str, "bpm": float | None,
+         "duration": float | None, "cues": list[{"name","start","color"}]}
+
+    Pura: nessun I/O, solo costruzione della stringa XML — testabile con dati
+    sintetici.
+    """
+    root = _root()
+    keys = _collection(root, tracks)
     playlists = ET.SubElement(root, "PLAYLISTS")
     root_node = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")
-    playlist_node = ET.SubElement(root_node, "NODE", Name="DjCaddy", Type="1",
-                                  Entries=str(len(track_keys)))
-    for key in track_keys:
-        ET.SubElement(playlist_node, "TRACK", Key=key)
+    _playlist_node(root_node, "DjCaddy", tracks, keys)
+    return ET.tostring(root, encoding="UTF-8", xml_declaration=True).decode("utf-8")
 
+
+def build_rekordbox_shelf_xml(playlists: list[tuple[str, list[dict]]]) -> str:
+    """Lo scaffale intero in un XML: una cartella «DjCaddy» e dentro una
+    playlist per nome, nell'ordine dato. Dodici scalette, un import solo
+    — in rekordbox la cartella arriva com'è, coi suoi nomi.
+
+    La collezione è l'unione dei brani, uno per percorso: lo stesso disco
+    in `house_intro` e in `house_buildup` è un TRACK e due Key."""
+    root = _root()
+    keys = _collection(root, [t for _, tracks in playlists for t in tracks])
+    holder = ET.SubElement(root, "PLAYLISTS")
+    root_node = ET.SubElement(holder, "NODE", Type="0", Name="ROOT", Count="1")
+    folder = ET.SubElement(root_node, "NODE", Type="0", Name="DjCaddy",
+                           Count=str(len(playlists)))
+    for name, tracks in playlists:
+        _playlist_node(folder, name, tracks, keys)
     return ET.tostring(root, encoding="UTF-8", xml_declaration=True).decode("utf-8")
 
 

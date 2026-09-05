@@ -1062,3 +1062,36 @@ def test_a_loaded_file_enters_the_shelf_under_its_own_name(qtbot, tmp_path,
     assert state.playlist == ["/x/one.mp3"]
     assert shelf.read("night") == ["/x/one.mp3"]
     assert shelf.read("Playlist") == ["/x/two.mp3"]   # quella di prima resta
+
+
+def test_the_whole_shelf_goes_into_one_rekordbox_library(qtbot, tmp_path,
+                                                         monkeypatch):
+    """«Save as library» chiede: questa playlist o lo scaffale. Lo scaffale
+    esce come una cartella «DjCaddy» con una playlist per nome, i brani
+    letti dai file dello scaffale, quelli fuori mappa lasciati fuori."""
+    import xml.etree.ElementTree as ET
+
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    state.set_playlist(["/x/one.mp3", "/x/two.mp3"])
+    shelf.write("house_buildup", ["/x/two.mp3", "/nowhere/ghost.mp3"])
+
+    out = tmp_path / "shelf.xml"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(out), "")))
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
+    # Qt riordina i bottoni per ruolo: si cerca «The whole shelf» per nome.
+    monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: next(
+        b for b in self.buttons() if b.text() == "The whole shelf"))
+    monkeypatch.setattr("qt_app.pages.map.playlist_panel.read_title_artist",
+                        lambda path: (path.stem, ""))
+    panel._save_xml.click()
+
+    root = ET.fromstring(out.read_text("utf-8"))
+    folder = root.find("PLAYLISTS/NODE/NODE[@Name='DjCaddy']")
+    assert [n.get("Name") for n in folder.findall("NODE")] == [
+        "house_buildup", "Playlist"]
+    assert root.find("COLLECTION").get("Entries") == "2"   # il fantasma no
+    buildup = folder.find("NODE[@Name='house_buildup']")
+    assert buildup.get("Entries") == "1"
+    assert not panel._save_again.isEnabled()   # lo scaffale non è «il file»

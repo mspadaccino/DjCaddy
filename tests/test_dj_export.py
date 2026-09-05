@@ -112,3 +112,33 @@ def test_read_m3u8_turns_file_uris_back_into_paths():
 
 def test_read_m3u8_ignores_blank_lines():
     assert read_m3u8("\n#EXTM3U\n\n  /Music/one.mp3  \n\n") == ["/Music/one.mp3"]
+
+
+def test_shelf_xml_is_a_folder_of_playlists_sharing_one_collection():
+    from core.analysis.dj_export import build_rekordbox_shelf_xml
+    one = {"path": Path("/x/one.mp3"), "name": "one", "artist": "", "bpm": 124.0,
+           "duration": 300.0, "cues": []}
+    two = {"path": Path("/x/two.mp3"), "name": "two", "artist": "", "bpm": 98.0,
+           "duration": 200.0, "cues": []}
+    root = ET.fromstring(build_rekordbox_shelf_xml([
+        ("house_intro", [one, two]), ("house_buildup", [two])]))
+
+    # Il disco che sta in due playlist è un TRACK solo.
+    assert root.find("COLLECTION").get("Entries") == "2"
+    assert len(root.findall("COLLECTION/TRACK")) == 2
+
+    folder = root.find("PLAYLISTS/NODE[@Name='ROOT']/NODE[@Name='DjCaddy']")
+    assert folder.get("Type") == "0" and folder.get("Count") == "2"
+    names = [n.get("Name") for n in folder.findall("NODE")]
+    assert names == ["house_intro", "house_buildup"]
+    intro, buildup = folder.findall("NODE")
+    assert intro.get("Type") == "1"
+    assert [t.get("Key") for t in intro.findall("TRACK")] == ["1", "2"]
+    assert [t.get("Key") for t in buildup.findall("TRACK")] == ["2"]
+
+
+def test_shelf_xml_with_an_empty_playlist_keeps_its_node():
+    from core.analysis.dj_export import build_rekordbox_shelf_xml
+    root = ET.fromstring(build_rekordbox_shelf_xml([("empty", [])]))
+    node = root.find(".//NODE[@Name='empty']")
+    assert node is not None and node.get("Entries") == "0"
