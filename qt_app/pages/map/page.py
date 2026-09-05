@@ -48,6 +48,7 @@ from .filters import FiltersPanel
 from .library import Library, load_library
 from .playlist_panel import PlaylistPanel
 from .set_builder import SetBuilderPanel
+from .shelf_panel import ShelfPanel
 from .settings import SettingsDialog
 from .weights import WeightsBar
 
@@ -380,11 +381,19 @@ class MapPage(QWidget):
         self._playlist.shelf_changed.connect(lambda _: self._retitle_panels())
         self._favourites = FavouritesPanel(self._state, self._wire)
         self._favourites.append_playlist.connect(self._on_builder_append)
+        # La vista dello scaffale legge gli stessi file della scheda
+        # Playlist e si rifà quando quella scrive o cambia nome.
+        self._shelf_view = ShelfPanel(self._playlist.shelf)
+        self._shelf_view.open_requested.connect(self._on_open_playlist)
+        state.playlist_changed.connect(lambda _: self._shelf_view.invalidate())
+        self._playlist.shelf_changed.connect(
+            lambda _: self._shelf_view.invalidate())
 
         self._panels = QTabWidget()
         self._panels.addTab(self._filters, "🔎 Filters")
         self._panels.addTab(self._builder, "🎛️ Build a set")
         self._panels.addTab(self._playlist, PLAYLIST_TAB_TITLE)
+        self._panels.addTab(self._shelf_view, "📚 Shelf")
         self._panels.addTab(self._favourites, FAVOURITES_TAB_TITLE)
         self._panels.setCurrentWidget(self._builder)
         self._retitle_panels()
@@ -497,6 +506,7 @@ class MapPage(QWidget):
         self._builder.set_library(lib)
         self._playlist.set_library(lib)
         self._favourites.set_library(lib)
+        self._shelf_view.set_library(lib)
         self._rebuild_cloud()
         self._schedule_choice()
 
@@ -732,6 +742,11 @@ class MapPage(QWidget):
 
     def _on_builder_replace(self, indices: list[int]) -> None:
         self._playlist.replace(indices)
+        self._panels.setCurrentWidget(self._playlist)
+
+    def _on_open_playlist(self, name: str) -> None:
+        """Dalla vista dello scaffale alla playlist: sul tavolo, e davanti."""
+        self._playlist.open(name)
         self._panels.setCurrentWidget(self._playlist)
 
     def _on_weights(self) -> None:

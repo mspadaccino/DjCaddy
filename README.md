@@ -544,6 +544,17 @@ first, and tracks rekordbox does not know left out and named. There is no
 Save button: the shelf is always saved, and an export is a copy you can make
 again.
 
+### The shelf view
+
+The **📚 Shelf** tab is the whole night on one page: a row per playlist
+with how many tracks, the BPM span, the mean **energy** as a rank of your
+library with a bar, the **keys** covered along the Camelot wheel, the
+total **length**, and how many of its tracks are **shared** with another
+playlist — hover the number for which ones and where. Under it, the totals.
+Double-click a row and that playlist comes onto the table. It is a view for
+seeing where the material is thin — the six-track playlist, the one all in
+8A — not for moving it: the gestures stay in the Playlist tab.
+
 ### The board
 
 **The board draws the playlist, not the chain**, and it sits in the playlist
@@ -1240,6 +1251,7 @@ Key engine modules (`core/analysis/`):
 | `map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
 | `map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
 | `map_job.py` | the map build as a long, resumable background job |
+| `shelf_view.py` | the Shelf tab's rows: BPM span, mean energy, keys along the wheel, length, tracks shared between playlists |
 | `ordering.py` | the plain playlist orders — BPM, energy, key around the wheel — stable, unknowns last |
 | `mixing.py` | Camelot wheel, transition cost (cosine on the embeddings + tempo + key), the point one step ahead for Trend, signed tempo/key shifts, path-drawn playlists, magic sort |
 | `graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, the roster of what comes next, and Auto chain |

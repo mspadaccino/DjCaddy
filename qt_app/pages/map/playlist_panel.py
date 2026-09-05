@@ -697,6 +697,16 @@ class PlaylistPanel(QWidget):
     def current_name(self) -> str:
         return self._current
 
+    @property
+    def shelf(self) -> Shelf:
+        return self._shelf
+
+    def open(self, name: str) -> None:
+        """`name` sul tavolo, se sta sullo scaffale: il gesto della vista
+        dello scaffale, e lo stesso del menu."""
+        if name in self._shelf.names() and name != self._current:
+            self._switch_to(name)
+
     def _open_shelf(self) -> None:
         """All'avvio: la playlist attiva dell'ultima volta torna sul
         tavolo. Uno scaffale vuoto — la prima volta — riceve la playlist

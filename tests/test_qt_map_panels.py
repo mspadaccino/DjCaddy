@@ -1132,3 +1132,49 @@ def test_ticked_rows_move_or_copy_to_another_playlist_of_the_shelf(
     assert shelf.read("funky_intro") == ["/y/three.mp3"]
     assert state.playlist == []
     assert panel.current_name() == "Playlist"          # il tavolo non cambia
+
+
+# --- la vista dello scaffale ---
+
+def test_the_shelf_view_lists_every_playlist_and_opens_one_on_double_click(
+        qtbot, tmp_path):
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.shelf_panel import ShelfPanel
+
+    class _FakeStore:
+        coords = np.zeros((3, 2))
+        embeddings = np.zeros((3, 4))
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame))
+    shelf = Shelf(tmp_path / "shelf")
+    shelf.write("house_intro", ["/x/one.mp3", "/x/two.mp3"])
+    shelf.write("house_climax", ["/x/two.mp3", "/y/three.mp3"])
+    panel = ShelfPanel(shelf)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    panel.show()
+    table = panel._table
+    assert table.rowCount() == 2
+    names = [table.item(r, 0).text() for r in range(2)]
+    assert names == ["house_climax", "house_intro"]
+    shared = table.item(0, SHOWN_INDEX("shared"))
+    assert shared.text() == "1" and "also in house_intro" in shared.toolTip()
+    assert "2 playlist(s) · 4 track(s)" in panel._summary.text()
+
+    heard = []
+    panel.open_requested.connect(heard.append)
+    panel._on_double_click(table.item(1, 2))
+    assert heard == ["house_intro"]
+
+    # Lo scaffale cambia mentre la scheda si vede: la tabella si rifà.
+    shelf.write("funky_release", ["/y/three.mp3"])
+    panel.invalidate()
+    assert table.rowCount() == 3
+
+
+def SHOWN_INDEX(column: str) -> int:
+    from qt_app.pages.map.shelf_panel import SHOWN
+    return SHOWN.index(column)
