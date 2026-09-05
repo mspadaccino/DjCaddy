@@ -124,3 +124,53 @@ def test_look_at_narrows_the_genres_to_the_strongest_ones(qtbot):
     panel._on_reset()
     assert panel.genre_depth() is None
     assert panel._depth.currentText() == GENRE_DEPTHS[-1][0]
+
+
+# --- gli slider a due maniglie ---
+
+def test_the_ranges_open_on_the_true_extremes_of_the_library(qtbot):
+    panel = _panel(qtbot)
+    assert panel._bpm.values() == (118.0, 170.0)
+    assert panel._groove.values() == (0.3, 0.7)
+    assert panel._bpm._low.text() == "118.0"
+    assert panel._groove._high.text() == "0.700"
+    assert len(panel.kept(_frame())) == 4
+
+
+def test_a_range_narrows_the_tracks_and_reset_opens_it_again(qtbot):
+    panel = _panel(qtbot)
+    panel._bpm.set_values(120.0, 130.0)
+    assert list(panel.kept(_frame()).index) == [0, 1]
+    panel._on_reset()
+    assert panel._bpm.values() == (118.0, 170.0)
+    assert len(panel.kept(_frame())) == 4
+
+
+def test_dragging_a_handle_moves_only_that_end_and_tells(qtbot):
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    from qt_app.widgets.range_slider import RangeSlider
+    slider = RangeSlider(decimals=1)
+    qtbot.addWidget(slider)
+    slider.set_span(100.0, 200.0)
+    slider.resize(300, 30)
+    bar = slider._bar
+    bar.resize(214, 20)          # 200 pixel utili fra le due maniglie
+    heard = []
+    slider.valuesChanged.connect(lambda lo, hi: heard.append((lo, hi)))
+
+    def press(x):
+        bar.mousePressEvent(QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress, QPointF(x, 10), QPointF(x, 10),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier))
+
+    press(7 + 50)                # vicino alla maniglia bassa: la sposta
+    assert slider.values() == (125.0, 200.0)
+    press(7 + 150)               # vicino a quella alta
+    assert slider.values() == (125.0, 175.0)
+    press(7 + 130)               # la bassa non supera l'alta
+    assert slider.values() == (125.0, 175.0) or slider.values()[0] <= 175.0
+    assert heard[-1] == slider.values()
+    assert slider._low.text() == f"{slider.values()[0]:.1f}"

@@ -2,6 +2,12 @@
 
 Il risultato della pagina sta qui — da qualunque scheda sia arrivato — e da
 qui si porta via (M3U8, rekordbox XML) o si riprende (M3U8, file dal disco).
+In testa c'è lo scaffale (`core.analysis.shelf`): il menu dice quale
+playlist sta sul tavolo, e le altre aspettano. Il resto della pagina non lo
+sa — legge `state.playlist` come sempre, e quella è UNA — ed è questo che
+tiene lo scaffale piccolo: cambia solo cosa c'è sul tavolo. Ogni modifica
+alla playlist si riscrive sullo scaffale da sé, come i preferiti: nessun
+«hai salvato?» al cambio di playlist.
 La lavagna disegna QUESTA playlist, con le aree colorate dei capitoli
 quando ci sono; il riordino è il trascinamento delle righe, che è il motivo
 per cui la tabella è nativa.
@@ -23,9 +29,10 @@ import pandas as pd
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
-                               QFileDialog, QHBoxLayout, QLabel,
-                               QListWidget, QMessageBox, QPushButton,
-                               QSlider, QSplitter, QVBoxLayout, QWidget)
+                               QFileDialog, QHBoxLayout, QInputDialog,
+                               QLabel, QListWidget, QMessageBox,
+                               QPushButton, QSlider, QSplitter, QVBoxLayout,
+                               QWidget)
 
 from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml,
                                      playlist_positions, read_m3u8,
@@ -33,6 +40,7 @@ from core.analysis.dj_export import (build_m3u8, build_rekordbox_xml,
 from core.analysis.duplicates import song_key
 from core.analysis.journal import Journal
 from core.analysis.mixing import TransitionCost, magic_sort
+from core.analysis.shelf import DEFAULT_NAME, Shelf, valid_name
 from core.viz.board import (DEFAULT_HEIGHT, HEIGHT_FIELDS, HEIGHT_MEANING,
                             board_payload, reordered)
 from core.viz.chapters import (CHAPTERS, assign_chapters,
@@ -293,12 +301,16 @@ class PlaylistPanel(QWidget):
     """
 
     picked_changed = Signal(list)
+    shelf_changed = Signal(str)     # il nome della playlist sul tavolo
 
     def __init__(self, state: AppState, wire_table,
-                 journal: Journal | None = None, parent=None) -> None:
+                 journal: Journal | None = None, shelf: Shelf | None = None,
+                 parent=None) -> None:
         super().__init__(parent)
         self._state = state
         self._journal = journal or Journal()
+        self._shelf = shelf or Shelf()
+        self._current = DEFAULT_NAME
         self._lib: Library | None = None
         # Il costo CONDIVISO della libreria, coi pesi di Build a set: il
         # Magic sort e i numeri in tabella seguono gli stessi slider.
@@ -312,11 +324,33 @@ class PlaylistPanel(QWidget):
         self._saved_to: tuple[Path, Callable[[list[dict]], str]] | None = None
         self._board_seen_at = None
         self._build(wire_table)
+        self._open_shelf()
         state.playlist_changed.connect(self._on_playlist_changed)
 
     # ------------------------------------------------------------------
     def _build(self, wire_table) -> None:
-        self._title = QLabel("<b>Playlist</b>")
+        # Lo scaffale: quale playlist sta sul tavolo, e i gesti sui nomi.
+        self._names = QComboBox()
+        self._names.setMinimumWidth(160)
+        self._names.setToolTip(theme.hint(
+            "The playlists on the shelf. Pick one and it comes onto the "
+            "table: everything on this page — the line on the map, the "
+            "board, what the builders add to — works on the one shown "
+            "here. The others wait, saved as they were. Every change is "
+            "written to the shelf at once, so nothing is lost by "
+            "switching."))
+        self._names.currentTextChanged.connect(self._on_shelf_pick)
+        self._new = QPushButton("＋ New")
+        self._new.setToolTip("An empty playlist with a name of yours — "
+                             "house_intro, funky_climax… — and it comes "
+                             "onto the table.")
+        self._new.clicked.connect(self._on_shelf_new)
+        self._rename = QPushButton("✎ Rename")
+        self._rename.clicked.connect(self._on_shelf_rename)
+        self._delete = QPushButton("✕ Delete")
+        self._delete.setToolTip("Takes this playlist off the shelf, for "
+                                "good. The audio files are untouched.")
+        self._delete.clicked.connect(self._on_shelf_delete)
         self._play_all = QPushButton("▶ Play all")
         self._play_all.setToolTip("Plays the whole playlist in order, one "
                                   "track after another.")
@@ -341,7 +375,10 @@ class PlaylistPanel(QWidget):
         self._reset.setToolTip("Clear the entire playlist.")
         self._reset.clicked.connect(lambda: self._push([], False))
         header = QHBoxLayout()
-        header.addWidget(self._title, stretch=1)
+        header.addWidget(self._names)
+        for button in (self._new, self._rename, self._delete):
+            header.addWidget(button)
+        header.addStretch(1)
         for button in (self._play_all, self._sort, self._drop,
                       self._remove_similar, self._reset):
             header.addWidget(button)
@@ -569,13 +606,103 @@ class PlaylistPanel(QWidget):
             self._keep_chapters_once = False
             self._refresh()
 
-    def _on_playlist_changed(self, _paths: list[str]) -> None:
+    def _on_playlist_changed(self, paths: list[str]) -> None:
+        self._shelf.write(self._current, list(paths))
         if not self._keep_chapters_once:
             # Una playlist riscritta non è più quella che i capitoli
             # descrivono — tranne quando è la loro stessa applicazione.
             self._chapters = None
         self._keep_chapters_once = False
         self._refresh()
+
+    # ------------------------------------------------------------------
+    # lo scaffale
+    # ------------------------------------------------------------------
+    def current_name(self) -> str:
+        return self._current
+
+    def _open_shelf(self) -> None:
+        """All'avvio: la playlist attiva dell'ultima volta torna sul
+        tavolo. Uno scaffale vuoto — la prima volta — riceve la playlist
+        di default con quello che c'è, così ieri e oggi si somigliano."""
+        if not self._shelf.names():
+            self._shelf.write(DEFAULT_NAME, list(self._state.playlist))
+        name = self._shelf.active() or self._shelf.names()[0]
+        self._switch_to(name)
+
+    def _switch_to(self, name: str) -> None:
+        """`name` sul tavolo: prima il nome, poi il contenuto — così
+        l'autosalvataggio che segue scrive sul file giusto."""
+        self._current = name
+        self._shelf.set_active(name)
+        self._list_names()
+        self._state.set_playlist(self._shelf.read(name))
+        self._refresh()
+        self.shelf_changed.emit(name)
+
+    def _list_names(self) -> None:
+        self._names.blockSignals(True)
+        self._names.clear()
+        self._names.addItems(self._shelf.names())
+        self._names.setCurrentText(self._current)
+        self._names.blockSignals(False)
+
+    def _ask_name(self, title: str, label: str, given: str) -> str | None:
+        """Un nome per una playlist, o niente. Un nome che non vale come
+        nome di file, o già preso, si rifiuta e si richiede."""
+        while True:
+            text, ok = QInputDialog.getText(self, title, label, text=given)
+            if not ok:
+                return None
+            text = text.strip()
+            if not valid_name(text):
+                QMessageBox.warning(self, title, "A name cannot be empty, "
+                                    "start with a dot, or contain / or \\.")
+            elif text in self._shelf.names() and text != given:
+                QMessageBox.warning(self, title,
+                                    f"There is already a «{text}».")
+            else:
+                return text
+            given = text
+
+    def _on_shelf_pick(self, name: str) -> None:
+        if name and name != self._current:
+            self._saved_to = None
+            self._switch_to(name)
+
+    def _on_shelf_new(self) -> None:
+        name = self._ask_name("New playlist", "Name:", "")
+        if name is None:
+            return
+        self._shelf.write(name, [])
+        self._saved_to = None
+        self._switch_to(name)
+
+    def _on_shelf_rename(self) -> None:
+        name = self._ask_name("Rename the playlist", "Name:", self._current)
+        if name is None or name == self._current:
+            return
+        self._shelf.rename(self._current, name)
+        self._current = name
+        self._list_names()
+        self.shelf_changed.emit(name)
+
+    def _on_shelf_delete(self) -> None:
+        answer = QMessageBox.question(
+            self, "Delete the playlist",
+            f"Take «{self._current}» off the shelf? The tracks stay on "
+            "the disk.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._shelf.delete(self._current)
+        # Lo scaffale non resta mai vuoto: senza un tavolo la pagina non
+        # avrebbe dove mettere quello che le schede mandano.
+        if not self._shelf.names():
+            self._shelf.write(DEFAULT_NAME, [])
+        self._saved_to = None
+        self._switch_to(self._shelf.names()[0])
 
     # ------------------------------------------------------------------
     # il disegno
@@ -602,9 +729,6 @@ class PlaylistPanel(QWidget):
                        self._save_m3u8, self._save_xml):
             button.setDisabled(not has)
         self._refresh_save_again(has)
-        self._title.setText(
-            f"<b>Playlist — {len(playlist)} track(s)</b>" if has
-            else "<b>Playlist</b>")
         if not has:
             return
 
@@ -801,14 +925,18 @@ class PlaylistPanel(QWidget):
             box.setDetailedText("\n".join(missing))
         replace = box.addButton("Load as new playlist",
                                 QMessageBox.ButtonRole.AcceptRole)
-        append = box.addButton("Append to playlist",
+        append = box.addButton("Append to this playlist",
                                QMessageBox.ButtonRole.ActionRole)
         box.addButton(QMessageBox.StandardButton.Cancel)
         box.exec()
         if not found:
             return
         if box.clickedButton() is replace:
-            # La playlist caricata È quel file: «Save» torna a scriverci.
+            # Sullo scaffale col nome del file, e sul tavolo. La playlist
+            # caricata È quel file: «Save» torna a scriverci.
+            name = self._shelf.free_name(Path(chosen).stem)
+            self._shelf.write(name, [])
+            self._switch_to(name)
             self._saved_to = (Path(chosen), build_m3u8)
             self.replace(found)
             self._refresh_save_again(has=bool(self.indices()))

@@ -377,6 +377,7 @@ class MapPage(QWidget):
         self._builder.chain_changed.connect(self._on_chain)
         self._playlist = PlaylistPanel(self._state, self._wire)
         self._playlist.picked_changed.connect(self._on_playlist_picks)
+        self._playlist.shelf_changed.connect(lambda _: self._retitle_panels())
         self._favourites = FavouritesPanel(self._state, self._wire)
         self._favourites.append_playlist.connect(self._on_builder_append)
 
@@ -438,10 +439,13 @@ class MapPage(QWidget):
         """Il conteggio sulle due linguette che tengono una lista: si legge
         da fuori, senza aprire — come già fa `_retitle` di Build a set per
         le sue tre schede."""
+        # La linguetta porta il nome della playlist sul tavolo: fra dieci
+        # scalette di una serata si deve vedere quale si sta toccando.
+        name = f"🎵 {self._playlist.current_name()}"
         self._panels.setTabText(
             self._panels.indexOf(self._playlist),
-            f"{PLAYLIST_TAB_TITLE} ({len(self._state.playlist)})"
-            if self._state.playlist else PLAYLIST_TAB_TITLE)
+            f"{name} ({len(self._state.playlist)})"
+            if self._state.playlist else name)
         self._panels.setTabText(
             self._panels.indexOf(self._favourites),
             f"{FAVOURITES_TAB_TITLE} ({len(self._state.favourites)})"

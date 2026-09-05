@@ -17,6 +17,7 @@ import pandas as pd
 from core.analysis.map_profile import EMBEDDING_DIM, TrackProfile
 from core.analysis.map_store import MapStore
 from core.analysis.mixing import TransitionCost
+from core.analysis.shelf import Shelf
 from qt_app.pages.map.library import library_frame
 from qt_app.pages.map.playlist_panel import (appended, double_marks,
                                              playlist_doubles, playlist_rows)
@@ -413,7 +414,8 @@ def test_save_rewrites_the_known_file_without_a_dialog(
     lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
                   cost=cost_of(frame))
     state = AppState()
-    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    panel = PlaylistPanel(state, wire_table=lambda table: None,
+                          shelf=Shelf(tmp_path / "shelf"))
     qtbot.addWidget(panel)
     panel.set_library(lib)
     monkeypatch.setattr(panel, "_tracks_for_export", lambda: [
@@ -470,7 +472,8 @@ def test_a_loaded_playlist_becomes_the_file_save_writes_to(
     lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
                   cost=cost_of(frame))
     state = AppState()
-    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    panel = PlaylistPanel(state, wire_table=lambda table: None,
+                          shelf=Shelf(tmp_path / "shelf"))
     qtbot.addWidget(panel)
     panel.set_library(lib)
     monkeypatch.setattr(panel, "_tracks_for_export", lambda: [
@@ -502,7 +505,7 @@ def test_a_loaded_playlist_becomes_the_file_save_writes_to(
 
 # --- Magic sort ---
 
-def test_magic_sort_only_reorders_ticked_rows(qtbot):
+def test_magic_sort_only_reorders_ticked_rows(qtbot, tmp_path):
     """Con righe spuntate, il Magic sort tocca solo quelle: le altre — qui
     "a", in mezzo — restano nel loro slot. È il vincolo locale: si spunta
     un tratto della scaletta e solo quel tratto si riordina."""
@@ -528,7 +531,8 @@ def test_magic_sort_only_reorders_ticked_rows(qtbot):
     lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
                   cost=cost)
     state = AppState()
-    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    panel = PlaylistPanel(state, wire_table=lambda table: None,
+                          shelf=Shelf(tmp_path / "shelf"))
     qtbot.addWidget(panel)
     panel.set_library(lib)
     state.set_playlist(["/x/b.mp3", "/x/a.mp3", "/x/d.mp3", "/x/c.mp3"])
@@ -539,7 +543,7 @@ def test_magic_sort_only_reorders_ticked_rows(qtbot):
     assert state.playlist == ["/x/b.mp3", "/x/a.mp3", "/x/c.mp3", "/x/d.mp3"]
 
 
-def test_magic_sort_with_nothing_ticked_reorders_the_whole_playlist(qtbot):
+def test_magic_sort_with_nothing_ticked_reorders_the_whole_playlist(qtbot, tmp_path):
     from qt_app.pages.map.library import Library
     from qt_app.pages.map.playlist_panel import PlaylistPanel
     from qt_app.state import AppState
@@ -562,7 +566,8 @@ def test_magic_sort_with_nothing_ticked_reorders_the_whole_playlist(qtbot):
     lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
                   cost=cost)
     state = AppState()
-    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    panel = PlaylistPanel(state, wire_table=lambda table: None,
+                          shelf=Shelf(tmp_path / "shelf"))
     qtbot.addWidget(panel)
     panel.set_library(lib)
     state.set_playlist(["/x/b.mp3", "/x/a.mp3", "/x/d.mp3", "/x/c.mp3"])
@@ -758,7 +763,7 @@ def test_the_builder_takes_the_weights_from_the_page(qtbot, tmp_path,
     assert journal.read()[-1]["weights"] == [1.0, 0.3, 2.0]
 
 
-def test_the_playlist_reads_the_shared_cost_and_its_weights(qtbot):
+def test_the_playlist_reads_the_shared_cost_and_its_weights(qtbot, tmp_path):
     """Il Magic sort e i numeri in tabella seguono gli slider di Build a
     set: prima la playlist si faceva un costo suo a pesi fermi, e muovere
     i pesi non le cambiava niente."""
@@ -776,7 +781,8 @@ def test_the_playlist_reads_the_shared_cost_and_its_weights(qtbot):
     lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
                   cost=cost)
     state = AppState()
-    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    panel = PlaylistPanel(state, wire_table=lambda table: None,
+                          shelf=Shelf(tmp_path / "shelf"))
     qtbot.addWidget(panel)
     panel.set_library(lib)
     assert panel._cost is cost
@@ -789,7 +795,7 @@ def test_the_playlist_reads_the_shared_cost_and_its_weights(qtbot):
 
 
 # --- la lavagna sotto la tabella ---
-def test_the_board_sits_under_the_table_in_the_same_tab(qtbot):
+def test_the_board_sits_under_the_table_in_the_same_tab(qtbot, tmp_path):
     """La lavagna è la vista della playlist e sta nella sua scheda, sotto la
     tabella e con uno splitter fra i due — non in una scheda «Chapters» a
     parte, dove sembrava un accessorio dei capitoli."""
@@ -808,7 +814,8 @@ def test_the_board_sits_under_the_table_in_the_same_tab(qtbot):
     lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
                   cost=cost_of(frame))
     state = AppState()
-    panel = PlaylistPanel(state, wire_table=lambda table: None)
+    panel = PlaylistPanel(state, wire_table=lambda table: None,
+                          shelf=Shelf(tmp_path / "shelf"))
     qtbot.addWidget(panel)
     panel.set_library(lib)
     assert not hasattr(panel, "board_widget")
@@ -921,3 +928,137 @@ def test_radio_from_the_playlist_tunes_around_what_is_in_it(qtbot, tmp_path,
     # La playlist cambia: la lista di prima parlava di un altro gruppo.
     state.set_playlist(["/r/t0.mp3", "/r/t1.mp3", "/r/t2.mp3"])
     assert panel._radio_key is None and not panel._radio_ask.isHidden()
+
+
+# --- lo scaffale ---
+
+def _shelf_panel(qtbot, tmp_path):
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.playlist_panel import PlaylistPanel
+    from qt_app.state import AppState
+
+    class _FakeStore:
+        coords = np.zeros((3, 2))
+        embeddings = np.zeros((3, 4))
+
+    frame = library()
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame))
+    state = AppState()
+    shelf = Shelf(tmp_path / "shelf")
+    panel = PlaylistPanel(state, wire_table=lambda table: None, shelf=shelf)
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    return panel, state, shelf
+
+
+def test_an_empty_shelf_starts_with_the_default_playlist(qtbot, tmp_path):
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    assert shelf.names() == ["Playlist"]
+    assert panel.current_name() == "Playlist"
+    assert panel._names.currentText() == "Playlist"
+    assert state.playlist == []
+
+
+def test_every_change_is_written_to_the_shelf_at_once(qtbot, tmp_path):
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    state.set_playlist(["/x/one.mp3", "/x/two.mp3"])
+    assert shelf.read("Playlist") == ["/x/one.mp3", "/x/two.mp3"]
+
+
+def test_switching_keeps_both_playlists_as_they_were(qtbot, tmp_path,
+                                                     monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    state.set_playlist(["/x/one.mp3"])
+
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("house_intro", True)))
+    panel._new.click()
+    assert panel.current_name() == "house_intro"
+    assert state.playlist == []                    # il tavolo è vuoto
+    assert shelf.read("Playlist") == ["/x/one.mp3"]   # l'altra aspetta
+    state.set_playlist(["/x/two.mp3"])
+
+    panel._names.setCurrentText("Playlist")
+    assert state.playlist == ["/x/one.mp3"]
+    assert shelf.read("house_intro") == ["/x/two.mp3"]
+    assert shelf.active() == "Playlist"
+
+
+def test_the_active_playlist_comes_back_at_the_next_start(qtbot, tmp_path,
+                                                          monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("funky_climax", True)))
+    panel._new.click()
+    state.set_playlist(["/y/three.mp3"])
+
+    again, state2, _ = _shelf_panel(qtbot, tmp_path)
+    assert again.current_name() == "funky_climax"
+    assert state2.playlist == ["/y/three.mp3"]
+
+
+def test_a_taken_or_bad_name_is_refused(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    answers = iter([("Playlist", True), ("a/b", True), ("", False)])
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: next(answers)))
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: warned.append(a[2])))
+    panel._new.click()
+    assert len(warned) == 2                        # preso, poi non valido
+    assert shelf.names() == ["Playlist"]           # e alla fine niente
+
+
+def test_rename_keeps_the_tracks_and_the_tab_name(qtbot, tmp_path,
+                                                  monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    state.set_playlist(["/x/one.mp3"])
+    told = []
+    panel.shelf_changed.connect(told.append)
+    monkeypatch.setattr(QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("dance_buildup", True)))
+    panel._rename.click()
+    assert shelf.names() == ["dance_buildup"]
+    assert shelf.read("dance_buildup") == ["/x/one.mp3"]
+    assert state.playlist == ["/x/one.mp3"]
+    assert told == ["dance_buildup"]
+
+
+def test_deleting_the_last_playlist_leaves_an_empty_default(qtbot, tmp_path,
+                                                            monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    state.set_playlist(["/x/one.mp3"])
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(
+        lambda *a, **k: QMessageBox.StandardButton.Yes))
+    panel._delete.click()
+    assert shelf.names() == ["Playlist"]
+    assert state.playlist == []
+    assert panel.current_name() == "Playlist"
+
+
+def test_a_loaded_file_enters_the_shelf_under_its_own_name(qtbot, tmp_path,
+                                                           monkeypatch):
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    panel, state, shelf = _shelf_panel(qtbot, tmp_path)
+    state.set_playlist(["/x/two.mp3"])
+
+    loaded = tmp_path / "night.m3u8"
+    loaded.write_text("#EXTM3U\n/x/one.mp3\n", "utf-8")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(loaded), "")))
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
+    monkeypatch.setattr(QMessageBox, "clickedButton",
+                        lambda self: self.buttons()[0])
+    panel._on_load()
+    assert panel.current_name() == "night"
+    assert state.playlist == ["/x/one.mp3"]
+    assert shelf.read("night") == ["/x/one.mp3"]
+    assert shelf.read("Playlist") == ["/x/two.mp3"]   # quella di prima resta

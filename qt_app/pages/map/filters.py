@@ -24,14 +24,14 @@ from __future__ import annotations
 import pandas as pd
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QGridLayout,
-                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QPushButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QComboBox, QGridLayout, QHBoxLayout, QLabel,
+                               QLineEdit, QListWidget, QListWidgetItem,
+                               QPushButton, QVBoxLayout, QWidget)
 
 from core.viz.filters import filter_tracks, span
 from core.viz.map_figure import genre_level
 from qt_app import theme
+from qt_app.widgets.range_slider import RangeSlider
 from qt_app.widgets.wheel_view import WheelView
 
 
@@ -102,22 +102,6 @@ class CheckList(QWidget):
             item.setHidden(bool(wanted) and wanted not in item.text().casefold())
 
 
-def _range_row(decimals: int, step: float) -> tuple[QDoubleSpinBox, QDoubleSpinBox, QWidget]:
-    """Due caselle per un intervallo: da–a. Qt non ha uno slider a due
-    maniglie, e due numeri scritti si leggono meglio di due maniglie."""
-    low, high = QDoubleSpinBox(), QDoubleSpinBox()
-    for spin in (low, high):
-        spin.setDecimals(decimals)
-        spin.setSingleStep(step)
-    row = QWidget()
-    box = QHBoxLayout(row)
-    box.setContentsMargins(0, 0, 0, 0)
-    box.addWidget(low)
-    box.addWidget(QLabel("–"))
-    box.addWidget(high)
-    return low, high, row
-
-
 class FiltersPanel(QWidget):
     """La ruota, le liste e gli intervalli; `kept(frame)` applica la regola."""
 
@@ -186,14 +170,14 @@ class FiltersPanel(QWidget):
         lists_row.addWidget(self._moods, stretch=1)
 
         # I decimali coprono la precisione con cui lo store scrive i numeri
-        # (BPM a un decimale, danceability a tre): una casella che
-        # arrotondasse taglierebbe fuori i brani sul bordo — a corsa tutta
-        # aperta ne sparivano due su 87mila, che è il modo subdolo di
+        # (BPM a un decimale, danceability a tre): una maniglia che
+        # arrotondasse di più taglierebbe fuori i brani sul bordo — a corsa
+        # tutta aperta ne sparivano due su 87mila, che è il modo subdolo di
         # sbagliare.
-        self._bpm_low, self._bpm_high, bpm_row = _range_row(1, 1.0)
-        self._gr_low, self._gr_high, gr_row = _range_row(3, 0.01)
-        for spin in (self._bpm_low, self._bpm_high, self._gr_low, self._gr_high):
-            spin.valueChanged.connect(lambda _: self._debounce.start())
+        self._bpm = RangeSlider(decimals=1)
+        self._groove = RangeSlider(decimals=3)
+        for slider in (self._bpm, self._groove):
+            slider.valuesChanged.connect(lambda *_: self._debounce.start())
 
         reset = QPushButton("↺ Reset the filters")
         reset.clicked.connect(self._on_reset)
@@ -210,9 +194,9 @@ class FiltersPanel(QWidget):
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.addWidget(QLabel("BPM"), 0, 0)
-        grid.addWidget(bpm_row, 0, 1)
+        grid.addWidget(self._bpm, 0, 1)
         grid.addWidget(QLabel("Groove"), 1, 0)
-        grid.addWidget(gr_row, 1, 1)
+        grid.addWidget(self._groove, 1, 1)
 
         box = QVBoxLayout(self)
         box.addLayout(wheel_row)
@@ -238,17 +222,8 @@ class FiltersPanel(QWidget):
         self._genres.set_options(self._all_genres)
         self._moods.set_options(list(mood_counts.index))
 
-        tempo = span(frame, "bpm", 60.0, 200.0)
-        swing = span(frame, "danceability", 0.0, 1.0)
-        for spin, (low, high), at in (
-                (self._bpm_low, tempo, tempo[0]),
-                (self._bpm_high, tempo, tempo[1]),
-                (self._gr_low, swing, swing[0]),
-                (self._gr_high, swing, swing[1])):
-            spin.blockSignals(True)
-            spin.setRange(low, high)
-            spin.setValue(at)
-            spin.blockSignals(False)
+        self._bpm.set_span(*span(frame, "bpm", 60.0, 200.0))
+        self._groove.set_span(*span(frame, "danceability", 0.0, 1.0))
 
         self._keys = []
         self._wheel.set_keys(self._keys)
@@ -276,8 +251,7 @@ class FiltersPanel(QWidget):
     def kept(self, frame: pd.DataFrame) -> pd.DataFrame:
         out = filter_tracks(
             frame, self.genres_wanted(), self._moods.checked(), self._keys,
-            (self._bpm_low.value(), self._bpm_high.value()),
-            (self._gr_low.value(), self._gr_high.value()),
+            self._bpm.values(), self._groove.values(),
             genre_depth=self.genre_depth())
         self._count.setText(
             f"{len(out):,} of {len(frame):,} tracks pass · ⓘ")
@@ -306,11 +280,6 @@ class FiltersPanel(QWidget):
         self._depth.setCurrentIndex(len(GENRE_DEPTHS) - 1)
         self._depth.blockSignals(False)
         self._moods.clear_checks()
-        for spin, edge in ((self._bpm_low, self._bpm_low.minimum()),
-                           (self._bpm_high, self._bpm_high.maximum()),
-                           (self._gr_low, self._gr_low.minimum()),
-                           (self._gr_high, self._gr_high.maximum())):
-            spin.blockSignals(True)
-            spin.setValue(edge)
-            spin.blockSignals(False)
+        self._bpm.reset()
+        self._groove.reset()
         self._debounce.start()

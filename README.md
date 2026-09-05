@@ -473,6 +473,22 @@ to keep the fifth unlike the first. If you want *start here and go on by
 yourself, mixably*, that is Auto chain. If you want *twenty tracks that
 stand for this group*, that is Radio Mix.
 
+### The shelf
+
+The page works on **one playlist at a time** — the line on the map, the
+board, what the builders add to, what Radio Mix and the Journey start from
+are all that one — and a night takes many: `house_intro`, `house_buildup`,
+`funky_climax`. The **shelf** holds the others. The menu at the top of the
+playlist tab says which one is on the table; pick another and it comes on,
+the one before goes back exactly as it was. **＋ New** opens an empty one
+with a name of yours, **✎ Rename** and **✕ Delete** do what they say, and
+the tab carries the name so you can see which set you are touching. Every
+change is written to the shelf at once, like the favourites — there is no
+"unsaved" playlist to lose by switching. On disk it is a folder of `.m3u8`
+files next to `favourites.json`, one per playlist, so it opens from the
+Finder too. *Load playlist…* puts a file on the shelf under its own name;
+the *Save as…* buttons still export a copy wherever you like.
+
 ### The board
 
 **The board draws the playlist, not the chain**, and it sits in the playlist
