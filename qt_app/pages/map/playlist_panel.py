@@ -27,10 +27,10 @@ import numpy as np
 import pandas as pd
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QInputDialog,
-                               QLabel, QListWidget, QMessageBox,
+                               QLabel, QListWidget, QMenu, QMessageBox,
                                QPushButton, QSlider, QSplitter, QVBoxLayout,
                                QWidget)
 
@@ -331,7 +331,6 @@ class PlaylistPanel(QWidget):
     def _build(self, wire_table) -> None:
         # Lo scaffale: quale playlist sta sul tavolo, e i gesti sui nomi.
         self._names = QComboBox()
-        self._names.setMinimumWidth(160)
         self._names.setToolTip(theme.hint(
             "The playlists on the shelf. Pick one and it comes onto the "
             "table: everything on this page — the line on the map, the "
@@ -363,25 +362,36 @@ class PlaylistPanel(QWidget):
                               "playlist otherwise. Starts from the first "
                               "track in scope.")
         self._sort.clicked.connect(self._on_magic_sort)
-        self._drop = QPushButton("🗑 Remove ticked")
-        self._drop.clicked.connect(self._on_drop)
-        self._remove_similar = QPushButton("🎯 Remove similar…")
+        # Le tre uscite stanno in un menu: sono la stessa domanda — cosa
+        # togliere — con tre risposte, e tre bottoni in fila si tagliavano
+        # a vicenda il nome.
+        remove = QMenu(self)
+        remove.setToolTipsVisible(True)
+        self._drop = QAction("Remove ticked", self)
+        self._drop.triggered.connect(self._on_drop)
+        self._remove_similar = QAction("Remove similar…", self)
         self._remove_similar.setToolTip(
             "Opens a dialog with a similarity threshold and a live count, "
             "then removes every track it catches from the playlist — the "
             "audio files on disk are untouched.")
-        self._remove_similar.clicked.connect(self._on_remove_similar)
-        self._reset = QPushButton("🗑 Clear")
-        self._reset.setToolTip("Clear the entire playlist.")
-        self._reset.clicked.connect(lambda: self._push([], False))
-        header = QHBoxLayout()
-        header.addWidget(self._names)
+        self._remove_similar.triggered.connect(self._on_remove_similar)
+        self._reset = QAction("Clear the playlist", self)
+        self._reset.triggered.connect(lambda: self._push([], False))
+        for action in (self._drop, self._remove_similar, self._reset):
+            remove.addAction(action)
+        self._remove = QPushButton("🗑 Remove")
+        self._remove.setMenu(remove)
+
+        # Due righe: sopra lo scaffale, sotto i gesti sulla playlist che
+        # sta sul tavolo. In una riga sola i nomi non ci stavano.
+        shelf_row = QHBoxLayout()
+        shelf_row.addWidget(self._names, stretch=1)
         for button in (self._new, self._rename, self._delete):
+            shelf_row.addWidget(button)
+        header = QHBoxLayout()
+        for button in (self._play_all, self._sort, self._remove):
             header.addWidget(button)
         header.addStretch(1)
-        for button in (self._play_all, self._sort, self._drop,
-                      self._remove_similar, self._reset):
-            header.addWidget(button)
 
         self._empty = _dim(
             "Nothing in it yet: pick tracks in Build a set, take them from "
@@ -499,26 +509,34 @@ class PlaylistPanel(QWidget):
         loading.clicked.connect(self._on_load)
         self._save_again = QPushButton("💾 Save")
         self._save_again.clicked.connect(self._on_save_again)
-        self._save_m3u8 = QPushButton("⬇ Save as playlist (M3U8)")
+        # Le due uscite in un menu, come le tre rimozioni: stessa domanda,
+        # due formati.
+        export = QMenu(self)
+        export.setToolTipsVisible(True)
+        self._save_m3u8 = QAction("As playlist (M3U8)…", self)
         self._save_m3u8.setToolTip("What rekordbox's Import Playlist "
                                    "accepts. Order and files only — no "
                                    "BPM, no cues.")
-        self._save_m3u8.clicked.connect(self._on_save_m3u8)
-        self._save_xml = QPushButton("⬇ Save as library (rekordbox XML)")
+        self._save_m3u8.triggered.connect(self._on_save_m3u8)
+        self._save_xml = QAction("As rekordbox library (XML)…", self)
         self._save_xml.setToolTip(theme.hint(
             "A library, not a playlist file: load it under Preferences ▸ "
             "Advanced ▸ Database ▸ rekordbox xml. Carries the BPM. It asks "
             "whether to write this playlist alone or the whole shelf — "
             "the shelf comes out as a «DjCaddy» folder with one playlist "
             "per name, so a night of twelve sets is one import."))
-        self._save_xml.clicked.connect(self._on_save_xml)
+        self._save_xml.triggered.connect(self._on_save_xml)
+        export.addAction(self._save_m3u8)
+        export.addAction(self._save_xml)
+        self._export = QPushButton("⬇ Export")
+        self._export.setMenu(export)
         files_row = QHBoxLayout()
-        for button in (adding, loading, self._save_again,
-                       self._save_m3u8, self._save_xml):
+        for button in (adding, loading, self._save_again, self._export):
             files_row.addWidget(button)
         self._refresh_save_again(has=False)
 
         box = QVBoxLayout(self)
+        box.addLayout(shelf_row)
         box.addLayout(header)
         box.addWidget(self._empty)
         box.addWidget(self._playlist_controls, stretch=1)
@@ -727,9 +745,8 @@ class PlaylistPanel(QWidget):
         has = bool(playlist)
         self._empty.setVisible(not has)
         self._playlist_controls.setVisible(has)
-        for button in (self._play_all, self._sort, self._drop,
-                       self._remove_similar, self._reset,
-                       self._save_m3u8, self._save_xml):
+        for button in (self._play_all, self._sort, self._remove,
+                       self._export):
             button.setDisabled(not has)
         self._refresh_save_again(has)
         if not has:

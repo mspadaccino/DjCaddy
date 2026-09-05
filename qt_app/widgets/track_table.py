@@ -423,8 +423,8 @@ class FavouriteDelegate(QStyledItemDelegate):
 class TrackTable(QTableView):
     """La tabella dei brani, già vestita: pastiglie, sort, trascinamento.
 
-    `row_activated` porta il `_path` della riga doppio-cliccata: è il
-    segnale a cui il lettore si aggancia. Gli altri segnali escono dal menu
+    `row_activated` porta il `_path` della riga doppio-cliccata: sulla
+    pagina Map è il gesto che fa seme. Gli altri segnali escono dal menu
     contestuale — le stesse quattro voci su ogni tabella della pagina — e
     dalla selezione delle righe: chi li ascolta decide cosa significano (per
     la playlist, la selezione È il canale che cerchia i brani sulla mappa).

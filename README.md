@@ -162,8 +162,8 @@ I play next, out of ninety thousand tracks?*
 
 ### What you do here
 
-- **Click a point** (or pick a track by name) to make it the seed, and see
-  what mixes out of it, ranked by the transition cost
+- **Click a point** (or pick a track by name, or **double-click a row** in
+  any table) to make it the seed, and see what mixes out of it, ranked by the transition cost
   `(w1·sound distance + w2·BPM gap + w3·Camelot distance) / (w1+w2+w3)`,
   with the three weights on sliders — divided by their sum, so the weights
   are proportions and `1,1,1` means the same as `2,2,2`. Sound is measured

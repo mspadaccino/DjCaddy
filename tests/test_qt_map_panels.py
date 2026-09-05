@@ -428,7 +428,7 @@ def test_save_rewrites_the_known_file_without_a_dialog(
     out = tmp_path / "set.m3u8"
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: (str(out), "")))
-    panel._save_m3u8.click()
+    panel._save_m3u8.trigger()
     assert "one.mp3" in out.read_text()
     assert panel._save_again.isEnabled()       # il file c'è: acceso
 
@@ -1085,7 +1085,7 @@ def test_the_whole_shelf_goes_into_one_rekordbox_library(qtbot, tmp_path,
         b for b in self.buttons() if b.text() == "The whole shelf"))
     monkeypatch.setattr("qt_app.pages.map.playlist_panel.read_title_artist",
                         lambda path: (path.stem, ""))
-    panel._save_xml.click()
+    panel._save_xml.trigger()
 
     root = ET.fromstring(out.read_text("utf-8"))
     folder = root.find("PLAYLISTS/NODE/NODE[@Name='DjCaddy']")

@@ -211,7 +211,7 @@ QTabBar::tab:hover {{ color: {INK}; }}
 
 QTableView {{
     background: {PLOT}; alternate-background-color: {BACKGROUND};
-    color: {INK}; border: none; border-radius: 6px;
+    color: {INK}; border: 1px solid {RAISED}; border-radius: 6px;
     gridline-color: transparent;
     selection-background-color: {selected}; selection-color: {INK};
 }}

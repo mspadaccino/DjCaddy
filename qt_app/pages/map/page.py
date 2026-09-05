@@ -346,7 +346,7 @@ class MapPage(QWidget):
         # manuale è spesso proprio il modo in cui si ritrova un brano per
         # segnarlo preferito, senza doverlo prima portare in seme.
         self._matches = TrackTable(favouritable=True)
-        self._wire(self._matches, activate_plays=False)
+        self._wire(self._matches, seed_on_activate=False)
         self._matches.row_activated.connect(self._on_match_picked)
         self._matches.setVisible(False)
         self._matches.setMaximumHeight(240)
@@ -428,10 +428,16 @@ class MapPage(QWidget):
         # quadranti in un giro solo.
         theme.bus().changed.connect(self._rebuild_cloud)
 
-    def _wire(self, table: TrackTable, activate_plays: bool = True) -> None:
+    def _wire(self, table: TrackTable, seed_on_activate: bool = True) -> None:
         """Le stesse quattro voci su ogni tabella della pagina — e il giallo
-        del brano in ascolto, che segue il lettore ovunque la riga stia."""
-        table.wire_play(self._state.play, on_activate=activate_plays)
+        del brano in ascolto, che segue il lettore ovunque la riga stia.
+
+        Il doppio clic su una riga fa SEME, come il clic su un punto della
+        mappa: il ▶ della riga suona, e sono due gesti diversi per due
+        domande diverse. Solo la ricerca per nome se lo gestisce da sé."""
+        table.wire_play(self._state.play, on_activate=False)
+        if seed_on_activate:
+            table.row_activated.connect(self._seed_by_path)
         table.seed_requested.connect(self._seed_by_path)
         table.add_requested.connect(self._add_paths)
         table.reveal_requested.connect(reveal_in_files)

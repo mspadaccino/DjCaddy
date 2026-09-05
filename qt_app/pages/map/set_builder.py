@@ -30,8 +30,9 @@ import pandas as pd
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem,
-                               QPushButton, QSpinBox, QStackedWidget,
-                               QTabWidget, QVBoxLayout, QWidget)
+                               QPushButton, QSpinBox, QSplitter,
+                               QStackedWidget, QTabWidget, QVBoxLayout,
+                               QWidget)
 
 from core.analysis import arc, journey, mood_scale, radio
 from core.analysis.duplicates import folded, normalized_name, song_key
@@ -449,9 +450,24 @@ class SetBuilderPanel(QWidget):
         tbox.addWidget(self._start_search)
         tbox.addStretch(1)
 
-        # In piedi: la catena sopra, la rosa sotto.
+        # In piedi: la catena sopra, la rosa sotto, e uno splitter fra le
+        # due — con la finestra bassa si vedevano tre righe per tabella, e
+        # quanta altezza dare a ciascuna è una scelta di chi costruisce.
         going = QWidget()
         gbox = QVBoxLayout(going)
+        chain_box = QWidget()
+        cbox = QVBoxLayout(chain_box)
+        cbox.setContentsMargins(0, 0, 0, 0)
+        roster_box = QWidget()
+        rbox = QVBoxLayout(roster_box)
+        rbox.setContentsMargins(0, 0, 0, 0)
+        halves = QSplitter(Qt.Orientation.Vertical)
+        halves.addWidget(chain_box)
+        halves.addWidget(roster_box)
+        halves.setCollapsible(0, False)
+        halves.setCollapsible(1, False)
+        gbox.addWidget(halves, stretch=1)
+        gbox = cbox
         self._chain_told = QLabel("")
         gbox.addWidget(self._chain_told)
         self._chain_table = TrackTable(reorderable=True, checkable=True,
@@ -463,6 +479,7 @@ class SetBuilderPanel(QWidget):
         self._chain_doubles.setToolTip(DOUBLES_HINT)
         self._chain_doubles.setVisible(False)
         gbox.addWidget(self._chain_doubles)
+        gbox = rbox
 
         branch = QHBoxLayout()
         branch.addWidget(QLabel("Branch from"))
@@ -515,6 +532,7 @@ class SetBuilderPanel(QWidget):
         self._auto_steps.setToolTip(auto_why)
         grow.addWidget(self._auto_steps)
         gbox.addLayout(grow)
+        gbox = going.layout()
 
         by_name = QHBoxLayout()
         self._byhand_search = SearchPicker(
