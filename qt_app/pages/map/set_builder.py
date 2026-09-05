@@ -450,9 +450,12 @@ class SetBuilderPanel(QWidget):
         tbox.addWidget(self._start_search)
         tbox.addStretch(1)
 
-        # In piedi: la catena sopra, la rosa sotto, e uno splitter fra le
-        # due — con la finestra bassa si vedevano tre righe per tabella, e
-        # quanta altezza dare a ciascuna è una scelta di chi costruisce.
+        # In piedi: la catena a sinistra, la rosa a destra, su uno splitter
+        # — una sopra l'altra, con la finestra bassa, si vedevano tre righe
+        # per tabella. Affiancate ognuna ha tutta l'altezza, e la catena si
+        # legge mentre si sceglie da cosa continuarla; le colonne in più
+        # scorrono di lato. Quanta larghezza a ciascuna lo decide chi
+        # costruisce.
         going = QWidget()
         gbox = QVBoxLayout(going)
         chain_box = QWidget()
@@ -461,7 +464,7 @@ class SetBuilderPanel(QWidget):
         roster_box = QWidget()
         rbox = QVBoxLayout(roster_box)
         rbox.setContentsMargins(0, 0, 0, 0)
-        halves = QSplitter(Qt.Orientation.Vertical)
+        halves = QSplitter(Qt.Orientation.Horizontal)
         halves.addWidget(chain_box)
         halves.addWidget(roster_box)
         halves.setCollapsible(0, False)
