@@ -385,7 +385,8 @@ class MapPage(QWidget):
         # Playlist e si rifà quando quella scrive o cambia nome.
         self._shelf_view = ShelfPanel(self._playlist.shelf)
         self._shelf_view.open_requested.connect(self._on_open_playlist)
-        state.playlist_changed.connect(lambda _: self._shelf_view.invalidate())
+        self._state.playlist_changed.connect(
+            lambda _: self._shelf_view.invalidate())
         self._playlist.shelf_changed.connect(
             lambda _: self._shelf_view.invalidate())
 
