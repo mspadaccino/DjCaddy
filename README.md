@@ -480,6 +480,17 @@ the chain, the Journey, Radio Mix's final order, and the playlist's own
 magic sort and *from previous* column all read the same three. They sit
 outside every tab because they govern two of them.
 
+**Sort ▾ on the playlist** holds magic sort and four plain orders: **BPM**
+rising, **energy** rising or falling, and **key** around the Camelot wheel —
+1A, 1B, 2A, 2B … 12B, so neighbouring numbers sit together and the same
+number in both modes, the relative key, sits together too. The plain orders
+are *stable*: tracks equal on the measure keep the order they had, which is
+what lets one sort follow another — sort by energy, then by BPM, and within
+each tempo the energy order survives. Magic sort composes the same way,
+because it starts from the first track of the row as it stands. Tracks
+without the measure go last. With rows ticked, every sort reorders only
+those, in their own slots.
+
 **Quick List and Radio Mix are two different machines**, not one machine
 with a different input. Quick List judges each candidate alone against the
 seed, and twenty near-copies of the seed are a fine answer, because it is a
@@ -1216,6 +1227,7 @@ Key engine modules (`core/analysis/`):
 | `map_projection.py` | PCA to 64-D, then UMAP projection of the embeddings to the 2D map |
 | `map_store.py` | the map on disk: `tracks.jsonl` + `embeddings.f32` appended, `coords.npy` rewritten; cosine nearest-neighbours on the raw embeddings |
 | `map_job.py` | the map build as a long, resumable background job |
+| `ordering.py` | the plain playlist orders — BPM, energy, key around the wheel — stable, unknowns last |
 | `mixing.py` | Camelot wheel, transition cost (cosine on the embeddings + tempo + key), the point one step ahead for Trend, signed tempo/key shifts, path-drawn playlists, magic sort |
 | `graph_playlist.py` | the chain as a graph: tracks, links, layout on the board, the roster of what comes next, and Auto chain |
 | `arc.py` | the shape of a set: the five chapters with their shares and bands, read by the Chapter Builder and by the Journey |

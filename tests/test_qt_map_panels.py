@@ -1095,3 +1095,49 @@ def test_the_whole_shelf_goes_into_one_rekordbox_library(qtbot, tmp_path,
     buildup = folder.find("NODE[@Name='house_buildup']")
     assert buildup.get("Entries") == "1"
     assert not panel._save_again.isEnabled()   # lo scaffale non è «il file»
+
+
+def test_sorts_by_a_measure_compose_and_respect_the_ticked_scope(qtbot, tmp_path):
+    """«Sort ▾»: per energia poi per BPM, e dentro ogni tempo l'ordine per
+    energia resta. Con righe spuntate si riordina solo quel tratto."""
+    from qt_app.pages.map.library import Library
+    from qt_app.pages.map.playlist_panel import PlaylistPanel
+    from qt_app.state import AppState
+
+    class _FakeStore:
+        coords = np.zeros((4, 2))
+        embeddings = np.zeros((4, 4))
+
+    frame = pd.DataFrame([
+        {"name": n, "bpm": b, "camelot": "8A", "energy": e,
+         "danceability": 0.5, "valence_rank": 0.5, "moods": "", "genres": "",
+         "top_genre": "—", "folder": "/x", "path": f"/x/{n}.mp3",
+         "duration": 200.0}
+        for n, b, e in (("a", 124.0, 0.2), ("b", 118.0, 0.9),
+                        ("c", 124.0, 0.7), ("d", 118.0, 0.1))])
+    at_path = {frame.at[i, "path"]: i for i in range(len(frame))}
+    lib = Library(store=_FakeStore(), frame=frame, common={}, at_path=at_path,
+                  cost=cost_of(frame) if len(frame) == 3 else
+                  TransitionCost(np.eye(4, dtype=np.float32),
+                                 frame["bpm"].tolist(),
+                                 frame["camelot"].tolist()))
+    state = AppState()
+    panel = PlaylistPanel(state, wire_table=lambda table: None,
+                          shelf=Shelf(tmp_path / "shelf"))
+    qtbot.addWidget(panel)
+    panel.set_library(lib)
+    state.set_playlist(["/x/a.mp3", "/x/b.mp3", "/x/c.mp3", "/x/d.mp3"])
+    assert panel._sort.isEnabled()
+
+    panel._sort_energy_down.trigger()
+    assert state.playlist == ["/x/b.mp3", "/x/c.mp3", "/x/a.mp3", "/x/d.mp3"]
+    panel._sort_bpm.trigger()
+    # 118: b (0.9) prima di d (0.1); 124: c (0.7) prima di a (0.2).
+    assert state.playlist == ["/x/b.mp3", "/x/d.mp3", "/x/c.mp3", "/x/a.mp3"]
+
+    # Solo il tratto spuntato — d e a — si riordina, nei suoi slot.
+    panel._table.set_picked({"/x/d.mp3", "/x/a.mp3"})
+    panel._sort_energy_up.trigger()
+    assert state.playlist == ["/x/b.mp3", "/x/d.mp3", "/x/c.mp3", "/x/a.mp3"]
+    panel._sort_energy_down.trigger()
+    assert state.playlist == ["/x/b.mp3", "/x/a.mp3", "/x/c.mp3", "/x/d.mp3"]

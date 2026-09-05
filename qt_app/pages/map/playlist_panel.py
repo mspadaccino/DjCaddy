@@ -40,6 +40,7 @@ from core.analysis.dj_export import (build_m3u8, build_rekordbox_shelf_xml,
 from core.analysis.duplicates import song_key
 from core.analysis.journal import Journal
 from core.analysis.mixing import TransitionCost, magic_sort
+from core.analysis.ordering import order_by
 from core.analysis.shelf import DEFAULT_NAME, Shelf, valid_name
 from core.viz.board import (DEFAULT_HEIGHT, HEIGHT_FIELDS, HEIGHT_MEANING,
                             board_payload, reordered)
@@ -354,14 +355,49 @@ class PlaylistPanel(QWidget):
         self._play_all.setToolTip("Plays the whole playlist in order, one "
                                   "track after another.")
         self._play_all.clicked.connect(self._on_play_all)
-        self._sort = QPushButton("✨ Magic sort")
-        self._sort.setToolTip("Reorders so every transition stays cheap, "
-                              "with the sound / BPM / key weights of Build "
-                              "a set. Ticked rows only, staying in their "
-                              "own slots, when any are ticked — the whole "
-                              "playlist otherwise. Starts from the first "
-                              "track in scope.")
-        self._sort.clicked.connect(self._on_magic_sort)
+        # Gli ordinamenti in un menu: il Magic sort e i quattro per una
+        # misura. Sono stabili e si compongono — prima per energia, poi
+        # per tempo, e dentro ogni tempo l'ordine per energia resta — e il
+        # Magic sort parte dal primo brano della fila com'è ORA, quindi
+        # anche lui prosegue da quello che l'ordinamento prima ha fatto.
+        # Con righe spuntate, ognuno riordina solo quelle, nei loro slot.
+        sorts = QMenu(self)
+        sorts.setToolTipsVisible(True)
+        self._sort_magic = QAction("✨ Magic — by the transition cost", self)
+        self._sort_magic.setToolTip(theme.hint(
+            "Reorders so every transition stays cheap, with the sound / "
+            "BPM / key weights above. Starts from the first track in scope "
+            "and keeps it there."))
+        self._sort_magic.triggered.connect(self._on_magic_sort)
+        self._sort_bpm = QAction("BPM ↑", self)
+        self._sort_bpm.triggered.connect(lambda: self._on_sort_by("bpm"))
+        self._sort_energy_up = QAction("Energy ↑", self)
+        self._sort_energy_up.triggered.connect(
+            lambda: self._on_sort_by("energy"))
+        self._sort_energy_down = QAction("Energy ↓", self)
+        self._sort_energy_down.triggered.connect(
+            lambda: self._on_sort_by("energy", descending=True))
+        self._sort_key = QAction("Key — around the Camelot wheel", self)
+        self._sort_key.setToolTip(theme.hint(
+            "1A, 1B, 2A, 2B … 12B: neighbouring numbers mix, and the same "
+            "number in both modes is the relative key, so the row comes "
+            "out playable."))
+        self._sort_key.triggered.connect(lambda: self._on_sort_by("key"))
+        sorts.addAction(self._sort_magic)
+        sorts.addSeparator()
+        for action in (self._sort_bpm, self._sort_energy_up,
+                       self._sort_energy_down, self._sort_key):
+            action.setToolTip(action.toolTip() or theme.hint(
+                "Stable: tracks equal on this measure keep the order they "
+                "had, so one sort after another composes — sort by energy, "
+                "then by BPM, and within each tempo the energy order "
+                "stays. Tracks without the measure go last."))
+            sorts.addAction(action)
+        self._sort = QPushButton("⇅ Sort")
+        self._sort.setToolTip("Ticked rows only, staying in their own "
+                              "slots, when any are ticked — the whole "
+                              "playlist otherwise.")
+        self._sort.setMenu(sorts)
         # Le tre uscite stanno in un menu: sono la stessa domanda — cosa
         # togliere — con tre risposte, e tre bottoni in fila si tagliavano
         # a vicenda il nome.
@@ -757,7 +793,8 @@ class PlaylistPanel(QWidget):
         table = playlist_rows(frame, self._cost, playlist, common, ch_lookup)
         self._table.set_tracks(
             table, genre_colors(frame, table["genres"], dark=theme.DARK))
-        self._sort.setDisabled(len(playlist) < 3)
+        self._sort.setDisabled(len(playlist) < 2)
+        self._sort_magic.setDisabled(len(playlist) < 3)
 
         # I possibili doppioni, ricalcolati a ogni giro: la playlist è corta
         # e il conto è banale, mentre una tinta rimasta da un giro prima
@@ -808,24 +845,45 @@ class PlaylistPanel(QWidget):
         if paths:
             self._state.play_queue(paths)
 
-    def _on_magic_sort(self) -> None:
-        """Riordina tutta la playlist — o, se qualche riga è spuntata, solo
-        quelle: il resto resta fermo, e i brani spuntati tornano nei loro
-        stessi slot nell'ordine nuovo. È il vincolo locale: si spunta un
-        tratto della scaletta e solo quel tratto si riordina."""
+    def _scope(self) -> tuple[list[int], list[int], set[str]]:
+        """Su cosa lavora un ordinamento: la playlist, il tratto da
+        riordinare — le righe spuntate se ce ne sono, tutta altrimenti — e
+        i percorsi spuntati. È il vincolo locale: si spunta un tratto della
+        scaletta e solo quel tratto si riordina."""
         playlist = self.indices()
         frame = self._lib.frame
         ticked = set(self._table.selected_paths())
         subset = [i for i in playlist if frame.at[i, "path"] in ticked] \
             if ticked else playlist
-        if len(subset) < 3:
-            return
-        resorted = magic_sort(self._cost, subset, start=subset[0])
+        return playlist, subset, ticked
+
+    def _reordered(self, playlist: list[int], resorted: list[int],
+                   ticked: set[str]) -> None:
+        """Il tratto riordinato torna nei suoi stessi slot."""
         if ticked:
+            frame = self._lib.frame
             incoming = iter(resorted)
             resorted = [next(incoming) if frame.at[i, "path"] in ticked
-                       else i for i in playlist]
+                        else i for i in playlist]
         self.replace(resorted)
+
+    def _on_magic_sort(self) -> None:
+        """Riordina per costo di transizione, partendo dal primo brano del
+        tratto — che è quello che l'ordinamento prima gli ha messo davanti."""
+        playlist, subset, ticked = self._scope()
+        if len(subset) < 3:
+            return
+        self._reordered(playlist, magic_sort(self._cost, subset,
+                                             start=subset[0]), ticked)
+
+    def _on_sort_by(self, field: str, descending: bool = False) -> None:
+        """Riordina per una misura, stabilmente: due brani pari restano
+        come erano, così un ordinamento dopo l'altro si compone."""
+        playlist, subset, ticked = self._scope()
+        if len(subset) < 2:
+            return
+        self._reordered(playlist, order_by(self._lib.frame, subset, field,
+                                           descending), ticked)
 
     def _on_drop(self) -> None:
         doomed = set(self._table.selected_paths())

@@ -91,7 +91,7 @@ _MODE_PENALTY = 0.2
 UNKNOWN_KEY_COST = 0.5
 
 
-def _wheel(code) -> tuple[int, int] | None:
+def wheel_position(code) -> tuple[int, int] | None:
     """Numero (1..12) e modo (0 = A, 1 = B) di un codice Camelot, o None.
 
     Un codice mancante arriva come None dal profilo e come NaN dal frame
@@ -110,7 +110,7 @@ def _wheel(code) -> tuple[int, int] | None:
 
 def camelot_distance(a: str | None, b: str | None) -> float:
     """Costo 0..1 di passare dalla chiave `a` alla chiave `b`."""
-    one, two = _wheel(a), _wheel(b)
+    one, two = wheel_position(a), wheel_position(b)
     if one is None or two is None:
         return UNKNOWN_KEY_COST
     (n1, l1), (n2, l2) = one, two
@@ -123,7 +123,7 @@ def camelot_distance(a: str | None, b: str | None) -> float:
 
 def camelot_matrix(codes) -> np.ndarray:
     """`camelot_distance` fra ogni coppia di `codes`, tutta insieme."""
-    parsed = [_wheel(code) for code in codes]
+    parsed = [wheel_position(code) for code in codes]
     number = np.array([p[0] if p else 0 for p in parsed])
     mode = np.array([p[1] if p else 0 for p in parsed])
     known = np.array([p is not None for p in parsed])
@@ -224,7 +224,7 @@ def camelot_shift(a: str | None, b: str | None) -> tuple[int, bool] | None:
     Il cambio di modo viaggia a parte perché non è un passo: 8A→8B sono zero
     passi e un salto al relativo maggiore, che è una mossa vera.
     """
-    one, two = _wheel(a), _wheel(b)
+    one, two = wheel_position(a), wheel_position(b)
     if one is None or two is None:
         return None
     (n1, l1), (n2, l2) = one, two
