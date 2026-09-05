@@ -500,8 +500,13 @@ the tab carries the name so you can see which set you are touching. Every
 change is written to the shelf at once, like the favourites — there is no
 "unsaved" playlist to lose by switching. On disk it is
 `~/Documents/DjCaddy/Playlists`, one `.m3u8` per playlist, so it opens from
-the Finder too and goes into your backups with the rest of your work. *Load playlist…* puts a file on the shelf under its own name;
-the *Save as…* buttons still export a copy wherever you like.
+the Finder too and goes into your backups with the rest of your work.
+*Load playlist…* puts a file on the shelf under its own name; the *Save
+as…* buttons still export a copy wherever you like — and **Save as library
+(rekordbox XML)** asks whether to write this playlist alone or **the whole
+shelf**: the shelf comes out as a `DjCaddy` folder with one playlist per
+name, a track filed in two of them written once, so a night of twelve sets
+is one import.
 
 ### The board
 
